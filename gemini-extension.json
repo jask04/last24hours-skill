@@ -1,0 +1,71 @@
+{
+  "name": "last24hours",
+  "version": "1.0.0",
+  "description": "Real-time research across Reddit, X, Hacker News, YouTube, TikTok, Bluesky, Polymarket, and the web — focused on the last 24 hours.",
+  "author": "Jaskaran Singh",
+  "homepage": "https://github.com/jask04/last24hours-skill",
+  "license": "MIT",
+  "entrypoint": "scripts/last24hours.py",
+  "settings": {
+    "SCRAPECREATORS_API_KEY": {
+      "description": "ScrapeCreators API key (covers Reddit, TikTok, Instagram)",
+      "required": false,
+      "secret": true
+    },
+    "AUTH_TOKEN": {
+      "description": "X.com browser cookie (auth_token) for Twitter search",
+      "required": false,
+      "secret": true
+    },
+    "CT0": {
+      "description": "X.com browser cookie (ct0 CSRF token) for Twitter search",
+      "required": false,
+      "secret": true
+    },
+    "OPENROUTER_API_KEY": {
+      "description": "OpenRouter API key for web search",
+      "required": false,
+      "secret": true
+    },
+    "BRAVE_API_KEY": {
+      "description": "Brave Search API key for web search",
+      "required": false,
+      "secret": true
+    },
+    "PARALLEL_API_KEY": {
+      "description": "Parallel AI API key for web search",
+      "required": false,
+      "secret": true
+    },
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key (legacy Reddit fallback)",
+      "required": false,
+      "secret": true
+    },
+    "XAI_API_KEY": {
+      "description": "xAI API key for X/Twitter search fallback",
+      "required": false,
+      "secret": true
+    },
+    "BSKY_HANDLE": {
+      "description": "Bluesky handle (e.g., user.bsky.social)",
+      "required": false,
+      "secret": false
+    },
+    "BSKY_APP_PASSWORD": {
+      "description": "Bluesky app password",
+      "required": false,
+      "secret": true
+    },
+    "TRUTHSOCIAL_TOKEN": {
+      "description": "Truth Social bearer token",
+      "required": false,
+      "secret": true
+    },
+    "APIFY_API_TOKEN": {
+      "description": "Apify API token for TikTok (legacy)",
+      "required": false,
+      "secret": true
+    }
+  }
+}

@@ -377,7 +377,7 @@ def build_judge_prompt(
     joined = "\n".join(item_lines)
     return textwrap.dedent(
         f"""
-        Judge search-result relevance for a last-30-days research tool.
+        Judge search-result relevance for a last-24-hours research tool.
 
         Topic: {topic}
         Query type: {query_type}

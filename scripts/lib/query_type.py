@@ -60,13 +60,13 @@ def detect_query_type(topic: str) -> QueryType:
 # Tier 1: always run. Tier 2: run if available. Tier 3: opt-in only.
 # Sources not listed are implicitly tier 3 (opt-in).
 SOURCE_TIERS = {
-    "product":       {"tier1": {"reddit", "x", "youtube"}, "tier2": {"web", "tiktok"}},
-    "concept":       {"tier1": {"reddit", "hn", "web"},     "tier2": {"youtube", "x"}},
-    "opinion":       {"tier1": {"reddit", "x"},             "tier2": {"youtube", "bluesky"}},
-    "how_to":        {"tier1": {"youtube", "reddit", "hn"}, "tier2": {"web", "x"}},
-    "comparison":    {"tier1": {"reddit", "hn", "youtube"}, "tier2": {"x", "web"}},
-    "breaking_news": {"tier1": {"x", "reddit", "web"},      "tier2": {"hn", "bluesky", "youtube"}},
-    "prediction":    {"tier1": {"polymarket", "x", "reddit"}, "tier2": {"web", "hn", "youtube"}},
+    "product":       {"tier1": {"reddit", "x", "web"},        "tier2": {"hn", "tiktok", "youtube"}},
+    "concept":       {"tier1": {"reddit", "hn", "web"},        "tier2": {"x", "youtube"}},
+    "opinion":       {"tier1": {"x", "reddit"},                "tier2": {"bluesky", "hn", "web"}},
+    "how_to":        {"tier1": {"reddit", "hn", "web"},        "tier2": {"x", "youtube"}},
+    "comparison":    {"tier1": {"reddit", "x", "hn"},          "tier2": {"web", "youtube"}},
+    "breaking_news": {"tier1": {"x", "reddit", "web", "hn"},   "tier2": {"bluesky", "truthsocial", "youtube"}},
+    "prediction":    {"tier1": {"polymarket", "x", "reddit"},   "tier2": {"web", "hn"}},
 }
 
 # WebSearch penalty adjustment by query type.
@@ -85,11 +85,11 @@ WEBSEARCH_PENALTY_BY_TYPE = {
 # Tiebreaker priority overrides by query type.
 # Maps source type name to priority (lower = higher priority).
 TIEBREAKER_BY_TYPE = {
-    "product":       {"reddit": 0, "x": 1, "youtube": 2, "tiktok": 3, "instagram": 4, "hn": 5, "web": 6, "polymarket": 7},
-    "concept":       {"hn": 0, "reddit": 1, "web": 2, "youtube": 3, "x": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
-    "opinion":       {"reddit": 0, "x": 1, "bluesky": 2, "youtube": 3, "hn": 4, "tiktok": 5, "web": 6, "polymarket": 7},
-    "how_to":        {"youtube": 0, "reddit": 1, "hn": 2, "web": 3, "x": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
-    "comparison":    {"reddit": 0, "hn": 1, "youtube": 2, "x": 3, "web": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
+    "product":       {"reddit": 0, "x": 1, "web": 2, "hn": 3, "tiktok": 4, "youtube": 5, "instagram": 6, "polymarket": 7},
+    "concept":       {"hn": 0, "reddit": 1, "web": 2, "x": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
+    "opinion":       {"x": 0, "reddit": 1, "bluesky": 2, "hn": 3, "web": 4, "youtube": 5, "tiktok": 6, "polymarket": 7},
+    "how_to":        {"reddit": 0, "hn": 1, "web": 2, "x": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
+    "comparison":    {"reddit": 0, "x": 1, "hn": 2, "web": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "breaking_news": {"x": 0, "reddit": 1, "web": 2, "hn": 3, "bluesky": 4, "tiktok": 5, "youtube": 6, "polymarket": 7},
     "prediction":    {"polymarket": 0, "x": 1, "reddit": 2, "web": 3, "hn": 4, "bluesky": 5, "youtube": 6, "tiktok": 7},
 }

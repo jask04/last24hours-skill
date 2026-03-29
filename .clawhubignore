@@ -1,0 +1,16 @@
+assets/
+docs/
+fixtures/
+tests/
+plans/
+agents/
+variants/
+release-notes.md
+SPEC.md
+TASKS.md
+*.jsonl
+*.mp3
+*.jpeg
+*.jpg
+*.png
+*.gif

@@ -2041,7 +2041,7 @@ def output_result(
     from_date: str = "",
     to_date: str = "",
     missing_keys: str = "none",
-    days: int = 30,
+    days: int = 1,
     source_info: dict = None,
 ):
     """Output the result based on emit mode."""
