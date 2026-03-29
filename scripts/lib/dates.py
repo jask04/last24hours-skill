@@ -107,22 +107,6 @@ def days_ago(date_str: Optional[str]) -> Optional[int]:
         return None
 
 
-def recency_score(date_str: Optional[str], max_days: int = 2) -> int:
-    """Calculate recency score (0-100) based on days.
-
-    0 days ago = 100, max_days ago = 0, clamped.
-    """
-    age = days_ago(date_str)
-    if age is None:
-        return 0  # Unknown date gets worst score
-
-    if age < 0:
-        return 100  # Future date (treat as today)
-    if age >= max_days:
-        return 0
-
-    return int(100 * (1 - age / max_days))
-
 
 def hours_ago(date_str: Optional[str]) -> Optional[float]:
     """Calculate how many hours ago a date/datetime is.

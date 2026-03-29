@@ -133,7 +133,7 @@ You can unlock more sources with API keys or by signing in to Codex — just ask
 Some examples of what you can do:
 - "last24 what are people saying about Figma"
 - "last24 watch my biggest competitor every week"
-- "last24 watch Peter Steinberger every 30 days"
+- "last24 watch Peter Steinberger daily"
 - "last24 watch AI video tools monthly"
 - "last24 what have you found about AI video?"
 
