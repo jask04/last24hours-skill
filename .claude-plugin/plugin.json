@@ -1,0 +1,28 @@
+{
+  "name": "last24hours",
+  "version": "1.0.0",
+  "description": "Research any topic from the last 24 hours across Reddit, X, YouTube, TikTok, Instagram, Hacker News, Polymarket, and the web.",
+  "author": {
+    "name": "Jaskaran Singh",
+    "url": "https://github.com/jask04"
+  },
+  "homepage": "https://github.com/jask04/last24hours-skill",
+  "repository": "https://github.com/jask04/last24hours-skill",
+  "license": "MIT",
+  "keywords": [
+    "research",
+    "breaking-news",
+    "trending",
+    "reddit",
+    "twitter",
+    "youtube",
+    "tiktok",
+    "instagram",
+    "hackernews",
+    "polymarket",
+    "bluesky",
+    "real-time"
+  ],
+  "skills": ["./"],
+  "hooks": {}
+}
