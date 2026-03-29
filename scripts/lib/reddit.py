@@ -11,7 +11,6 @@ Requires SCRAPECREATORS_API_KEY in config (same key as TikTok + Instagram).
 API docs: https://scrapecreators.com/docs
 """
 
-import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -65,6 +64,13 @@ NOISE_WORDS = frozenset({
     'of', 'in', 'on', 'is', 'are', 'what', 'which',
     'guide', 'tutorial', 'using',
 })
+
+
+def _extract_subreddit_name(sub) -> str:
+    """Extract subreddit name from API response field (may be str or dict)."""
+    if isinstance(sub, dict):
+        return str(sub.get("name", sub.get("display_name", ""))).strip()
+    return str(sub).strip()
 
 
 def _log(msg: str):
@@ -153,7 +159,7 @@ def discover_subreddits(
 
     scores = Counter()
     for post in results:
-        sub = post.get("subreddit", "")
+        sub = _extract_subreddit_name(post.get("subreddit", ""))
         if not sub:
             continue
 
@@ -211,7 +217,7 @@ def _normalize_post(post: Dict[str, Any], idx: int, source_label: str = "global"
         "reddit_id": post.get("id", ""),
         "title": title,
         "url": url,
-        "subreddit": str(post.get("subreddit", "")).strip(),
+        "subreddit": _extract_subreddit_name(post.get("subreddit", "")),
         "date": _parse_date(post.get("created_utc")),
         "engagement": {
             "score": post.get("ups") or post.get("score", 0),
@@ -475,7 +481,7 @@ def search_reddit(
         if item["date"] and from_date <= item["date"] <= to_date:
             in_range.append(item)
         elif item["date"] is None:
-            in_range.append(item)  # Keep unknown dates
+            out_of_range += 1  # Skip posts with unknown dates for 24h accuracy
         else:
             out_of_range += 1
 

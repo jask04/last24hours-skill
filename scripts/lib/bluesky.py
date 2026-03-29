@@ -5,7 +5,6 @@ Requires BSKY_HANDLE and BSKY_APP_PASSWORD env vars.
 """
 
 import math
-import re
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
