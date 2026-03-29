@@ -7,7 +7,6 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
-from urllib.parse import urlencode
 
 DEFAULT_TIMEOUT = 30
 DEBUG = os.environ.get("LAST24HOURS_DEBUG", "").lower() in ("1", "true", "yes")
@@ -81,7 +80,7 @@ def request(
             body = None
             try:
                 body = e.read().decode('utf-8')
-            except:
+            except Exception:
                 pass
             log(f"HTTP Error {e.code}: {e.reason}")
             if body:

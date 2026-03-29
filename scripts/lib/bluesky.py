@@ -6,7 +6,7 @@ Requires BSKY_HANDLE and BSKY_APP_PASSWORD env vars.
 
 import math
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from . import http

@@ -289,8 +289,8 @@ def _search_reddit(
                 for item in retry_items:
                     if item.get("url") not in existing_urls:
                         reddit_items.append(item)
-            except Exception:
-                pass
+            except Exception as e:
+                sys.stderr.write(f"[Reddit] Retry fallback error: {e}\n")
 
     # Subreddit-targeted fallback if still < 3 results
     if len(reddit_items) < 3 and not mock and not reddit_error and config.get("OPENAI_API_KEY"):
@@ -308,8 +308,8 @@ def _search_reddit(
             for item in sub_items:
                 if item.get("url") not in existing_urls:
                     reddit_items.append(item)
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write(f"[Reddit] Subreddit fallback error: {e}\n")
 
     return reddit_items, raw_response, reddit_error, used_scrapecreators
 
@@ -781,6 +781,7 @@ def _run_supplemental(
         existing_urls.add(item.get("url", ""))
 
     # Run supplemental searches in parallel
+    phase2_timeout = {"quick": 20, "default": 30, "deep": 50}.get(depth, 30)
     reddit_future = None
     x_future = None
     resolved_future = None
@@ -818,32 +819,32 @@ def _run_supplemental(
 
         if reddit_future:
             try:
-                raw_reddit = reddit_future.result(timeout=30)
+                raw_reddit = reddit_future.result(timeout=phase2_timeout)
                 # Filter out URLs already found in Phase 1
                 supplemental_reddit = [
                     item for item in raw_reddit
                     if item.get("url", "") not in existing_urls
                 ]
             except TimeoutError:
-                sys.stderr.write("[Phase 2] Supplemental Reddit timed out (30s)\n")
+                sys.stderr.write(f"[Phase 2] Supplemental Reddit timed out ({phase2_timeout}s)\n")
             except Exception as e:
                 sys.stderr.write(f"[Phase 2] Supplemental Reddit error: {e}\n")
 
         if x_future:
             try:
-                raw_x = x_future.result(timeout=30)
+                raw_x = x_future.result(timeout=phase2_timeout)
                 supplemental_x = [
                     item for item in raw_x
                     if item.get("url", "") not in existing_urls
                 ]
             except TimeoutError:
-                sys.stderr.write("[Phase 2] Supplemental X timed out (30s)\n")
+                sys.stderr.write(f"[Phase 2] Supplemental X timed out ({phase2_timeout}s)\n")
             except Exception as e:
                 sys.stderr.write(f"[Phase 2] Supplemental X error: {e}\n")
 
         if resolved_future:
             try:
-                raw_resolved = resolved_future.result(timeout=30)
+                raw_resolved = resolved_future.result(timeout=phase2_timeout)
                 # Lower relevance for unfiltered handle posts (no topic keyword signal)
                 for item in raw_resolved:
                     item["relevance"] = 0.5
@@ -855,7 +856,7 @@ def _run_supplemental(
                 if resolved_new:
                     sys.stderr.write(f"[Phase 2] +{len(resolved_new)} from @{resolved_handle}\n")
             except TimeoutError:
-                sys.stderr.write(f"[Phase 2] Resolved handle @{resolved_handle} timed out (30s)\n")
+                sys.stderr.write(f"[Phase 2] Resolved handle @{resolved_handle} timed out ({phase2_timeout}s)\n")
             except Exception as e:
                 sys.stderr.write(f"[Phase 2] Resolved handle error: {e}\n")
 
@@ -1614,7 +1615,7 @@ def main():
         "instagram": has_instagram,
         "xiaohongshu": has_xiaohongshu,
         "hackernews": True,
-        "bluesky": True,
+        "bluesky": has_bluesky,
         "truthsocial": has_truthsocial,
         "polymarket": True,
         "web_search_backend": "deferred to assistant" if args.no_native_web else web_source,

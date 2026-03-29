@@ -7,9 +7,8 @@ No API key needed - just HTTP calls via stdlib urllib.
 import html
 import math
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from . import http
 from .query import extract_core_subject

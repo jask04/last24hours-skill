@@ -608,28 +608,28 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
 
     # Hacker News
     if report.hackernews_error:
-        lines.append(f"  ❌ HN: error - {report.hackernews_error}")
+        lines.append(f"  ❌ HN: error — {report.hackernews_error}")
     elif report.hackernews:
         lines.append(f"  ✅ HN: {len(report.hackernews)} stories")
     # Hide when zero results
 
     # Bluesky
     if report.bluesky_error:
-        lines.append(f"  ❌ Bluesky: error - {report.bluesky_error}")
+        lines.append(f"  ❌ Bluesky: error — {report.bluesky_error}")
     elif report.bluesky:
         lines.append(f"  ✅ Bluesky: {len(report.bluesky)} posts")
     # Hide when zero results
 
     # Truth Social
     if report.truthsocial_error:
-        lines.append(f"  ❌ Truth Social: error - {report.truthsocial_error}")
+        lines.append(f"  ❌ Truth Social: error — {report.truthsocial_error}")
     elif report.truthsocial:
         lines.append(f"  ✅ Truth Social: {len(report.truthsocial)} posts")
     # Hide when zero results
 
     # Polymarket
     if report.polymarket_error:
-        lines.append(f"  ❌ Polymarket: error - {report.polymarket_error}")
+        lines.append(f"  ❌ Polymarket: error — {report.polymarket_error}")
     elif report.polymarket:
         lines.append(f"  ✅ Polymarket: {len(report.polymarket)} markets")
     # Hide when zero results
