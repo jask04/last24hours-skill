@@ -2,7 +2,7 @@
 name: last24hours
 version: "1.0.0"
 description: "Breaking news and trending research engine covering the last 24 hours across 10+ sources - Reddit, X/Twitter, YouTube, TikTok, Instagram, Hacker News, Polymarket, Bluesky, Truth Social, web. AI synthesizes findings into grounded, cited reports focused on what's happening right now."
-argument-hint: 'last24h AI regulations, last24h Tesla stock, last24h Claude Code'
+argument-hint: 'last24h breaking AI news, last24h NBA predictions tonight, last24h Tesla stock today'
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
 homepage: https://github.com/jask04/last24hours-skill
 repository: https://github.com/jask04/last24hours-skill
@@ -75,7 +75,7 @@ Before doing anything, parse the user's input for:
 3. **QUERY TYPE**: What kind of research they want:
    - **NEWS** - "what's happening with X", "X news", "latest on X", "X today" → User wants current events/updates (DEFAULT for 24h research)
    - **RECOMMENDATIONS** - "best X", "top X", "what X should I use", "recommended X" → User wants a LIST of specific things
-   - **PROMPTING** - "X prompts", "prompting for X", "X best practices" → User wants to learn techniques and get copy-paste prompts
+   - **PROMPTING** - "X prompts", "prompting for X" → User wants trending techniques and copy-paste prompts from today's discussions
    - **COMPARISON** - "X vs Y", "X versus Y", "compare X and Y", "X or Y which is better" → User wants a side-by-side comparison
    - **GENERAL** - anything else → User wants broad understanding of the topic
 
@@ -83,8 +83,8 @@ Common patterns:
 - `[topic] for [tool]` → "web mockups for Nano Banana Pro" → TOOL IS SPECIFIED
 - `[topic] prompts for [tool]` → "UI design prompts for Midjourney" → TOOL IS SPECIFIED
 - Just `[topic]` → "iOS design mockups" → TOOL NOT SPECIFIED, that's OK
-- "best [topic]" or "top [topic]" → QUERY_TYPE = RECOMMENDATIONS
-- "what are the best [topic]" → QUERY_TYPE = RECOMMENDATIONS
+- "best [topic]" or "top [topic]" or "trending [topic]" → QUERY_TYPE = RECOMMENDATIONS
+- "what are people recommending for [topic]" → QUERY_TYPE = RECOMMENDATIONS
 - "X vs Y" or "X versus Y" → QUERY_TYPE = COMPARISON, TOPIC_A = X, TOPIC_B = Y (split on ` vs ` or ` versus ` with spaces)
 
 **IMPORTANT: Do NOT ask about target tool before research.**
@@ -263,16 +263,16 @@ Choose search queries based on QUERY_TYPE. **Always add "today" or the current d
 - Search for: `{TOPIC} breaking announcement update`
 - Goal: Find current events and developments from the last 24 hours
 
-**If RECOMMENDATIONS** ("best X", "top X", "what X should I use"):
-- Search for: `best {TOPIC} recommendations`
-- Search for: `{TOPIC} list examples`
-- Search for: `most popular {TOPIC}`
-- Goal: Find SPECIFIC NAMES of things, not generic advice
+**If RECOMMENDATIONS** ("trending X", "top X today", "what X should I use"):
+- Search for: `trending {TOPIC} today`
+- Search for: `{TOPIC} popular right now`
+- Search for: `most recommended {TOPIC} today`
+- Goal: Find SPECIFIC NAMES of things people are discussing/recommending right now
 
-**If PROMPTING** ("X prompts", "prompting for X"):
-- Search for: `{TOPIC} prompts examples`
-- Search for: `{TOPIC} techniques tips`
-- Goal: Find prompting techniques and examples to create copy-paste prompts
+**If PROMPTING** ("X prompts", "new prompting for X"):
+- Search for: `{TOPIC} prompts examples today`
+- Search for: `{TOPIC} new techniques trending`
+- Goal: Find trending prompting approaches and today's creative examples
 
 **If GENERAL** (default):
 - Search for: `{TOPIC} today`

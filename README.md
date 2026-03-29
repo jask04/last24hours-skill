@@ -90,10 +90,10 @@ node ~/.claude/skills/last24hours/scripts/lib/vendor/bird-search/bird-search.mjs
 
 Examples:
 - `/last24hours AI regulations` — what happened today in AI policy
-- `/last24hours Tesla stock` — breaking market sentiment
-- `/last24hours Claude Code updates` — latest releases and community reactions
+- `/last24hours Tesla stock` — breaking market sentiment and Polymarket odds
+- `/last24hours NBA predictions tonight` — what fans and bettors are saying before tip-off
 - `/last24hours OpenAI vs Anthropic` — side-by-side comparison from today's discussions
-- `/last24hours best AI video tools` — what's trending right now
+- `/last24hours severe weather midwest` — latest storm tracking and community reports
 
 ## What It Does
 
@@ -108,7 +108,9 @@ Examples:
 - **Real-time sentiment** — "How is the community reacting to [announcement]?"
 - **Market moves** — "What's happening with [stock/crypto] right now?"
 - **Prediction markets** — "What are Polymarket odds showing today?"
-- **Product launches** — "What are first impressions of [new product]?"
+- **Sports predictions** — "What are fans betting on for tonight's game?"
+- **Weather events** — "What's the latest on the incoming storm?"
+- **Product launches** — "What are first impressions of [new product]?" (day 1-2)
 
 ---
 
@@ -386,10 +388,13 @@ Each API key is transmitted only to its respective endpoint. Your OpenAI key is 
 | "What happened today?" | **Yes** | Overkill |
 | "What's trending right now?" | **Yes** | Too much noise |
 | "Breaking news on [topic]" | **Yes** | Too slow |
-| "Best practices for [tool]" | Maybe | **Yes** |
+| "Tonight's NBA predictions" | **Yes** | No |
+| "Prediction market odds today" | **Yes** | No |
+| "Storm tracking / weather updates" | **Yes** | No |
+| "Product launch first impressions" | **Yes** (day 1-2) | **Yes** (after a week) |
+| "Best practices for [tool]" | No | **Yes** |
 | "Comprehensive market research" | No | **Yes** |
-| "What prompting techniques work?" | Only if new today | **Yes** |
-| "Product launch first impressions" | **Yes** (day 1) | **Yes** (after a week) |
+| "What prompting techniques work?" | No | **Yes** |
 
 **Rule of thumb:** If you'd check Twitter for it, use /last24hours. If you'd check a blog roundup, use /last30days.
 
