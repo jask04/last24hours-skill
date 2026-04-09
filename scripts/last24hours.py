@@ -2074,8 +2074,8 @@ def main():
     filtered_web = normalize.filter_by_date_range(normalized_web, from_date, to_date) if normalized_web else []
 
     # Score items
-    scored_reddit = score.score_reddit_items(filtered_reddit)
-    scored_x = score.score_x_items(filtered_x)
+    scored_reddit = score.score_reddit_items(filtered_reddit, query_type=query_type)
+    scored_x = score.score_x_items(filtered_x, query_type=query_type)
     scored_youtube = score.score_youtube_items(filtered_youtube) if filtered_youtube else []
     scored_tiktok = score.score_tiktok_items(filtered_tiktok) if filtered_tiktok else []
     scored_ig = score.score_instagram_items(filtered_ig) if filtered_ig else []

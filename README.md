@@ -2,6 +2,8 @@
 
 `/last24hours` is a real-time forecasting skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it.
 
+Codex chat is the primary target UX. The compact output is designed to open with a forecast block that feels native in chat, with raw evidence sections following underneath for inspection.
+
 The skill is optimized for:
 - prediction markets
 - sports outcomes
@@ -127,6 +129,26 @@ python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py --diagnose
 python3 scripts/last24hours.py "Fed rate cut probability" --search=polymarket,kalshi,x,reddit --emit=compact
 ```
+
+## Round Testing Convention
+
+After each implementation round, run at least:
+
+```bash
+python3 -c "import py_compile; py_compile.compile('scripts/last24hours.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/render.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/openai_reddit.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/score.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/kalshi.py', doraise=True)"
+python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
+python3 scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact
+python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
+```
+
+Recommended extra smoke tests:
+- a market-backed macro/politics query
+- a no-market prediction query
+- a direct Codex chat invocation using the installed skill path
 
 ## Forecasting Behavior
 

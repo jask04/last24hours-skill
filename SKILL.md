@@ -15,12 +15,12 @@ metadata:
     requires:
       env: []
       optionalEnv:
-        - SCRAPECREATORS_API_KEY
         - OPENAI_API_KEY
         - XAI_API_KEY
         - OPENROUTER_API_KEY
         - PARALLEL_API_KEY
         - BRAVE_API_KEY
+        - SCRAPECREATORS_API_KEY
         - APIFY_API_TOKEN
         - AUTH_TOKEN
         - CT0
@@ -30,7 +30,7 @@ metadata:
       bins:
         - node
         - python3
-    primaryEnv: SCRAPECREATORS_API_KEY
+    primaryEnv: AUTH_TOKEN
     files:
       - "scripts/*"
     homepage: https://github.com/jask04/last24hours-skill
@@ -55,6 +55,7 @@ metadata:
 # last24hours v1.0.0: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first and a research brief second.
+Codex chat is the primary target UX for this skill.
 
 The default job is to answer:
 - What is the current probability?
@@ -167,7 +168,7 @@ Never give trade sizing or betting advice.
 
 ## Default Answer Shape For Prediction Queries
 
-Use this structure:
+Use this structure at the top of the answer:
 
 ```text
 Forecast: {single probability or narrow range} — {plain-English call}
@@ -193,6 +194,8 @@ Preferred headings:
 - `What the market is pricing`
 - `What could change the forecast`
 - `Confidence / uncertainty`
+
+For Codex chat invocations, the top of the compact output should already contain that forecast block. Raw source sections belong below it.
 
 ## Comparison Mode
 
@@ -271,6 +274,11 @@ What this skill does:
 - uses Kalshi public market-data endpoints at `api.elections.kalshi.com/trade-api/v2` without auth
 - optionally uses user-provided X and Bluesky credentials where configured
 - saves raw briefings to `~/Documents/Last24Hours/`
+
+Recommended validation after edits:
+- `python scripts/last24hours.py "tomorrows nba games" --quick --emit=compact`
+- `python scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact`
+- `python scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact`
 
 What this skill does not do:
 - place trades

@@ -1,6 +1,7 @@
 """Popularity-aware scoring for last24hours skill."""
 
 import math
+import re
 from typing import List, Optional, Union
 
 from . import dates, schema
@@ -32,6 +33,78 @@ WEBSEARCH_NO_DATE_PENALTY = 20  # Heavy penalty for no date signals (low confide
 # Default engagement score for unknown
 DEFAULT_ENGAGEMENT = 35
 UNKNOWN_ENGAGEMENT_PENALTY = 3
+
+SPORTS_DRIVER_TERMS = {
+    "injury", "injuries", "injured", "out", "ruled", "questionable", "doubtful",
+    "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
+    "starter", "starters", "starting", "bench", "minutes", "back-to-back",
+    "b2b", "playoff", "playoffs", "seed", "seeding", "elimination", "clinch",
+    "clinched", "tank", "tanking", "odds", "line", "spread", "moneyline",
+}
+LOW_SIGNAL_TERMS = {
+    "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
+    "giveaway", "iso", "fs", "wtb", "parlay", "bettorbot", "pick", "picks",
+    "lock", "tail", "sprinkle", "dm", "interested", "message", "msg",
+}
+BEAT_REPORTER_TERMS = {
+    "beat", "reporter", "insider", "news", "updates", "coverage", "injuryreport",
+    "gameday", "lineups",
+}
+TEAM_NEWS_HANDLE_TOKENS = {
+    "report", "reports", "insider", "beat", "news", "updates", "wire", "hq",
+}
+
+
+def _tokenize_text(text: str) -> set[str]:
+    return set(re.sub(r"[^\w\s-]", " ", (text or "").lower()).split())
+
+
+def _sports_signal_adjustment(
+    text: str,
+    author: str = "",
+    community: str = "",
+    query_type: Optional[QueryType] = None,
+) -> int:
+    """Return a small quality adjustment for sports forecast evidence."""
+    if query_type != "prediction":
+        return 0
+
+    tokens = _tokenize_text(f"{text} {author} {community}")
+    boost = 0
+    penalty = 0
+
+    driver_overlap = SPORTS_DRIVER_TERMS & tokens
+    if driver_overlap:
+        boost += 10
+        if {"injury", "injuries", "out", "questionable", "doubtful", "rest", "lineup", "lineups", "starter", "starters"} & tokens:
+            boost += 5
+        if {"playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking"} & tokens:
+            boost += 4
+        if {"odds", "line", "spread", "moneyline"} & tokens and driver_overlap:
+            boost += 3
+
+    low_signal_overlap = LOW_SIGNAL_TERMS & tokens
+    if low_signal_overlap:
+        penalty += 16
+        if not driver_overlap:
+            penalty += 12
+
+    if TEAM_NEWS_HANDLE_TOKENS & _tokenize_text(author):
+        boost += 5
+    if BEAT_REPORTER_TERMS & tokens:
+        boost += 4
+    if {"ticket", "tickets", "selling", "sale", "resale"} & tokens:
+        penalty += 12
+
+    # Penalize broad generic chatter that mentions many teams without a concrete driver.
+    if len(tokens & {
+        "lakers", "warriors", "celtics", "knicks", "heat", "raptors",
+        "bulls", "wizards", "rockets", "sixers", "pacers", "nets",
+        "nuggets", "grizzlies",
+    }) >= 3 and not driver_overlap:
+        penalty += 6
+
+    return boost - penalty
 
 
 def log1p_safe(x: Optional[int]) -> float:
@@ -118,7 +191,10 @@ def normalize_to_100(values: List[float], default: float = 50) -> List[float]:
     return result
 
 
-def score_reddit_items(items: List[schema.RedditItem]) -> List[schema.RedditItem]:
+def score_reddit_items(
+    items: List[schema.RedditItem],
+    query_type: Optional[QueryType] = None,
+) -> List[schema.RedditItem]:
     """Compute scores for Reddit items.
 
     Args:
@@ -167,6 +243,7 @@ def score_reddit_items(items: List[schema.RedditItem]) -> List[schema.RedditItem
             WEIGHT_RECENCY * rec_score +
             WEIGHT_ENGAGEMENT * eng_score
         )
+        overall += _sports_signal_adjustment(item.title, community=item.subreddit, query_type=query_type)
 
         # Apply penalty for unknown engagement
         if eng_raw[i] is None:
@@ -183,7 +260,10 @@ def score_reddit_items(items: List[schema.RedditItem]) -> List[schema.RedditItem
     return items
 
 
-def score_x_items(items: List[schema.XItem]) -> List[schema.XItem]:
+def score_x_items(
+    items: List[schema.XItem],
+    query_type: Optional[QueryType] = None,
+) -> List[schema.XItem]:
     """Compute scores for X items.
 
     Args:
@@ -227,6 +307,7 @@ def score_x_items(items: List[schema.XItem]) -> List[schema.XItem]:
             WEIGHT_RECENCY * rec_score +
             WEIGHT_ENGAGEMENT * eng_score
         )
+        overall += _sports_signal_adjustment(item.text, author=item.author_handle, query_type=query_type)
 
         # Apply penalty for unknown engagement
         if eng_raw[i] is None:

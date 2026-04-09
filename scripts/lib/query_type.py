@@ -53,6 +53,13 @@ _OUTCOME_PHRASE_PATTERNS = re.compile(
 )
 
 
+def _looks_like_sports_matchup(topic: str) -> bool:
+    text = topic.lower()
+    has_separator = any(sep in text for sep in (" at ", " vs ", " vs. "))
+    has_timing = any(term in text for term in ("today", "tonight", "tomorrow", "odds", "spread", "moneyline", "game"))
+    return has_separator and has_timing
+
+
 def detect_query_type(topic: str) -> QueryType:
     """Classify a query into a type using pattern matching.
 
@@ -71,6 +78,8 @@ def detect_query_type(topic: str) -> QueryType:
     if _OPINION_PATTERNS.search(topic):
         return "opinion"
     if _PREDICTION_PATTERNS.search(topic) or _FORECASTABLE_DOMAIN_PATTERNS.search(topic) or _OUTCOME_PHRASE_PATTERNS.search(topic):
+        return "prediction"
+    if _looks_like_sports_matchup(topic):
         return "prediction"
     if _CONCEPT_PATTERNS.search(topic):
         return "concept"

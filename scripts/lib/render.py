@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from . import schema
+from . import query_type as qt, schema
 
 OUTPUT_DIR = Path.home() / ".local" / "share" / "last24hours" / "out"
 
@@ -155,12 +155,16 @@ def _market_forecast_line(item: schema.PolymarketItem) -> Optional[tuple[str, st
     if not item.outcome_prices:
         return None
     ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True)
-    favorite_name, favorite_price = ordered[0]
-    market_view = " | ".join(f"{name}: {price * 100:.0f}%" for name, price in ordered[:2])
+    forecast_line, favorite_name = _market_call_from_item(item)
+    market_parts = []
+    for name, price in ordered[:2]:
+        clean_name = _clean_outcome_name(name) or ("Yes" if price == ordered[0][1] else "Other")
+        market_parts.append(f"{clean_name}: {price * 100:.0f}%")
+    market_view = " | ".join(market_parts)
     if item.price_movement:
         market_view += f" ({item.price_movement})"
     uncertainty = "Tight market" if len(ordered) > 1 and abs((ordered[0][1] - ordered[1][1]) * 100) < 8 else "Moderate edge"
-    return (f"{favorite_name} {favorite_price * 100:.0f}%", market_view, uncertainty)
+    return (forecast_line, market_view, uncertainty)
 
 
 def _forecast_change_line(item: schema.PolymarketItem) -> str:
@@ -189,14 +193,22 @@ def _evidence_snippet(report: schema.Report, sides: list[set[str]]) -> Optional[
         text = getattr(item, "text", "")
         tokens = set(re.sub(r"[^\w\s]", " ", text.lower()).split())
         if all(side & tokens for side in sides):
-            bonus = 8 if driver_terms & tokens else 0
-            penalty = 10 if (low_signal_terms & tokens and not driver_terms & tokens) else 0
+            if "bettorbot" in tokens or {"ticket", "tickets", "selling", "sale", "resale"} & tokens:
+                continue
+            if low_signal_terms & tokens and not driver_terms & tokens:
+                continue
+            bonus = 12 if driver_terms & tokens else 0
+            penalty = 20 if (low_signal_terms & tokens and not driver_terms & tokens) else 0
             candidates.append((getattr(item, "score", 0) + bonus - penalty, text))
 
     for item in report.reddit[:8]:
         text = f"{getattr(item, 'title', '')} {getattr(item, 'subreddit', '')}"
         tokens = set(re.sub(r"[^\w\s]", " ", text.lower()).split())
         if all(side & tokens for side in sides):
+            if "bettorbot" in tokens or {"ticket", "tickets", "selling", "sale", "resale"} & tokens:
+                continue
+            if low_signal_terms & tokens and not driver_terms & tokens:
+                continue
             bonus = 6 if driver_terms & tokens else 0
             candidates.append((getattr(item, "score", 0) + bonus, getattr(item, "title", "")))
 
@@ -208,16 +220,228 @@ def _evidence_snippet(report: schema.Report, sides: list[set[str]]) -> Optional[
     return snippet[:160] + ("..." if len(snippet) > 160 else "")
 
 
-def _market_divergence_line(report: schema.Report, signature: str) -> Optional[str]:
-    if not report.kalshi:
-        return None
+def _short_text(text: str, limit: int = 160) -> str:
+    text = (text or "").strip().replace("\n", " ")
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
 
+
+def _matching_kalshi_item(report: schema.Report, signature: str) -> Optional[schema.KalshiItem]:
     for item in report.kalshi:
         candidate_sig = _matchup_signature(item.title or item.question)
-        if candidate_sig != signature or item.current_probability is None:
-            continue
-        return f"Kalshi view: YES {item.current_probability * 100:.0f}%"
+        if candidate_sig == signature and item.current_probability is not None:
+            return item
     return None
+
+
+def _market_divergence_line(report: schema.Report, signature: str) -> Optional[str]:
+    item = _matching_kalshi_item(report, signature)
+    if not item:
+        return None
+    return f"Kalshi view: YES {item.current_probability * 100:.0f}%"
+
+
+def _market_divergence_detail(report: schema.Report, poly_item: schema.PolymarketItem) -> Optional[str]:
+    signature = _matchup_signature(poly_item.title or poly_item.question)
+    if not signature:
+        return None
+    kalshi_item = _matching_kalshi_item(report, signature)
+    if not kalshi_item or kalshi_item.current_probability is None or not poly_item.outcome_prices:
+        return None
+
+    ordered = sorted(poly_item.outcome_prices, key=lambda pair: pair[1], reverse=True)
+    favorite_name, favorite_price = ordered[0]
+    gap = abs((favorite_price - kalshi_item.current_probability) * 100)
+    if gap < 4:
+        return f"Polymarket and Kalshi are broadly aligned on {favorite_name}."
+    richer = "Polymarket" if favorite_price > kalshi_item.current_probability else "Kalshi"
+    return f"Polymarket/Kalshi spread: about {gap:.0f} pts; {richer} is pricing the favorite higher."
+
+
+def _top_prediction_evidence(report: schema.Report, limit: int = 3) -> list[str]:
+    driver_terms = {
+        "injury", "injuries", "out", "ruled", "questionable", "doubtful", "available",
+        "rest", "resting", "lineup", "lineups", "starter", "starters", "bench",
+        "playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched",
+        "tank", "tanking", "odds", "spread", "moneyline", "probability", "forecast",
+        "rain", "snow", "storm", "wind", "temperature", "watch", "warning",
+    }
+    items = []
+    topic_tokens = set(re.sub(r"[^\w\s-]", " ", report.topic.lower()).split())
+    stop = {"will", "the", "a", "an", "to", "by", "of", "in", "on", "for", "tomorrow", "today", "tonight"}
+    weather_query = any(term in report.topic.lower() for term in ("weather", "rain", "snow", "storm", "wind", "temperature"))
+    strict_weather_terms = {"forecast", "weather", "radar", "showers", "precip", "precipitation", "storm", "warning", "watch", "temperature", "wind"}
+
+    for item in report.x[:10]:
+        text = getattr(item, "text", "")
+        tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+        overlap = (topic_tokens - stop) & tokens
+        if len(overlap) < 1 and not driver_terms & tokens:
+            continue
+        if weather_query and not (strict_weather_terms & tokens):
+            continue
+        if {"ticket", "tickets", "selling", "sale", "resale", "bettorbot"} & tokens and not driver_terms & tokens:
+            continue
+        bonus = 8 if driver_terms & tokens else 0
+        items.append((getattr(item, "score", 0) + bonus, _short_text(text)))
+
+    for item in report.reddit[:8]:
+        text = getattr(item, "title", "")
+        tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+        overlap = (topic_tokens - stop) & tokens
+        if len(overlap) < 1 and not driver_terms & tokens:
+            continue
+        if weather_query and not (strict_weather_terms & tokens):
+            continue
+        bonus = 6 if driver_terms & tokens else 0
+        items.append((getattr(item, "score", 0) + bonus, _short_text(text)))
+
+    for item in report.web[:6]:
+        text = f"{getattr(item, 'title', '')} {getattr(item, 'snippet', '')}"
+        tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+        overlap = (topic_tokens - stop) & tokens
+        if len(overlap) < 1 and not driver_terms & tokens:
+            continue
+        if weather_query and not (strict_weather_terms & tokens):
+            continue
+        bonus = 5 if driver_terms & tokens else 0
+        items.append((getattr(item, "score", 0) + bonus, _short_text(getattr(item, "title", "") or getattr(item, "snippet", ""))))
+
+    items.sort(key=lambda pair: pair[0], reverse=True)
+    seen = set()
+    results = []
+    for _, text in items:
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        results.append(text)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _prediction_confidence(report: schema.Report, has_markets: bool) -> str:
+    evidence_count = len(report.x[:5]) + len(report.reddit[:5]) + len(report.web[:5])
+    if has_markets and report.polymarket and report.kalshi:
+        return "Moderate confidence; market-backed with cross-checking from both venues."
+    if has_markets and evidence_count >= 4:
+        return "Moderate confidence; market-backed, but still sensitive to late information."
+    if has_markets:
+        return "Moderate-low confidence; market-backed, but the supporting evidence is thin."
+    if evidence_count >= 5:
+        return "Low confidence; model-implied without a live market anchor."
+    return "Low confidence; no clean market and limited recent evidence."
+
+
+def _prediction_change_line(report: schema.Report, poly_item: Optional[schema.PolymarketItem] = None) -> str:
+    topic = report.topic.lower()
+    if any(term in topic for term in ("rain", "snow", "storm", "weather", "temperature", "wind")):
+        return "What changes the number: updated radar/model runs, watches or warnings, and any shift in storm track or timing."
+    if any(term in topic for term in ("election", "poll", "approval", "rate cut", "inflation", "cpi", "fed")):
+        return "What changes the number: fresh polling/data releases, official statements, and any sharp market repricing."
+    if poly_item:
+        return _forecast_change_line(poly_item)
+    return "What changes the number: fresh high-signal reporting, new market prices, and any contradicting source update."
+
+
+def _clean_outcome_name(name: str) -> str:
+    cleaned = re.sub(r"\s+", " ", (name or "")).strip()
+    if not cleaned:
+        return ""
+    generic = {"the", "there", "yes", "no", "1", "2", "3", "4", "5"}
+    if cleaned.lower() in generic:
+        return ""
+    return cleaned
+
+
+def _market_call_from_item(item: schema.PolymarketItem) -> tuple[str, str]:
+    ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True)
+    favorite_name, favorite_price = ordered[0]
+    favorite_name = _clean_outcome_name(favorite_name)
+    if favorite_name:
+        return f"{favorite_name} {favorite_price * 100:.0f}%", favorite_name
+    return f"Implied yes {favorite_price * 100:.0f}%", "yes"
+
+
+def _best_polymarket_for_topic(report: schema.Report) -> Optional[schema.PolymarketItem]:
+    if not report.polymarket:
+        return None
+
+    topic_signature = _matchup_signature(report.topic)
+    if topic_signature:
+        matching = [
+            item for item in report.polymarket
+            if _matchup_signature(item.title or item.question) == topic_signature
+        ]
+        if matching:
+            return max(matching, key=lambda item: item.score)
+
+    topic_tokens = {
+        token for token in re.sub(r"[^\w\s]", " ", report.topic.lower()).split()
+        if len(token) > 2 and token not in {"will", "the", "for", "and", "tomorrow", "today", "tonight"}
+    }
+    ranked = []
+    for item in report.polymarket:
+        market_text = f"{item.title} {item.question}".lower()
+        overlap = len(topic_tokens & set(re.sub(r"[^\w\s]", " ", market_text).split()))
+        ranked.append((overlap, item.score, item))
+    ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return ranked[0][2] if ranked and ranked[0][0] > 0 else report.polymarket[0]
+
+
+def _render_prediction_summary(report: schema.Report) -> list[str]:
+    if qt.detect_query_type(report.topic) != "prediction":
+        return []
+
+    if _is_nba_slate_topic(report.topic):
+        return _render_nba_slate_board(report)
+
+    lines = ["### Forecast", ""]
+    top_market = _best_polymarket_for_topic(report)
+    evidence = _top_prediction_evidence(report)
+
+    if top_market and top_market.outcome_prices:
+        forecast_line, market_view, uncertainty = _market_forecast_line(top_market)
+        lines.append(f"Forecast: {forecast_line}")
+        lines.append(f"Market view: {market_view}")
+        divergence = _market_divergence_detail(report, top_market)
+        if divergence:
+            lines.append(divergence)
+        if evidence:
+            lines.append(f"Why this is the line: {evidence[0]}")
+        lines.append(f"Uncertainty: {_prediction_confidence(report, has_markets=True)} {uncertainty}.")
+        lines.append(_prediction_change_line(report, top_market))
+        lines.append("")
+        return lines
+
+    if report.kalshi and report.kalshi[0].current_probability is not None:
+        kalshi_item = report.kalshi[0]
+        lines.append(f"Forecast: YES {kalshi_item.current_probability * 100:.0f}%")
+        market_view = f"Kalshi: YES {kalshi_item.current_probability * 100:.0f}%"
+        if kalshi_item.price_movement:
+            market_view += f" ({kalshi_item.price_movement})"
+        lines.append(f"Market view: {market_view}")
+        if evidence:
+            lines.append(f"Why this is the line: {evidence[0]}")
+        lines.append(f"Uncertainty: {_prediction_confidence(report, has_markets=True)}")
+        lines.append(_prediction_change_line(report))
+        lines.append("")
+        return lines
+
+    model_implied = "45-55%"
+    if len(evidence) >= 3:
+        model_implied = "50-60%"
+    if not evidence:
+        model_implied = "40-60%"
+    lines.append(f"Forecast: Model-implied {model_implied}")
+    lines.append("Market view: No clean Polymarket or Kalshi market found in the last 24 hours.")
+    if evidence:
+        lines.append(f"Why this is the line: {evidence[0]}")
+    lines.append(f"Uncertainty: {_prediction_confidence(report, has_markets=False)}")
+    lines.append(_prediction_change_line(report))
+    lines.append("")
+    return lines
 
 
 def _render_nba_slate_board(report: schema.Report) -> list[str]:
@@ -246,6 +470,9 @@ def _render_nba_slate_board(report: schema.Report) -> list[str]:
         lines.append(f"Market view: {market_view}")
         if kalshi_view:
             lines.append(kalshi_view)
+        divergence = _market_divergence_detail(report, item)
+        if divergence:
+            lines.append(divergence)
         if evidence:
             lines.append(f"Why this is the line: {evidence}")
         if not report.kalshi:
@@ -312,9 +539,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append(f"**Resolved X Handle:** @{report.resolved_x_handle}")
     lines.append("")
 
-    slate_board = _render_nba_slate_board(report)
-    if slate_board:
-        lines.extend(slate_board)
+    prediction_summary = _render_prediction_summary(report)
+    if prediction_summary:
+        lines.extend(prediction_summary)
 
     # Coverage note for partial coverage
     if report.mode == "reddit-only" and missing_keys in ("x", "none"):

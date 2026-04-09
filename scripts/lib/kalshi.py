@@ -5,6 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
+import re
 
 from . import http
 from .relevance import token_overlap_relevance
@@ -30,6 +31,46 @@ _LEAGUE_TOKENS = {
     "mlb": ("mlb", "baseball"),
     "nhl": ("nhl", "hockey"),
 }
+
+
+def _matchup_side_tokens(text: str) -> List[set[str]]:
+    text_lower = text.lower()
+    separator = None
+    for candidate in (" vs. ", " vs ", " at "):
+        if candidate in text_lower:
+            separator = candidate
+            break
+    if not separator:
+        return []
+
+    stop = {"the", "and", "at", "vs", "vs.", "of", "today", "tonight", "tomorrow"}
+    sides = []
+    for side in text_lower.split(separator, 1):
+        tokens = {
+            token
+            for token in re.sub(r"[^\w\s]", " ", side).split()
+            if len(token) > 2 and token not in stop
+        }
+        if tokens:
+            sides.append(tokens)
+    return sides if len(sides) == 2 else []
+
+
+def _topic_matchup_signature(topic: str) -> List[set[str]]:
+    return _matchup_side_tokens(topic)
+
+
+def _market_matches_matchup(topic: str, market: Dict[str, Any], event_title: str = "") -> bool:
+    sides = _topic_matchup_signature(topic)
+    if len(sides) != 2:
+        return True
+
+    text_tokens = {
+        token
+        for token in re.sub(r"[^\w\s]", " ", f"{_market_text(market)} {event_title}".lower()).split()
+        if len(token) > 2
+    }
+    return all(side & text_tokens for side in sides)
 
 
 def _log(msg: str):
@@ -119,6 +160,15 @@ def _market_has_quality(market: Dict[str, Any]) -> bool:
 def _market_relevance(topic: str, market: Dict[str, Any], event_title: str = "") -> float:
     text = " ".join(part for part in (_market_text(market), event_title) if part)
     text_score = token_overlap_relevance(topic, text)
+    matchup_bonus = 0.0
+    matchup_penalty = 0.0
+
+    if len(_topic_matchup_signature(topic)) == 2:
+        if _market_matches_matchup(topic, market, event_title):
+            matchup_bonus = 0.20
+        else:
+            matchup_penalty = 0.35
+
     if _is_sports_slate_query(topic) and " vs " in event_title.lower() and not _is_combo_market(market, event_title):
         league = _detect_league(topic)
         event_lower = event_title.lower()
@@ -140,7 +190,8 @@ def _market_relevance(topic: str, market: Dict[str, Any], event_title: str = "")
     if _is_combo_market(market, event_title):
         market_quality *= 0.1
         text_score *= 0.2
-    return round(min(1.0, text_score * 0.8 + market_quality * 0.2), 2)
+    relevance = text_score * 0.75 + market_quality * 0.25 + matchup_bonus - matchup_penalty
+    return round(max(0.0, min(1.0, relevance)), 2)
 
 
 def _fetch_markets_page(cursor: Optional[str] = None, limit: int = 200) -> Dict[str, Any]:
@@ -228,6 +279,8 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
         series_ticker = market.get("series_ticker", "")
         event_title = event_titles.get(event_ticker, market.get("subtitle", "")) or market.get("title", "")
         if _is_combo_market(market, event_title):
+            continue
+        if not _market_matches_matchup(topic, market, event_title):
             continue
         question = market.get("title", "")
         current_probability = _pick_current_probability(market)
