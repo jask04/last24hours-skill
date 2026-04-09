@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bluesky search now tries the public API path first and only falls back to authenticated search when needed
 - Sports forecast explanations now stay market-led and drop more betting-bot, resale, and generic hype chatter
 - Compact sports source sections now prefer higher-signal X and Reddit items instead of raw score-only ordering
+- Weather and macro forecasts now suppress weak X, Reddit, and web evidence more aggressively and fall back to explicit market-driven or model-implied wording when signal is thin
+- X query extraction now handles weather and macro prompts more cleanly, improving terms like `NYC rain tomorrow`, `Fed cut rates by June`, and `US recession in 2026`
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively

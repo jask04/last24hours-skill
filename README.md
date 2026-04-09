@@ -8,6 +8,8 @@ Forecasts are now market-anchored by default. When Polymarket and Kalshi both ex
 
 For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers injuries, lineups, rest, playoff incentives, and meaningful line movement over betting-bot chatter, ticket resale posts, or generic hype.
 
+For weather and macro/politics, the skill now suppresses weak supporting evidence hard. If no high-signal weather, policy, data, polling, or market-repricing evidence is available, the forecast stays market-led or model-implied and says so directly instead of filling the answer with noisy social chatter.
+
 The skill is optimized for:
 - prediction markets
 - sports outcomes
@@ -149,6 +151,8 @@ python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
+python3 scripts/last24hours.py "Will the Fed cut rates by June" --quick --emit=compact
+python3 scripts/last24hours.py "Will the US have a recession in 2026" --quick --emit=compact
 ```
 
 Recommended extra smoke tests:
@@ -164,6 +168,7 @@ Recommended extra smoke tests:
 - Market evidence outranks social chatter when relevance is similar.
 - Social and web evidence are used to explain the line, not replace it.
 - For sports, low-signal chatter is omitted when there is no clean injury, lineup, rest, or motivation signal.
+- For weather and macro, low-signal X, Reddit, and web snippets are suppressed aggressively when they do not contain actual domain signal.
 - Broad NBA slate queries automatically expand into one search per scheduled matchup.
 
 ## Kalshi Support

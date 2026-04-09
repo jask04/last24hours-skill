@@ -151,6 +151,17 @@ def _matchup_signature(text: str) -> Optional[str]:
     return " | ".join(normalized)
 
 
+def _prediction_domain(topic: str) -> Optional[str]:
+    topic_lower = (topic or "").lower()
+    if _is_nba_slate_topic(topic) or _matchup_signature(topic):
+        return "sports"
+    if any(term in topic_lower for term in ("weather", "rain", "snow", "storm", "wind", "temperature", "hurricane", "tornado", "showers")):
+        return "weather"
+    if any(term in topic_lower for term in ("fed", "fomc", "powell", "cpi", "inflation", "jobs", "gdp", "recession", "approval", "poll", "polls", "rates", "rate", "economy")):
+        return "macro"
+    return None
+
+
 def _market_forecast_line(item: schema.PolymarketItem) -> Optional[tuple[str, str, str]]:
     if not item.outcome_prices:
         return None
@@ -493,6 +504,73 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
     return []
 
 
+def _compact_weather_macro_items(items: list, source: str, report: schema.Report, limit: int) -> list:
+    if qt.detect_query_type(report.topic) != "prediction":
+        return items[:limit]
+    domain = _prediction_domain(report.topic)
+    if domain not in {"weather", "macro"}:
+        return items[:limit]
+
+    weather_signal = {
+        "forecast", "weather", "radar", "precip", "precipitation", "showers", "storm",
+        "warning", "watch", "temperature", "wind", "winds", "model", "models", "humidity",
+        "rainfall", "snowfall", "accumulation",
+    }
+    macro_signal = {
+        "fed", "fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp",
+        "recession", "unemployment", "yield", "yields", "treasury", "treasuries",
+        "cut", "cuts", "hike", "hikes", "rate", "rates", "bps", "basis",
+        "approval", "poll", "polls", "economy", "economic",
+    }
+    macro_support = {
+        "market", "markets", "pricing", "priced", "probability", "odds", "yield",
+        "yields", "treasury", "treasuries", "payrolls", "unemployment", "meeting",
+        "data", "release", "releases", "forecast", "estimates",
+    }
+    recession_support = {
+        "market", "markets", "pricing", "priced", "probability", "odds", "gdp",
+        "jobs", "inflation", "yield", "yields", "treasury", "treasuries",
+        "economists", "data", "forecast", "estimates",
+    }
+    macro_bad = {
+        "grass", "beef", "dog", "album", "hair", "tour", "content", "wedding",
+        "song", "music", "sabrina", "tallow", "food", "well", "biden",
+        "lied", "destroyed", "congrats", "wowee", "screaming",
+    }
+    topic_tokens = set(re.sub(r"[^\w\s-]", " ", report.topic.lower()).split())
+    weather_location = topic_tokens - {"rain", "snow", "storm", "wind", "temperature", "weather", "tomorrow", "today", "tonight"}
+    macro_strong = {"fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp", "recession", "unemployment", "yield", "approval", "poll", "polls"}
+    results = []
+    for item in items:
+        text = getattr(item, "text", "") or getattr(item, "title", "") or getattr(item, "snippet", "") or ""
+        tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+        if source == "reddit":
+            tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "subreddit", "").lower()).split())
+        if source == "web":
+            tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "source_domain", "").lower()).split())
+        if domain == "weather":
+            if not (weather_signal & tokens):
+                continue
+            if weather_location and not (weather_location & tokens):
+                continue
+        if domain == "macro":
+            if macro_bad & tokens:
+                continue
+            if not (macro_signal & tokens):
+                continue
+            macro_overlap = len((topic_tokens - {"will", "the", "us", "have", "a", "in", "by", "june", "2026", "end", "of"}) & tokens)
+            if not ((macro_strong & tokens) or macro_overlap >= 2):
+                continue
+            if not ((macro_strong & tokens) or (macro_support & tokens and macro_overlap >= 1)):
+                continue
+            if "recession" in topic_tokens and "recession" in tokens and not (recession_support & tokens):
+                continue
+        results.append(item)
+        if len(results) >= limit:
+            break
+    return results
+
+
 def _render_nba_slate_board(report: schema.Report) -> list[str]:
     return []
 
@@ -579,8 +657,11 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("### Reddit Threads")
         lines.append("")
         compact_reddit = _compact_sports_items(report.reddit, "reddit", report, limit)
-        if not compact_reddit and (qt.detect_query_type(report.topic) == "prediction") and (_is_nba_slate_topic(report.topic) or _matchup_signature(report.topic)):
-            lines.append("*No high-signal Reddit threads found for this sports forecast.*")
+        if compact_reddit == report.reddit[:limit]:
+            compact_reddit = _compact_weather_macro_items(report.reddit, "reddit", report, limit)
+        domain = _prediction_domain(report.topic)
+        if not compact_reddit and (qt.detect_query_type(report.topic) == "prediction") and domain:
+            lines.append(f"*No high-signal Reddit threads found for this {domain} forecast.*")
             lines.append("")
         for item in compact_reddit:
             eng_str = ""
@@ -633,8 +714,11 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("### X Posts")
         lines.append("")
         compact_x = _compact_sports_items(report.x, "x", report, limit)
-        if not compact_x and (qt.detect_query_type(report.topic) == "prediction") and (_is_nba_slate_topic(report.topic) or _matchup_signature(report.topic)):
-            lines.append("*No high-signal X posts found for this sports forecast.*")
+        if compact_x == report.x[:limit]:
+            compact_x = _compact_weather_macro_items(report.x, "x", report, limit)
+        domain = _prediction_domain(report.topic)
+        if not compact_x and (qt.detect_query_type(report.topic) == "prediction") and domain:
+            lines.append(f"*No high-signal X posts found for this {domain} forecast.*")
             lines.append("")
         for item in compact_x:
             eng_str = ""
@@ -994,7 +1078,12 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.web:
         lines.append("### Web Results")
         lines.append("")
-        for item in report.web[:limit]:
+        compact_web = _compact_weather_macro_items(report.web, "web", report, limit)
+        domain = _prediction_domain(report.topic)
+        if not compact_web and qt.detect_query_type(report.topic) == "prediction" and domain in {"weather", "macro"}:
+            lines.append(f"*No high-signal web results found for this {domain} forecast.*")
+            lines.append("")
+        for item in compact_web:
             date_str = f" ({item.date})" if item.date else " (date unknown)"
             conf_str = f" [date:{item.date_confidence}]" if item.date_confidence != "high" else ""
 

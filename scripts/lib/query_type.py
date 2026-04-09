@@ -30,24 +30,25 @@ _PREDICTION_PATTERNS = re.compile(
     r"predict|prediction|forecast|forecasting|odds|line|spread|moneyline|implied probability|probability|"
     r"chance|likely|likelihood|win probability|cover|over/under|over under|favorite|underdog|"
     r"election|primary|ballot|polls?|outcome|result|bet on|market for|polymarket|kalshi|"
-    r"storm|rain|snow|temperature|hurricane|tornado|landfall|playoffs?|finals?|matchup|game|tonight|"
-    r"fed|inflation|cpi|jobs report|gdp|recession|rate cut|rate hike|earnings|approval rating"
+    r"storm|rain|snow|temperature|hurricane|tornado|landfall|showers?|precipitation|forecast models?|playoffs?|finals?|matchup|game|tonight|"
+    r"fed|fomc|powell|inflation|cpi|jobs report|payrolls|gdp|recession|unemployment|yield|treasury|rate cut|rate hike|earnings|approval rating"
     r")\b",
     re.I,
 )
 _FORECASTABLE_DOMAIN_PATTERNS = re.compile(
     r"\b("
     r"nba|nfl|mlb|nhl|wnba|ncaa|soccer|football|baseball|basketball|tennis|golf|ufc|mma|boxing|"
-    r"weather|storm|rain|snow|wind|temperature|hurricane|tornado|heatwave|wildfire|"
-    r"election|senate|house|president|governor|polling|approval|"
-    r"stocks?|stock market|s&p|nasdaq|bitcoin|btc|eth|crypto|economy|inflation|cpi|jobs|gdp|fed|rates?"
+    r"weather|storm|rain|snow|wind|temperature|hurricane|tornado|heatwave|wildfire|showers?|precipitation|"
+    r"election|senate|house|president|governor|polling|approval|fomc|powell|"
+    r"stocks?|stock market|s&p|nasdaq|bitcoin|btc|eth|crypto|economy|inflation|cpi|jobs|gdp|fed|rates?|recession|unemployment|yield|treasury"
     r")\b",
     re.I,
 )
 _OUTCOME_PHRASE_PATTERNS = re.compile(
     r"\b("
     r"who wins?|who will win|will .+ win|does .+ win|beats? .+|make the playoffs|miss the playoffs|"
-    r"landfall|passes?|fails?|approved?|signs?|cuts?|hikes?|hits? \d+|above \d+|below \d+"
+    r"landfall|passes?|fails?|approved?|signs?|cuts?|hikes?|hits? \d+|above \d+|below \d+|"
+    r"chance of rain|chance of snow|cut rates|have a recession"
     r")\b",
     re.I,
 )

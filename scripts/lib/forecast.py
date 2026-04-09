@@ -18,6 +18,39 @@ DRIVER_TERMS = {
     "tank", "tanking", "forecast", "radar", "storm", "warning", "watch",
     "poll", "approval", "inflation", "cpi", "jobs", "rate", "rates", "fed",
 }
+WEATHER_SIGNAL_TERMS = {
+    "forecast", "forecasts", "weather", "radar", "precip", "precipitation", "showers",
+    "storm", "storms", "thunderstorm", "thunderstorms", "warning", "warnings",
+    "watch", "watches", "wind", "winds", "temperature", "temperatures", "front",
+    "humidity", "model", "models", "rainfall", "snowfall", "accumulation",
+}
+WEATHER_WEAK_TERMS = {"rain", "snow", "storm", "cold", "hot", "weather"}
+MACRO_SIGNAL_TERMS = {
+    "fed", "fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp",
+    "recession", "unemployment", "yield", "yields", "treasury", "treasuries",
+    "cut", "cuts", "hike", "hikes", "bps", "basis", "approval", "poll", "polls",
+    "economy", "economic", "rate", "rates",
+}
+MACRO_STRONG_TERMS = {
+    "fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp", "recession",
+    "unemployment", "yield", "yields", "treasury", "treasuries", "approval",
+    "poll", "polls",
+}
+MACRO_CONTEXT_TERMS = {"cut", "cuts", "hike", "hikes", "rate", "rates", "bps", "basis", "meeting", "economy", "economic"}
+MACRO_SUPPORT_TERMS = {
+    "market", "markets", "pricing", "priced", "probability", "odds", "yields",
+    "yield", "treasury", "treasuries", "payrolls", "unemployment", "meeting",
+    "data", "release", "releases", "forecast", "estimates",
+}
+RECESSION_SUPPORT_TERMS = {
+    "market", "markets", "pricing", "priced", "probability", "odds", "gdp",
+    "jobs", "inflation", "yield", "yields", "treasury", "treasuries",
+    "economists", "data", "forecast", "estimates",
+}
+MACRO_BAD_CONTEXT_TERMS = {
+    "grass", "beef", "dog", "album", "hair", "tour", "content", "wedding",
+    "song", "music", "sabrina", "tallow", "eat", "food", "well",
+}
 SPORTS_DRIVER_TERMS = {
     "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
     "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
@@ -123,7 +156,7 @@ def _top_polymarket_probability(item: schema.PolymarketItem) -> tuple[Optional[s
     if not item.outcome_prices:
         return None, None
     ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True)
-    label = _clean_outcome_label(ordered[0][0]) or "Favorite"
+    label = _clean_outcome_label(ordered[0][0]) or None
     return label, ordered[0][1]
 
 
@@ -140,6 +173,16 @@ def _is_sports_query(text: str) -> bool:
     matchup = _matchup_signature(text_lower)
     sports_terms = {"nba", "nfl", "nhl", "mlb", "wnba", "basketball", "football", "soccer", "baseball", "game", "games"}
     return bool(matchup or (SPORTS_TEAM_TOKENS & _tokenize(text_lower)) or any(term in text_lower for term in sports_terms))
+
+
+def _is_weather_query(text: str) -> bool:
+    tokens = _tokenize(text)
+    return bool(tokens & {"weather", "rain", "snow", "storm", "wind", "temperature", "forecast", "hurricane", "tornado", "showers"})
+
+
+def _is_macro_query(text: str) -> bool:
+    tokens = _tokenize(text)
+    return bool(tokens & {"fed", "fomc", "powell", "cpi", "inflation", "jobs", "gdp", "recession", "approval", "poll", "polls", "rates", "rate", "economy"})
 
 
 def _favorite_tokens(favorite_label: str) -> set[str]:
@@ -221,16 +264,43 @@ def _generic_candidate_score(
     title: str,
     base_score: float,
     weather_query: bool = False,
+    macro_query: bool = False,
+    source_context: str = "",
 ) -> Optional[_EvidenceCandidate]:
-    tokens = _tokenize(text)
-    target_tokens = _topic_tokens(title)
-    overlap = len(target_tokens & tokens)
-    weather_terms = {"forecast", "weather", "radar", "showers", "precip", "precipitation", "storm", "warning", "watch", "temperature", "wind"}
+    context = f"{text} {source_context}".strip()
+    tokens = _tokenize(context)
+    title_tokens = _topic_tokens(title)
+    overlap = len(title_tokens & tokens)
 
     if overlap == 0:
         return None
-    if weather_query and not (weather_terms & tokens):
-        return None
+
+    if weather_query:
+        location_tokens = title_tokens - WEATHER_WEAK_TERMS - {"tomorrow", "today", "tonight"}
+        if not (WEATHER_SIGNAL_TERMS & tokens):
+            return None
+        if location_tokens and not (location_tokens & tokens):
+            return None
+        if overlap < 2 and not (WEATHER_SIGNAL_TERMS & tokens):
+            return None
+
+    if macro_query:
+        macro_overlap = len((title_tokens - {"will", "have", "us", "usa", "by", "in", "end", "next", "month", "year"}) & tokens)
+        signal_hits = len(MACRO_SIGNAL_TERMS & tokens)
+        strong_hits = len(MACRO_STRONG_TERMS & tokens)
+        if MACRO_BAD_CONTEXT_TERMS & tokens:
+            return None
+        if signal_hits == 0:
+            return None
+        if strong_hits == 0 and macro_overlap < 2:
+            return None
+        if signal_hits < 2 and not (MACRO_CONTEXT_TERMS & tokens and macro_overlap >= 1):
+            return None
+        if not ((MACRO_STRONG_TERMS & tokens) or (MACRO_SUPPORT_TERMS & tokens and macro_overlap >= 1)):
+            return None
+        if "recession" in title_tokens and "recession" in tokens and not (RECESSION_SUPPORT_TERMS & tokens):
+            return None
+
     if LOW_SIGNAL_SOCIAL_TERMS & tokens and not DRIVER_TERMS & tokens:
         return None
     if overlap < 2 and not DRIVER_TERMS & tokens:
@@ -239,6 +309,12 @@ def _generic_candidate_score(
     score = base_score + overlap * 4
     if DRIVER_TERMS & tokens:
         score += 8
+    if weather_query and WEATHER_SIGNAL_TERMS & tokens:
+        score += 10
+    if macro_query:
+        score += len(MACRO_SIGNAL_TERMS & tokens) * 4
+        if MACRO_STRONG_TERMS & tokens:
+            score += 8
     return _EvidenceCandidate(
         score=score,
         text=text.strip(),
@@ -252,7 +328,8 @@ def _generic_candidate_score(
 def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_EvidenceCandidate]:
     title_lower = title.lower()
     sports_query = _is_sports_query(title) or _is_sports_query(report.topic)
-    weather_query = any(term in title_lower for term in ("weather", "rain", "snow", "storm", "wind", "temperature"))
+    weather_query = _is_weather_query(title) or _is_weather_query(report.topic)
+    macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
     candidates: list[_EvidenceCandidate] = []
 
     for item in report.x[:12]:
@@ -263,7 +340,14 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         candidate = (
             _sports_candidate_score(text, title, "x", base_score, author=getattr(item, "author_handle", ""))
             if sports_query
-            else _generic_candidate_score(text, title, base_score, weather_query=weather_query)
+            else _generic_candidate_score(
+                text,
+                title,
+                base_score,
+                weather_query=weather_query,
+                macro_query=macro_query,
+                source_context=getattr(item, "author_handle", ""),
+            )
         )
         if candidate:
             candidates.append(candidate)
@@ -281,6 +365,8 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
                 title,
                 base_score,
                 weather_query=weather_query,
+                macro_query=macro_query,
+                source_context=getattr(item, "subreddit", ""),
             )
         )
         if candidate:
@@ -294,7 +380,14 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         candidate = (
             _sports_candidate_score(text, title, "web", base_score, community=getattr(item, "source_domain", ""))
             if sports_query
-            else _generic_candidate_score(text, title, base_score, weather_query=weather_query)
+            else _generic_candidate_score(
+                text,
+                title,
+                base_score,
+                weather_query=weather_query,
+                macro_query=macro_query,
+                source_context=getattr(item, "source_domain", ""),
+            )
         )
         if candidate:
             candidates.append(candidate)
@@ -452,6 +545,15 @@ def _generic_catalysts(report: schema.Report, favorite_label: str) -> tuple[list
     )
 
 
+def _generic_fallback_why_line(report: schema.Report) -> str:
+    topic = report.topic.lower()
+    if _is_weather_query(topic):
+        return "Model-implied because no clean market exists and no high-signal weather evidence surfaced in the last 24 hours."
+    if _is_macro_query(topic):
+        return "Mostly market-driven right now; no high-signal macro or policy evidence surfaced in the last 24 hours."
+    return "Mostly market-driven right now; supporting evidence is thin."
+
+
 def _sports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str) -> tuple[list[str], list[str]]:
     favorite = favorite_label or "the favorite"
     all_tokens = set()
@@ -598,6 +700,8 @@ def _build_forecast_item(
             forecast.why_line = "Mostly market-driven right now; no clean injury, lineup, or rest signal surfaced in the last 24 hours."
     else:
         forecast.upside_catalysts, forecast.downside_catalysts = _generic_catalysts(report, forecast.favorite_label)
+        if not forecast.why_line:
+            forecast.why_line = _generic_fallback_why_line(report)
     return forecast
 
 

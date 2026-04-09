@@ -85,6 +85,32 @@ def _extract_core_subject(topic: str) -> str:
         if keep:
             return " ".join(keep)
 
+    weather_terms = {"weather", "rain", "snow", "storm", "wind", "temperature", "forecast", "showers"}
+    if any(term in topic_lower for term in weather_terms):
+        keep = []
+        drop_tokens = {"today", "tonight", "tomorrow", "tomorrows", "tomorrow's", "will", "chance", "probability", "odds"}
+        for word in topic_lower.split():
+            cleaned = word.strip("?!.,")
+            if cleaned in drop_tokens:
+                continue
+            keep.append(cleaned)
+        if keep:
+            if "weather" not in keep:
+                keep.append("weather")
+            return " ".join(keep[:5])
+
+    macro_terms = {"fed", "fomc", "powell", "cpi", "inflation", "jobs", "gdp", "recession", "approval", "poll", "polls", "rates", "rate"}
+    if any(term in topic_lower for term in macro_terms):
+        keep = []
+        drop_tokens = {"will", "the", "a", "an", "have", "has", "in", "by", "end", "of", "this", "next"}
+        for word in topic_lower.split():
+            cleaned = word.strip("?!.,")
+            if cleaned in drop_tokens:
+                continue
+            keep.append(cleaned)
+        if keep:
+            return " ".join(keep[:5])
+
     return extract_core_subject(topic, max_words=5, strip_suffixes=True)
 
 

@@ -166,6 +166,11 @@ When evidence is weak:
 - do not pretend precision
 - return a wider range or explicitly state that the signal is thin
 
+For weather and macro/politics:
+- suppress weak X, Reddit, and web evidence aggressively
+- only surface supporting evidence if it contains real weather, policy, data, polling, or market-repricing signal
+- if supporting evidence is thin, say the forecast is mostly market-driven or model-implied instead of padding the answer with chatter
+
 Never give trade sizing or betting advice.
 
 ## Default Answer Shape For Prediction Queries
