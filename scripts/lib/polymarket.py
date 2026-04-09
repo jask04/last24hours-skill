@@ -39,6 +39,49 @@ _SPORTS_SLATE_ALIASES = {
 }
 
 
+def _matchup_side_tokens(text: str) -> List[set[str]]:
+    text_lower = text.lower()
+    separator = None
+    for candidate in (" vs. ", " vs ", " at "):
+        if candidate in text_lower:
+            separator = candidate
+            break
+    if not separator:
+        return []
+
+    stop = {"the", "and", "at", "vs", "vs.", "of", "today", "tonight", "tomorrow"}
+    sides = []
+    for side in text_lower.split(separator, 1):
+        tokens = {
+            token
+            for token in re.sub(r"[^\w\s]", " ", side).split()
+            if len(token) > 2 and token not in stop
+        }
+        if tokens:
+            sides.append(tokens)
+    return sides if len(sides) == 2 else []
+
+
+def _matchup_signature(text: str) -> Optional[str]:
+    sides = _matchup_side_tokens(text)
+    if len(sides) != 2:
+        return None
+    normalized = [" ".join(sorted(side)) for side in sides]
+    normalized.sort()
+    return " | ".join(normalized)
+
+
+def _matchup_sides_match(left: str, right: str) -> bool:
+    left_sides = _matchup_side_tokens(left)
+    right_sides = _matchup_side_tokens(right)
+    if len(left_sides) != 2 or len(right_sides) != 2:
+        return False
+    for candidate in right_sides:
+        if not any(candidate & side for side in left_sides):
+            return False
+    return True
+
+
 def _log(msg: str):
     """Log to stderr (only in TTY mode to avoid cluttering Claude Code output)."""
     if sys.stderr.isatty():
@@ -423,6 +466,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
     events = response.get("events", [])
     items = []
     league = _detect_sports_league(topic) if topic else None
+    topic_matchup_signature = _matchup_signature(topic) if topic else None
     league_tag_map = {
         "nba": {"nba"},
         "nfl": {"nfl"},
@@ -546,6 +590,12 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
         # Semantic relevance should dominate. Market quality should refine
         # relevant matches, not rescue unrelated high-liquidity events.
         text_score = _compute_text_similarity(topic, title, all_outcome_names) if topic else 0.5
+        title_signature = _matchup_signature(title) or _matchup_signature(top_market.get("question", ""))
+        if topic_matchup_signature:
+            if title_signature == topic_matchup_signature or _matchup_sides_match(topic, title):
+                text_score = max(text_score, 0.90)
+            else:
+                text_score = min(text_score, 0.22)
         if sports_slate_query:
             wanted_tags = league_tag_map.get(league, set())
             has_wanted_league = _event_has_tag(event, wanted_tags) if wanted_tags else False

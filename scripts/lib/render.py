@@ -259,6 +259,51 @@ def _market_divergence_detail(report: schema.Report, poly_item: schema.Polymarke
     return f"Polymarket/Kalshi spread: about {gap:.0f} pts; {richer} is pricing the favorite higher."
 
 
+def _format_probability_range(item: schema.ForecastItem) -> str:
+    if item.forecast_range_low is not None and item.forecast_range_high is not None:
+        low = item.forecast_range_low * 100
+        high = item.forecast_range_high * 100
+        if abs(high - low) < 1.0:
+            return f"{high:.0f}%"
+        return f"{low:.0f}-{high:.0f}%"
+    if item.forecast_probability is not None:
+        return f"{item.forecast_probability * 100:.0f}%"
+    return "unknown"
+
+
+def _anchor_label(item: schema.ForecastItem) -> str:
+    labels = {
+        "polymarket": "Polymarket-led",
+        "kalshi": "Kalshi-led",
+        "blended": "Blended market anchor",
+        "model_implied": "Model-implied",
+    }
+    return labels.get(item.anchor_source, item.anchor_source)
+
+
+def _render_forecast_item(item: schema.ForecastItem) -> list[str]:
+    lines = [f"**{item.title}**"]
+    probability_range = _format_probability_range(item)
+    call = item.favorite_label or "Yes"
+    lines.append(f"Forecast: {call} {probability_range}")
+    market_view = item.market_view or "No clean market view available."
+    lines.append(f"Market view: {market_view} [{_anchor_label(item)}]")
+    if item.why_line:
+        lines.append(f"Why this is the line: {item.why_line}")
+    lines.append(f"Confidence / uncertainty: {item.confidence_level} confidence. {item.uncertainty}")
+    if item.upside_catalysts or item.downside_catalysts:
+        up = "; ".join(item.upside_catalysts[:2]) if item.upside_catalysts else "No clear upside catalysts."
+        down = "; ".join(item.downside_catalysts[:2]) if item.downside_catalysts else "No clear downside catalysts."
+        lines.append(f"What changes the number: Up: {up} Down: {down}")
+    return lines
+
+
+def _used_market_ids(report: schema.Report) -> tuple[set[str], set[str]]:
+    poly_ids = {item.polymarket_market_id for item in report.forecasts if item.polymarket_market_id}
+    kalshi_ids = {item.kalshi_market_id for item in report.forecasts if item.kalshi_market_id}
+    return poly_ids, kalshi_ids
+
+
 def _top_prediction_evidence(report: schema.Report, limit: int = 3) -> list[str]:
     driver_terms = {
         "injury", "injuries", "out", "ruled", "questionable", "doubtful", "available",
@@ -394,94 +439,22 @@ def _render_prediction_summary(report: schema.Report) -> list[str]:
     if qt.detect_query_type(report.topic) != "prediction":
         return []
 
-    if _is_nba_slate_topic(report.topic):
-        return _render_nba_slate_board(report)
-
+    if not report.forecasts:
+        return []
+    if len(report.forecasts) > 1:
+        lines = ["### Slate Forecast Board", ""]
+        for forecast in report.forecasts:
+            lines.extend(_render_forecast_item(forecast))
+            lines.append("")
+        return lines
     lines = ["### Forecast", ""]
-    top_market = _best_polymarket_for_topic(report)
-    evidence = _top_prediction_evidence(report)
-
-    if top_market and top_market.outcome_prices:
-        forecast_line, market_view, uncertainty = _market_forecast_line(top_market)
-        lines.append(f"Forecast: {forecast_line}")
-        lines.append(f"Market view: {market_view}")
-        divergence = _market_divergence_detail(report, top_market)
-        if divergence:
-            lines.append(divergence)
-        if evidence:
-            lines.append(f"Why this is the line: {evidence[0]}")
-        lines.append(f"Uncertainty: {_prediction_confidence(report, has_markets=True)} {uncertainty}.")
-        lines.append(_prediction_change_line(report, top_market))
-        lines.append("")
-        return lines
-
-    if report.kalshi and report.kalshi[0].current_probability is not None:
-        kalshi_item = report.kalshi[0]
-        lines.append(f"Forecast: YES {kalshi_item.current_probability * 100:.0f}%")
-        market_view = f"Kalshi: YES {kalshi_item.current_probability * 100:.0f}%"
-        if kalshi_item.price_movement:
-            market_view += f" ({kalshi_item.price_movement})"
-        lines.append(f"Market view: {market_view}")
-        if evidence:
-            lines.append(f"Why this is the line: {evidence[0]}")
-        lines.append(f"Uncertainty: {_prediction_confidence(report, has_markets=True)}")
-        lines.append(_prediction_change_line(report))
-        lines.append("")
-        return lines
-
-    model_implied = "45-55%"
-    if len(evidence) >= 3:
-        model_implied = "50-60%"
-    if not evidence:
-        model_implied = "40-60%"
-    lines.append(f"Forecast: Model-implied {model_implied}")
-    lines.append("Market view: No clean Polymarket or Kalshi market found in the last 24 hours.")
-    if evidence:
-        lines.append(f"Why this is the line: {evidence[0]}")
-    lines.append(f"Uncertainty: {_prediction_confidence(report, has_markets=False)}")
-    lines.append(_prediction_change_line(report))
+    lines.extend(_render_forecast_item(report.forecasts[0]))
     lines.append("")
     return lines
 
 
 def _render_nba_slate_board(report: schema.Report) -> list[str]:
-    if not _is_nba_slate_topic(report.topic) or not report.polymarket:
-        return []
-
-    lines = ["### Slate Forecast Board", ""]
-    seen = set()
-
-    for item in report.polymarket:
-        signature = _matchup_signature(item.title or item.question)
-        if not signature or signature in seen:
-            continue
-        seen.add(signature)
-        forecast = _market_forecast_line(item)
-        sides = _matchup_side_tokens(item.title or item.question)
-        if not forecast or len(sides) != 2:
-            continue
-
-        forecast_line, market_view, uncertainty = forecast
-        evidence = _evidence_snippet(report, sides)
-        kalshi_view = _market_divergence_line(report, signature)
-
-        lines.append(f"**{item.title or item.question}**")
-        lines.append(f"Forecast: {forecast_line}")
-        lines.append(f"Market view: {market_view}")
-        if kalshi_view:
-            lines.append(kalshi_view)
-        divergence = _market_divergence_detail(report, item)
-        if divergence:
-            lines.append(divergence)
-        if evidence:
-            lines.append(f"Why this is the line: {evidence}")
-        if not report.kalshi:
-            uncertainty = f"{uncertainty}; no Kalshi line"
-        lines.append(f"Uncertainty: {uncertainty}")
-        lines.append(_forecast_change_line(item))
-        lines.append("")
-
-    return lines if len(lines) > 2 else []
+    return []
 
 
 def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "none") -> str:
@@ -854,6 +827,8 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
             lines.append(f"  *{item.why_relevant}*")
             lines.append("")
 
+    used_poly_ids, used_kalshi_ids = _used_market_ids(report)
+
     # Polymarket items
     if report.polymarket_error:
         lines.append("### Market Pricing (Polymarket)")
@@ -863,7 +838,15 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.polymarket:
         lines.append("### Market Pricing (Polymarket)")
         lines.append("")
-        for item in report.polymarket[:limit]:
+        market_items = report.polymarket
+        if used_poly_ids:
+            used_items = [item for item in report.polymarket if item.id in used_poly_ids]
+            if len(report.forecasts) > 1:
+                extra_items = [item for item in report.polymarket if item.id not in used_poly_ids and item.relevance >= 0.55]
+                market_items = used_items + extra_items[:max(0, limit - len(used_items))]
+            else:
+                market_items = used_items
+        for item in market_items[:limit]:
             eng_str = ""
             if item.engagement:
                 eng = item.engagement
@@ -915,7 +898,15 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.kalshi:
         lines.append("### Market Pricing (Kalshi)")
         lines.append("")
-        for item in report.kalshi[:limit]:
+        kalshi_items = report.kalshi
+        if used_kalshi_ids:
+            used_items = [item for item in report.kalshi if item.id in used_kalshi_ids]
+            if len(report.forecasts) > 1:
+                extra_items = [item for item in report.kalshi if item.id not in used_kalshi_ids and item.relevance >= 0.55]
+                kalshi_items = used_items + extra_items[:max(0, limit - len(used_items))]
+            else:
+                kalshi_items = used_items
+        for item in kalshi_items[:limit]:
             eng_str = ""
             if item.engagement:
                 parts = []
@@ -1111,6 +1102,13 @@ def render_context_snippet(report: schema.Report) -> str:
     lines.append(f"*Generated: {report.generated_at[:10]} | Sources: {report.mode}*")
     lines.append("")
 
+    if report.forecasts:
+        lines.append("## Forecast Summary")
+        lines.append("")
+        for item in report.forecasts[:5]:
+            lines.append(f"- {item.title}: {_format_probability_range(item)} via {_anchor_label(item)}")
+        lines.append("")
+
     # Key sources summary
     lines.append("## Key Sources")
     lines.append("")
@@ -1168,6 +1166,20 @@ def render_full_report(report: schema.Report) -> str:
     lines.append(f"**Date Range:** {report.range_from} to {report.range_to}")
     lines.append(f"**Mode:** {report.mode}")
     lines.append("")
+
+    if report.forecasts:
+        lines.append("## Forecast Summary")
+        lines.append("")
+        for item in report.forecasts:
+            lines.append(f"### {item.title}")
+            lines.append("")
+            lines.append(f"- **Forecast:** {item.favorite_label or 'Yes'} {_format_probability_range(item)}")
+            lines.append(f"- **Anchor:** {_anchor_label(item)}")
+            lines.append(f"- **Market View:** {item.market_view}")
+            lines.append(f"- **Confidence:** {item.confidence_level}")
+            if item.uncertainty:
+                lines.append(f"- **Uncertainty:** {item.uncertainty}")
+            lines.append("")
 
     # Models
     lines.append("## Models Used")

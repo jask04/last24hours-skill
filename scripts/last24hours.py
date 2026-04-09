@@ -146,6 +146,7 @@ from lib import (
     kalshi,
     entity_extract,
     env,
+    forecast,
     http,
     models,
     normalize,
@@ -2151,6 +2152,7 @@ def main():
     report.polymarket = deduped_pm
     report.kalshi = deduped_ka
     report.web = deduped_web
+    report.forecasts = forecast.synthesize_forecasts(report)
     report.reddit_error = reddit_error
     report.x_error = x_error
     report.youtube_error = youtube_error

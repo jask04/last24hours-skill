@@ -152,6 +152,8 @@ When relevant markets exist:
 - cite current prices and the biggest recent move
 - compare them explicitly when both exist
 - call out disagreement or spread between them
+- anchor the final probability to the market line first, not to social chatter
+- when both venues exist, use a liquidity/quality-weighted blend and widen uncertainty if they diverge
 
 When no market exists:
 - still produce a forecast

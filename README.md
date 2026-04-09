@@ -4,6 +4,8 @@
 
 Codex chat is the primary target UX. The compact output is designed to open with a forecast block that feels native in chat, with raw evidence sections following underneath for inspection.
 
+Forecasts are now market-anchored by default. When Polymarket and Kalshi both exist for the same outcome, the skill blends them with liquidity/quality weighting and widens uncertainty when the spread is meaningful.
+
 The skill is optimized for:
 - prediction markets
 - sports outcomes

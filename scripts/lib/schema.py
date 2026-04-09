@@ -529,6 +529,51 @@ class KalshiItem:
 
 
 @dataclass
+class ForecastItem:
+    """Synthesized forecast derived from markets plus supporting evidence."""
+    title: str
+    forecast_probability: Optional[float] = None
+    forecast_range_low: Optional[float] = None
+    forecast_range_high: Optional[float] = None
+    anchor_source: str = "model_implied"
+    confidence_level: str = "low"
+    market_spread: Optional[float] = None
+    polymarket_probability: Optional[float] = None
+    kalshi_probability: Optional[float] = None
+    polymarket_market_id: Optional[str] = None
+    kalshi_market_id: Optional[str] = None
+    favorite_label: str = ""
+    market_view: str = ""
+    why_line: str = ""
+    uncertainty: str = ""
+    upside_catalysts: List[str] = field(default_factory=list)
+    downside_catalysts: List[str] = field(default_factory=list)
+    model_implied: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'title': self.title,
+            'forecast_probability': self.forecast_probability,
+            'forecast_range_low': self.forecast_range_low,
+            'forecast_range_high': self.forecast_range_high,
+            'anchor_source': self.anchor_source,
+            'confidence_level': self.confidence_level,
+            'market_spread': self.market_spread,
+            'polymarket_probability': self.polymarket_probability,
+            'kalshi_probability': self.kalshi_probability,
+            'polymarket_market_id': self.polymarket_market_id,
+            'kalshi_market_id': self.kalshi_market_id,
+            'favorite_label': self.favorite_label,
+            'market_view': self.market_view,
+            'why_line': self.why_line,
+            'uncertainty': self.uncertainty,
+            'upside_catalysts': self.upside_catalysts,
+            'downside_catalysts': self.downside_catalysts,
+            'model_implied': self.model_implied,
+        }
+
+
+@dataclass
 class Report:
     """Full research report."""
     topic: str
@@ -549,6 +594,7 @@ class Report:
     truthsocial: List[TruthSocialItem] = field(default_factory=list)
     polymarket: List[PolymarketItem] = field(default_factory=list)
     kalshi: List[KalshiItem] = field(default_factory=list)
+    forecasts: List[ForecastItem] = field(default_factory=list)
     best_practices: List[str] = field(default_factory=list)
     prompt_pack: List[str] = field(default_factory=list)
     context_snippet_md: str = ""
@@ -592,6 +638,7 @@ class Report:
             'truthsocial': [ts.to_dict() for ts in self.truthsocial],
             'polymarket': [p.to_dict() for p in self.polymarket],
             'kalshi': [k.to_dict() for k in self.kalshi],
+            'forecasts': [f.to_dict() for f in self.forecasts],
             'best_practices': self.best_practices,
             'prompt_pack': self.prompt_pack,
             'context_snippet_md': self.context_snippet_md,
@@ -876,6 +923,29 @@ class Report:
                 cross_refs=k.get('cross_refs', []),
             ))
 
+        forecast_items = []
+        for f in data.get('forecasts', []):
+            forecast_items.append(ForecastItem(
+                title=f.get('title', ''),
+                forecast_probability=f.get('forecast_probability'),
+                forecast_range_low=f.get('forecast_range_low'),
+                forecast_range_high=f.get('forecast_range_high'),
+                anchor_source=f.get('anchor_source', 'model_implied'),
+                confidence_level=f.get('confidence_level', 'low'),
+                market_spread=f.get('market_spread'),
+                polymarket_probability=f.get('polymarket_probability'),
+                kalshi_probability=f.get('kalshi_probability'),
+                polymarket_market_id=f.get('polymarket_market_id'),
+                kalshi_market_id=f.get('kalshi_market_id'),
+                favorite_label=f.get('favorite_label', ''),
+                market_view=f.get('market_view', ''),
+                why_line=f.get('why_line', ''),
+                uncertainty=f.get('uncertainty', ''),
+                upside_catalysts=f.get('upside_catalysts', []),
+                downside_catalysts=f.get('downside_catalysts', []),
+                model_implied=f.get('model_implied', False),
+            ))
+
         return cls(
             topic=data['topic'],
             range_from=range_from,
@@ -894,6 +964,7 @@ class Report:
             truthsocial=ts_items,
             polymarket=pm_items,
             kalshi=kalshi_items,
+            forecasts=forecast_items,
             best_practices=data.get('best_practices', []),
             prompt_pack=data.get('prompt_pack', []),
             context_snippet_md=data.get('context_snippet_md', ''),
