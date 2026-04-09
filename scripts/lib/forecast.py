@@ -2,6 +2,7 @@
 
 import math
 import re
+from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from . import query_type as qt, schema
@@ -17,6 +18,49 @@ DRIVER_TERMS = {
     "tank", "tanking", "forecast", "radar", "storm", "warning", "watch",
     "poll", "approval", "inflation", "cpi", "jobs", "rate", "rates", "fed",
 }
+SPORTS_DRIVER_TERMS = {
+    "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
+    "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
+    "starter", "starters", "starting", "minutes", "restriction", "restricted",
+    "back-to-back", "b2b", "playoff", "playoffs", "seed", "seeding", "elimination",
+    "clinch", "clinched", "tank", "tanking", "odds", "line", "spread", "moneyline",
+}
+SPORTS_HIGH_SIGNAL_TERMS = {
+    "injury", "injuries", "ruled", "questionable", "doubtful", "probable",
+    "available", "inactive", "rest", "resting", "lineup", "lineups", "starter",
+    "starters", "starting", "minutes", "restriction", "restricted", "back-to-back",
+    "b2b", "playoff", "playoffs", "seed", "seeding", "elimination", "clinch",
+    "clinched", "tank", "tanking",
+}
+SPORTS_MARKET_CONTEXT_TERMS = {"odds", "line", "spread", "moneyline"}
+SPORTS_LOW_SIGNAL_TERMS = {
+    "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
+    "giveaway", "fs", "wtb", "parlay", "bettorbot", "pick", "picks", "lock",
+    "tail", "sprinkle", "hype", "buzz", "vibes", "dm", "interested",
+}
+SPORTS_RECAP_TERMS = {
+    "matchup", "season", "series", "previous", "meeting", "sportsbook",
+    "fanduel", "draftkings", "check", "showdown", "get", "ready",
+}
+SPORTS_REPORTER_TOKENS = {
+    "beat", "reporter", "reports", "insider", "news", "updates", "wire",
+    "fantasylabs", "underdog", "rotowire", "gameday", "injuryreport",
+}
+SPORTS_TEAM_TOKENS = {
+    "lakers", "warriors", "celtics", "knicks", "heat", "raptors", "bulls",
+    "wizards", "rockets", "sixers", "76ers", "pacers", "nets", "nuggets",
+    "grizzlies", "spurs", "mavs", "mavericks", "thunder", "suns", "clippers",
+}
+
+
+@dataclass
+class _EvidenceCandidate:
+    score: float
+    text: str
+    tokens: set[str]
+    source: str
+    team_hits: int
+    signal_hits: int
 
 
 def _tokenize(text: str) -> set[str]:
@@ -91,6 +135,174 @@ def _topic_tokens(topic: str) -> set[str]:
     }
 
 
+def _is_sports_query(text: str) -> bool:
+    text_lower = (text or "").lower()
+    matchup = _matchup_signature(text_lower)
+    sports_terms = {"nba", "nfl", "nhl", "mlb", "wnba", "basketball", "football", "soccer", "baseball", "game", "games"}
+    return bool(matchup or (SPORTS_TEAM_TOKENS & _tokenize(text_lower)) or any(term in text_lower for term in sports_terms))
+
+
+def _favorite_tokens(favorite_label: str) -> set[str]:
+    return {
+        token for token in _tokenize(favorite_label)
+        if token not in {"yes", "no", "favorite"} and len(token) > 2
+    }
+
+
+def _sports_candidate_score(
+    text: str,
+    title: str,
+    source: str,
+    base_score: float,
+    author: str = "",
+    community: str = "",
+) -> Optional[_EvidenceCandidate]:
+    tokens = _tokenize(f"{text} {author} {community}")
+    if "check" in tokens and "out" in tokens:
+        tokens.discard("out")
+    title_tokens = _topic_tokens(title)
+    sides = _matchup_side_tokens(title)
+    overlap = len(title_tokens & tokens)
+    team_hits = sum(1 for side in sides if side & tokens) if sides else 0
+    signal_hits = len(SPORTS_DRIVER_TERMS & tokens)
+    concrete_hits = len(SPORTS_HIGH_SIGNAL_TERMS & tokens)
+    if sides and team_hits == 0:
+        return None
+    if concrete_hits == 0:
+        return None
+    if team_hits < len(sides):
+        return None
+    if overlap == 0:
+        return None
+
+    score = min(base_score, 80) * 0.25 + overlap * 5 + concrete_hits * 5
+    if team_hits == len(sides) and sides:
+        score += 12
+    elif team_hits:
+        score += 4
+
+    if concrete_hits:
+        score += 12
+    if {"injury", "injuries", "ruled", "questionable", "doubtful", "rest", "lineup", "lineups", "inactive", "available"} & tokens:
+        score += 10
+    if {"playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking"} & tokens:
+        score += 6
+    if SPORTS_MARKET_CONTEXT_TERMS & tokens and concrete_hits:
+        score += 4
+    if SPORTS_REPORTER_TOKENS & _tokenize(f"{author} {community}"):
+        score += 8
+
+    if SPORTS_LOW_SIGNAL_TERMS & tokens:
+        score -= 18
+        if not concrete_hits:
+            score -= 18
+    if SPORTS_RECAP_TERMS & tokens and not concrete_hits:
+        score -= 14
+    mentioned_teams = len(SPORTS_TEAM_TOKENS & tokens)
+    if mentioned_teams >= 4:
+        return None
+    if mentioned_teams >= 3 and not SPORTS_HIGH_SIGNAL_TERMS & tokens:
+        score -= 10
+    if score < 22:
+        return None
+
+    return _EvidenceCandidate(
+        score=score,
+        text=text.strip(),
+        tokens=tokens,
+        source=source,
+        team_hits=team_hits,
+        signal_hits=concrete_hits,
+    )
+
+
+def _generic_candidate_score(
+    text: str,
+    title: str,
+    base_score: float,
+    weather_query: bool = False,
+) -> Optional[_EvidenceCandidate]:
+    tokens = _tokenize(text)
+    target_tokens = _topic_tokens(title)
+    overlap = len(target_tokens & tokens)
+    weather_terms = {"forecast", "weather", "radar", "showers", "precip", "precipitation", "storm", "warning", "watch", "temperature", "wind"}
+
+    if overlap == 0:
+        return None
+    if weather_query and not (weather_terms & tokens):
+        return None
+    if LOW_SIGNAL_SOCIAL_TERMS & tokens and not DRIVER_TERMS & tokens:
+        return None
+    if overlap < 2 and not DRIVER_TERMS & tokens:
+        return None
+
+    score = base_score + overlap * 4
+    if DRIVER_TERMS & tokens:
+        score += 8
+    return _EvidenceCandidate(
+        score=score,
+        text=text.strip(),
+        tokens=tokens,
+        source="generic",
+        team_hits=0,
+        signal_hits=len(DRIVER_TERMS & tokens),
+    )
+
+
+def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_EvidenceCandidate]:
+    title_lower = title.lower()
+    sports_query = _is_sports_query(title) or _is_sports_query(report.topic)
+    weather_query = any(term in title_lower for term in ("weather", "rain", "snow", "storm", "wind", "temperature"))
+    candidates: list[_EvidenceCandidate] = []
+
+    for item in report.x[:12]:
+        text = getattr(item, "text", "") or ""
+        if not text:
+            continue
+        base_score = getattr(item, "score", 0)
+        candidate = (
+            _sports_candidate_score(text, title, "x", base_score, author=getattr(item, "author_handle", ""))
+            if sports_query
+            else _generic_candidate_score(text, title, base_score, weather_query=weather_query)
+        )
+        if candidate:
+            candidates.append(candidate)
+
+    for item in report.reddit[:10]:
+        text = getattr(item, "title", "") or ""
+        if not text:
+            continue
+        base_score = getattr(item, "score", 0)
+        candidate = (
+            _sports_candidate_score(text, title, "reddit", base_score, community=getattr(item, "subreddit", ""))
+            if sports_query
+            else _generic_candidate_score(
+                f"{text} {getattr(item, 'subreddit', '')}",
+                title,
+                base_score,
+                weather_query=weather_query,
+            )
+        )
+        if candidate:
+            candidates.append(candidate)
+
+    for item in report.web[:8]:
+        text = f"{getattr(item, 'title', '')} {getattr(item, 'snippet', '')}".strip()
+        if not text:
+            continue
+        base_score = getattr(item, "score", 0)
+        candidate = (
+            _sports_candidate_score(text, title, "web", base_score, community=getattr(item, "source_domain", ""))
+            if sports_query
+            else _generic_candidate_score(text, title, base_score, weather_query=weather_query)
+        )
+        if candidate:
+            candidates.append(candidate)
+
+    candidates.sort(key=lambda item: item.score, reverse=True)
+    return candidates
+
+
 def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[int, int, float]:
     topic_signature = _matchup_signature(topic)
     item_signature = _matchup_signature(item.title or item.question)
@@ -136,31 +348,11 @@ def _matching_kalshi_for_polymarket(
 
 
 def _top_evidence(report: schema.Report, title: str, limit: int = 2) -> list[str]:
-    target_tokens = _topic_tokens(title)
-    title_lower = title.lower()
-    weather_query = any(term in title_lower for term in ("weather", "rain", "snow", "storm", "wind", "temperature"))
-    weather_terms = {"forecast", "weather", "radar", "showers", "precip", "precipitation", "storm", "warning", "watch", "temperature", "wind"}
-    candidates = []
-
-    for item in list(report.x[:10]) + list(report.reddit[:8]) + list(report.web[:6]):
-        text = getattr(item, "text", "") or getattr(item, "title", "") or getattr(item, "snippet", "")
-        tokens = _tokenize(text)
-        overlap = len(target_tokens & tokens)
-        if overlap == 0:
-            continue
-        if weather_query and not (weather_terms & tokens):
-            continue
-        if LOW_SIGNAL_SOCIAL_TERMS & tokens and not DRIVER_TERMS & tokens:
-            continue
-        if overlap < 2 and not DRIVER_TERMS & tokens:
-            continue
-        bonus = 8 if DRIVER_TERMS & tokens else 0
-        candidates.append((getattr(item, "score", 0) + overlap * 4 + bonus, text.strip()))
-
-    candidates.sort(key=lambda row: row[0], reverse=True)
+    candidates = _collect_evidence_candidates(report, title)
     results = []
     seen = set()
-    for _, text in candidates:
+    for candidate in candidates:
+        text = candidate.text
         if not text:
             continue
         short = text.replace("\n", " ")[:180].strip()
@@ -171,6 +363,22 @@ def _top_evidence(report: schema.Report, title: str, limit: int = 2) -> list[str
         if len(results) >= limit:
             break
     return results
+
+
+def _evidence_has_conflict(candidates: list[_EvidenceCandidate], favorite_label: str) -> bool:
+    favorite = _favorite_tokens(favorite_label)
+    if not favorite:
+        return False
+    favorite_support = False
+    opposing_support = False
+    for candidate in candidates[:5]:
+        if candidate.signal_hits == 0:
+            continue
+        if favorite & candidate.tokens:
+            favorite_support = True
+        elif candidate.team_hits >= 1:
+            opposing_support = True
+    return favorite_support and opposing_support
 
 
 def _model_implied_range(report: schema.Report) -> tuple[float, float]:
@@ -200,6 +408,7 @@ def _uncertainty_text(
     has_both_markets: bool,
     has_market: bool,
     evidence_count: int,
+    evidence_conflict: bool = False,
 ) -> str:
     if not has_market:
         return "No clean market exists, so this is model-implied and should be treated cautiously."
@@ -213,6 +422,8 @@ def _uncertainty_text(
             parts.append("Polymarket and Kalshi are broadly aligned.")
     if evidence_count < 2:
         parts.append("Supporting non-market evidence is thin.")
+    elif evidence_conflict:
+        parts.append("Recent non-market evidence is mixed, so the market line still carries most of the weight.")
     if confidence == "moderate":
         parts.append("Confidence is moderate for a live market-backed forecast.")
     elif confidence == "moderate-low":
@@ -241,13 +452,52 @@ def _generic_catalysts(report: schema.Report, favorite_label: str) -> tuple[list
     )
 
 
+def _sports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str) -> tuple[list[str], list[str]]:
+    favorite = favorite_label or "the favorite"
+    all_tokens = set()
+    for candidate in candidates[:5]:
+        all_tokens |= candidate.tokens
+
+    up = []
+    down = []
+
+    if {"questionable", "doubtful", "out", "inactive"} & all_tokens:
+        up.append(f"Positive availability news for {favorite}")
+        down.append(f"A downgrade or scratch for {favorite}")
+    if {"rest", "resting", "back-to-back", "b2b", "minutes", "restriction", "restricted"} & all_tokens:
+        up.append("A softer rest/minutes spot than expected")
+        down.append("A tougher rest spot or minutes restriction")
+    if {"lineup", "lineups", "starter", "starters", "starting"} & all_tokens:
+        up.append(f"A stronger-than-expected starting lineup for {favorite}")
+        down.append("A surprise lineup downgrade")
+    if {"playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking"} & all_tokens:
+        up.append("Clearer playoff or motivation edge")
+        down.append("Motivation or seeding incentives breaking the other way")
+    if not up:
+        up.append(f"Positive lineup/injury news for {favorite}")
+    if not down:
+        down.append(f"Negative lineup/injury news for {favorite}")
+    if len(up) < 2:
+        up.append("Supportive late market movement")
+    if len(down) < 2:
+        down.append("Any sharp move against the current favorite near tipoff")
+    return up[:2], down[:2]
+
+
 def _build_forecast_item(
     title: str,
     polymarket_item: Optional[schema.PolymarketItem],
     kalshi_item: Optional[schema.KalshiItem],
     report: schema.Report,
 ) -> schema.ForecastItem:
-    evidence = _top_evidence(report, title)
+    evidence_candidates = _collect_evidence_candidates(report, title)
+    evidence = []
+    for candidate in evidence_candidates:
+        short = candidate.text.replace("\n", " ")[:180].strip()
+        if short and short not in evidence:
+            evidence.append(short + ("..." if len(candidate.text) > 180 else ""))
+        if len(evidence) >= 2:
+            break
     evidence_count = len(evidence)
 
     poly_label, poly_probability = (None, None)
@@ -289,7 +539,14 @@ def _build_forecast_item(
         )
         quality = max(poly_quality, kalshi_quality)
         forecast.confidence_level = _confidence_label(spread, quality, evidence_count, has_market=True)
-        forecast.uncertainty = _uncertainty_text(forecast.confidence_level, spread, True, True, evidence_count)
+        forecast.uncertainty = _uncertainty_text(
+            forecast.confidence_level,
+            spread,
+            True,
+            True,
+            evidence_count,
+            evidence_conflict=_evidence_has_conflict(evidence_candidates, forecast.favorite_label),
+        )
     elif poly_probability is not None:
         range_half = 0.04 if poly_quality >= 0.5 else 0.07
         forecast.forecast_probability = poly_probability
@@ -299,7 +556,14 @@ def _build_forecast_item(
         movement = f" ({polymarket_item.price_movement})" if polymarket_item and polymarket_item.price_movement else ""
         forecast.market_view = f"Polymarket {poly_probability * 100:.0f}%{movement}"
         forecast.confidence_level = _confidence_label(None, poly_quality, evidence_count, has_market=True)
-        forecast.uncertainty = _uncertainty_text(forecast.confidence_level, None, False, True, evidence_count)
+        forecast.uncertainty = _uncertainty_text(
+            forecast.confidence_level,
+            None,
+            False,
+            True,
+            evidence_count,
+            evidence_conflict=_evidence_has_conflict(evidence_candidates, forecast.favorite_label),
+        )
     elif kalshi_probability is not None:
         range_half = 0.05 if kalshi_quality >= 0.5 else 0.08
         forecast.forecast_probability = kalshi_probability
@@ -309,7 +573,14 @@ def _build_forecast_item(
         movement = f" ({kalshi_item.price_movement})" if kalshi_item and kalshi_item.price_movement else ""
         forecast.market_view = f"Kalshi {kalshi_probability * 100:.0f}%{movement}"
         forecast.confidence_level = _confidence_label(None, kalshi_quality, evidence_count, has_market=True)
-        forecast.uncertainty = _uncertainty_text(forecast.confidence_level, None, False, True, evidence_count)
+        forecast.uncertainty = _uncertainty_text(
+            forecast.confidence_level,
+            None,
+            False,
+            True,
+            evidence_count,
+            evidence_conflict=_evidence_has_conflict(evidence_candidates, forecast.favorite_label),
+        )
     else:
         low, high = _model_implied_range(report)
         forecast.model_implied = True
@@ -321,7 +592,12 @@ def _build_forecast_item(
         forecast.confidence_level = _confidence_label(None, 0.0, evidence_count, has_market=False)
         forecast.uncertainty = _uncertainty_text(forecast.confidence_level, None, False, False, evidence_count)
 
-    forecast.upside_catalysts, forecast.downside_catalysts = _generic_catalysts(report, forecast.favorite_label)
+    if _is_sports_query(title) or _is_sports_query(report.topic):
+        forecast.upside_catalysts, forecast.downside_catalysts = _sports_catalysts(evidence_candidates, forecast.favorite_label)
+        if not forecast.why_line:
+            forecast.why_line = "Mostly market-driven right now; no clean injury, lineup, or rest signal surfaced in the last 24 hours."
+    else:
+        forecast.upside_catalysts, forecast.downside_catalysts = _generic_catalysts(report, forecast.favorite_label)
     return forecast
 
 

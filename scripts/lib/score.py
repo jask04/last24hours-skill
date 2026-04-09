@@ -35,16 +35,32 @@ DEFAULT_ENGAGEMENT = 35
 UNKNOWN_ENGAGEMENT_PENALTY = 3
 
 SPORTS_DRIVER_TERMS = {
-    "injury", "injuries", "injured", "out", "ruled", "questionable", "doubtful",
+    "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
     "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
     "starter", "starters", "starting", "bench", "minutes", "back-to-back",
     "b2b", "playoff", "playoffs", "seed", "seeding", "elimination", "clinch",
     "clinched", "tank", "tanking", "odds", "line", "spread", "moneyline",
 }
+SPORTS_HIGH_SIGNAL_TERMS = {
+    "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
+    "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
+    "starter", "starters", "starting", "bench", "minutes", "back-to-back",
+    "b2b", "playoff", "playoffs", "seed", "seeding", "elimination", "clinch",
+    "clinched", "tank", "tanking",
+}
 LOW_SIGNAL_TERMS = {
     "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
     "giveaway", "iso", "fs", "wtb", "parlay", "bettorbot", "pick", "picks",
     "lock", "tail", "sprinkle", "dm", "interested", "message", "msg",
+}
+VERY_LOW_SIGNAL_TERMS = {
+    "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
+    "giveaway", "fs", "wtb", "parlay", "bettorbot", "pick", "picks", "lock",
+    "tail", "sprinkle", "hype", "vibes", "buzz", "dm", "interested",
+}
+GENERIC_ODDS_RECAP_TERMS = {
+    "matchup", "season", "series", "previous", "meeting", "showdown", "sportsbook",
+    "fanduel", "draftkings", "check", "ready", "preview",
 }
 BEAT_REPORTER_TERMS = {
     "beat", "reporter", "insider", "news", "updates", "coverage", "injuryreport",
@@ -52,7 +68,9 @@ BEAT_REPORTER_TERMS = {
 }
 TEAM_NEWS_HANDLE_TOKENS = {
     "report", "reports", "insider", "beat", "news", "updates", "wire", "hq",
+    "rotowire", "underdog", "fantasylabs", "gameday",
 }
+GENERIC_FAN_CHATTER = {"need", "please", "wish", "hope", "imagine", "should", "must", "go", "lets"}
 
 
 def _tokenize_text(text: str) -> set[str]:
@@ -70,17 +88,22 @@ def _sports_signal_adjustment(
         return 0
 
     tokens = _tokenize_text(f"{text} {author} {community}")
+    if "check" in tokens and "out" in tokens:
+        tokens.discard("out")
     boost = 0
     penalty = 0
 
     driver_overlap = SPORTS_DRIVER_TERMS & tokens
+    high_signal_overlap = SPORTS_HIGH_SIGNAL_TERMS & tokens
     if driver_overlap:
-        boost += 10
-        if {"injury", "injuries", "out", "questionable", "doubtful", "rest", "lineup", "lineups", "starter", "starters"} & tokens:
+        boost += 6
+        if high_signal_overlap:
+            boost += 6
+        if {"injury", "injuries", "ruled", "questionable", "doubtful", "rest", "lineup", "lineups", "starter", "starters", "inactive", "available"} & tokens:
             boost += 5
         if {"playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking"} & tokens:
             boost += 4
-        if {"odds", "line", "spread", "moneyline"} & tokens and driver_overlap:
+        if {"odds", "line", "spread", "moneyline"} & tokens and high_signal_overlap:
             boost += 3
 
     low_signal_overlap = LOW_SIGNAL_TERMS & tokens
@@ -88,6 +111,10 @@ def _sports_signal_adjustment(
         penalty += 16
         if not driver_overlap:
             penalty += 12
+    if VERY_LOW_SIGNAL_TERMS & tokens and not driver_overlap:
+        penalty += 12
+    if GENERIC_ODDS_RECAP_TERMS & tokens and not high_signal_overlap:
+        penalty += 10
 
     if TEAM_NEWS_HANDLE_TOKENS & _tokenize_text(author):
         boost += 5
@@ -103,6 +130,14 @@ def _sports_signal_adjustment(
         "nuggets", "grizzlies",
     }) >= 3 and not driver_overlap:
         penalty += 6
+    if len(tokens & {
+        "lakers", "warriors", "celtics", "knicks", "heat", "raptors",
+        "bulls", "wizards", "rockets", "sixers", "pacers", "nets",
+        "nuggets", "grizzlies",
+    }) >= 4:
+        penalty += 14
+    if GENERIC_FAN_CHATTER & tokens and not driver_overlap:
+        penalty += 5
 
     return boost - penalty
 

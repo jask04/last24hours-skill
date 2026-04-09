@@ -227,6 +227,8 @@ For sports and weather:
 - keep the answer concise
 - give the number first
 - list only the highest-signal drivers
+- for sports, prefer injuries, lineups, rest spots, playoff incentives, and meaningful line movement
+- omit betting-bot chatter, ticket posts, and generic hype when they are the only non-market signal
 
 ## Agent Mode
 
@@ -280,6 +282,7 @@ What this skill does:
 Recommended validation after edits:
 - `python scripts/last24hours.py "tomorrows nba games" --quick --emit=compact`
 - `python scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact`
+- `python scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --quick --emit=compact`
 - `python scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact`
 
 What this skill does not do:

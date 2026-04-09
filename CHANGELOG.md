@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Forecast-first response contract across the skill, README, and extension metadata
 - NBA slate expansion for broad queries such as `tomorrows nba games`, with matchup-level fan-out
 - Slate forecast board rendering for broad NBA game queries
+- Market-anchored forecast synthesis objects for prediction queries, including blended Polymarket/Kalshi forecasts
+- Sports evidence-quality heuristics that prefer injuries, lineups, rest, playoff context, and meaningful line movement
 
 ### Changed
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
@@ -21,10 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Output writing now falls back cleanly when the default context-output directory is unavailable
 - Reddit now uses free public search by default, with ScrapeCreators as optional enrichment
 - Bluesky search now tries the public API path first and only falls back to authenticated search when needed
+- Sports forecast explanations now stay market-led and drop more betting-bot, resale, and generic hype chatter
+- Compact sports source sections now prefer higher-signal X and Reddit items instead of raw score-only ordering
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
 - X matchup query extraction now preserves full team names such as `New York Knicks` and `Golden State Warriors`
+- Windows runs no longer show misleading `chmod 600` guidance for `.env` permission warnings
 
 ## [1.0.0] - 2026-03-29
 

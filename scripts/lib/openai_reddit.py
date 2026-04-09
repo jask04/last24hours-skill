@@ -376,6 +376,20 @@ LOW_QUALITY_SUBREDDITS = {
     "test", "testcommunityfortra", "freekarma4you", "freekarma4u",
     "upvote", "upvotes", "karma", "shadowban", "testingground4bots",
     "basketballreddit", "nbareddit", "sportsreddit",
+    "sportsbook", "sportsbetting", "betting", "gambling",
+    "nbastreams", "nbahighlights", "livesports", "gamethreads",
+}
+TEAM_OR_LEAGUE_SUBREDDITS = {
+    "nba", "warriors", "lakers", "celtics", "knicks", "heat", "raptors",
+    "bulls", "wizards", "rockets", "sixers", "pacers", "nets",
+    "nuggets", "grizzlies",
+}
+SPORTS_DRIVER_TERMS = {
+    "injury", "injuries", "out", "ruled", "questionable", "doubtful", "probable",
+    "available", "inactive", "rest", "resting", "lineup", "lineups", "starter",
+    "starters", "minutes", "restriction", "restricted", "playoff", "playoffs",
+    "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking",
+    "odds", "line", "spread", "moneyline",
 }
 
 
@@ -403,6 +417,24 @@ def _subreddit_quality_ok(subreddit: str, topic: str) -> bool:
             return False
 
     return True
+
+
+def _sports_public_item_bonus(topic: str, title: str, subreddit: str) -> float:
+    """Small quality adjustment for free Reddit sports results."""
+    if not _matchup_side_tokens(topic):
+        return 0.0
+
+    tokens = set(re.sub(r"[^\w\s-]", " ", f"{title} {subreddit}".lower()).split())
+    bonus = 0.0
+    if subreddit.strip().lower() in TEAM_OR_LEAGUE_SUBREDDITS:
+        bonus += 0.08
+    if SPORTS_DRIVER_TERMS & tokens:
+        bonus += 0.10
+    if {"ticket", "tickets", "selling", "sale", "resale", "bettorbot", "parlay", "pick", "picks"} & tokens:
+        bonus -= 0.15
+    if len(tokens & TEAM_OR_LEAGUE_SUBREDDITS) >= 3 and not (SPORTS_DRIVER_TERMS & tokens):
+        bonus -= 0.05
+    return bonus
 
 
 def _matchup_side_tokens(topic: str) -> List[set[str]]:
@@ -507,6 +539,14 @@ def search_reddit_public(
                     from . import dates as dates_mod
                     date_value = dates_mod.timestamp_to_date(created_utc)
 
+                adjusted_relevance = round(
+                    max(
+                        0.0,
+                        min(1.0, 0.65 * topic_relevance + 0.35 * _public_relevance(score, num_comments) + _sports_public_item_bonus(topic, title, subreddit)),
+                    ),
+                    3,
+                )
+
                 all_items.append({
                     "id": f"R{len(all_items)+1}",
                     "title": title,
@@ -514,7 +554,7 @@ def search_reddit_public(
                     "subreddit": subreddit,
                     "date": date_value,
                     "why_relevant": "Found via Reddit public search",
-                    "relevance": round(0.65 * topic_relevance + 0.35 * _public_relevance(score, num_comments), 3),
+                    "relevance": adjusted_relevance,
                     "engagement": {
                         "score": score,
                         "num_comments": num_comments,
@@ -571,6 +611,14 @@ def search_reddit_public(
                         from . import dates as dates_mod
                         date_value = dates_mod.timestamp_to_date(created_utc)
 
+                    adjusted_relevance = round(
+                        max(
+                            0.0,
+                            min(1.0, 0.72 * topic_relevance + 0.28 * _public_relevance(score, num_comments) + _sports_public_item_bonus(topic, title, subreddit)),
+                        ),
+                        3,
+                    )
+
                     all_items.append({
                         "id": f"R{len(all_items)+1}",
                         "title": title,
@@ -578,7 +626,7 @@ def search_reddit_public(
                         "subreddit": subreddit,
                         "date": date_value,
                         "why_relevant": f"Found via r/{sub} public search",
-                        "relevance": round(0.72 * topic_relevance + 0.28 * _public_relevance(score, num_comments), 3),
+                        "relevance": adjusted_relevance,
                         "engagement": {
                             "score": score,
                             "num_comments": num_comments,

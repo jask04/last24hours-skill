@@ -6,6 +6,8 @@ Codex chat is the primary target UX. The compact output is designed to open with
 
 Forecasts are now market-anchored by default. When Polymarket and Kalshi both exist for the same outcome, the skill blends them with liquidity/quality weighting and widens uncertainty when the spread is meaningful.
 
+For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers injuries, lineups, rest, playoff incentives, and meaningful line movement over betting-bot chatter, ticket resale posts, or generic hype.
+
 The skill is optimized for:
 - prediction markets
 - sports outcomes
@@ -142,8 +144,10 @@ python3 -c "import py_compile; py_compile.compile('scripts/lib/render.py', dorai
 python3 -c "import py_compile; py_compile.compile('scripts/lib/openai_reddit.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/score.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/kalshi.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/forecast.py', doraise=True)"
 python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact
+python3 scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
 ```
 
@@ -159,6 +163,7 @@ Recommended extra smoke tests:
 - Comparison mode compares probability and market quality, not just sentiment.
 - Market evidence outranks social chatter when relevance is similar.
 - Social and web evidence are used to explain the line, not replace it.
+- For sports, low-signal chatter is omitted when there is no clean injury, lineup, rest, or motivation signal.
 - Broad NBA slate queries automatically expand into one search per scheduled matchup.
 
 ## Kalshi Support

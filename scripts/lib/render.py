@@ -289,7 +289,7 @@ def _render_forecast_item(item: schema.ForecastItem) -> list[str]:
     market_view = item.market_view or "No clean market view available."
     lines.append(f"Market view: {market_view} [{_anchor_label(item)}]")
     if item.why_line:
-        lines.append(f"Why this is the line: {item.why_line}")
+        lines.append(f"Why this is the current line: {item.why_line}")
     lines.append(f"Confidence / uncertainty: {item.confidence_level} confidence. {item.uncertainty}")
     if item.upside_catalysts or item.downside_catalysts:
         up = "; ".join(item.upside_catalysts[:2]) if item.upside_catalysts else "No clear upside catalysts."
@@ -453,6 +453,46 @@ def _render_prediction_summary(report: schema.Report) -> list[str]:
     return lines
 
 
+def _compact_sports_items(items: list, source: str, report: schema.Report, limit: int) -> list:
+    if qt.detect_query_type(report.topic) != "prediction" or not _is_nba_slate_topic(report.topic) and not _matchup_signature(report.topic):
+        return items[:limit]
+
+    driver_terms = {
+        "injury", "injuries", "ruled", "questionable", "doubtful", "probable",
+        "available", "inactive", "rest", "resting", "lineup", "lineups", "starter",
+        "starters", "minutes", "restriction", "restricted", "playoff", "playoffs",
+        "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking",
+    }
+    weak_market_terms = {"odds", "line", "spread", "moneyline", "sportsbook", "fanduel", "draftkings"}
+    low_signal = {
+        "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
+        "bettorbot", "parlay", "pick", "picks", "lock", "tail", "sprinkle",
+    }
+    filtered = []
+    fallback = []
+    for item in items:
+        text = getattr(item, "text", "") or getattr(item, "title", "") or ""
+        tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+        if "check" in tokens and "out" in tokens:
+            tokens.discard("out")
+        if source == "reddit":
+            tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "subreddit", "").lower()).split())
+        if len(tokens & {"lakers", "warriors", "celtics", "knicks", "heat", "raptors", "bulls", "wizards", "rockets", "sixers", "pacers", "nets", "nuggets", "grizzlies"}) >= 4:
+            continue
+        if low_signal & tokens and not driver_terms & tokens:
+            continue
+        if weak_market_terms & tokens and not driver_terms & tokens:
+            fallback.append(item)
+            continue
+        if driver_terms & tokens:
+            filtered.append(item)
+        else:
+            fallback.append(item)
+    if filtered:
+        return filtered[:limit]
+    return []
+
+
 def _render_nba_slate_board(report: schema.Report) -> list[str]:
     return []
 
@@ -538,7 +578,11 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.reddit:
         lines.append("### Reddit Threads")
         lines.append("")
-        for item in report.reddit[:limit]:
+        compact_reddit = _compact_sports_items(report.reddit, "reddit", report, limit)
+        if not compact_reddit and (qt.detect_query_type(report.topic) == "prediction") and (_is_nba_slate_topic(report.topic) or _matchup_signature(report.topic)):
+            lines.append("*No high-signal Reddit threads found for this sports forecast.*")
+            lines.append("")
+        for item in compact_reddit:
             eng_str = ""
             if item.engagement:
                 eng = item.engagement
@@ -588,7 +632,11 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.x:
         lines.append("### X Posts")
         lines.append("")
-        for item in report.x[:limit]:
+        compact_x = _compact_sports_items(report.x, "x", report, limit)
+        if not compact_x and (qt.detect_query_type(report.topic) == "prediction") and (_is_nba_slate_topic(report.topic) or _matchup_signature(report.topic)):
+            lines.append("*No high-signal X posts found for this sports forecast.*")
+            lines.append("")
+        for item in compact_x:
             eng_str = ""
             if item.engagement:
                 eng = item.engagement
