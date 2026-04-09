@@ -31,6 +31,12 @@ RESULT_CAP = {
     "default": 15,
     "deep": 25,
 }
+_SPORTS_SLATE_ALIASES = {
+    "nba": {"nba"},
+    "nfl": {"nfl"},
+    "mlb": {"mlb"},
+    "nhl": {"nhl"},
+}
 
 
 def _log(msg: str):
@@ -59,6 +65,19 @@ def _extract_core_subject(topic: str) -> str:
     return topic.strip()
 
 
+def _detect_sports_league(topic: str) -> Optional[str]:
+    topic_lower = topic.lower()
+    for league, aliases in _SPORTS_SLATE_ALIASES.items():
+        if any(alias in topic_lower for alias in aliases):
+            return league
+    return None
+
+
+def _is_sports_slate_query(topic: str) -> bool:
+    topic_lower = topic.lower()
+    return bool(_detect_sports_league(topic) and any(term in topic_lower for term in ("games tonight", "games today", "tonight", "today", "slate")))
+
+
 def _expand_queries(topic: str) -> List[str]:
     """Generate search queries to cast a wider net.
 
@@ -70,6 +89,9 @@ def _expand_queries(topic: str) -> List[str]:
     """
     core = _extract_core_subject(topic)
     queries = [core]
+    league = _detect_sports_league(topic)
+    if league and _is_sports_slate_query(topic):
+        queries.insert(0, league.upper())
 
     # Add ALL individual words as separate queries
     words = core.split()
@@ -94,6 +116,15 @@ def _expand_queries(topic: str) -> List[str]:
 
 
 _GENERIC_TAGS = frozenset({"sports", "politics", "crypto", "science", "culture", "pop culture"})
+
+
+def _event_has_tag(event: Dict[str, Any], values: set[str]) -> bool:
+    tags = event.get("tags") or []
+    labels = {
+        (tag.get("label", "") if isinstance(tag, dict) else str(tag)).lower()
+        for tag in tags
+    }
+    return bool(labels & values)
 
 
 def _extract_domain_queries(topic: str, events: List[Dict]) -> List[str]:
@@ -391,11 +422,19 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
     """
     events = response.get("events", [])
     items = []
+    league = _detect_sports_league(topic) if topic else None
+    league_tag_map = {
+        "nba": {"nba"},
+        "nfl": {"nfl"},
+        "mlb": {"mlb"},
+        "nhl": {"nhl"},
+    }
 
     for i, event in enumerate(events):
         event_id = event.get("id", "")
         title = event.get("title", "")
         slug = event.get("slug", "")
+        sports_slate_query = _is_sports_slate_query(topic)
 
         # Filter: skip closed/resolved events
         if event.get("closed", False):
@@ -507,6 +546,16 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
         # Semantic relevance should dominate. Market quality should refine
         # relevant matches, not rescue unrelated high-liquidity events.
         text_score = _compute_text_similarity(topic, title, all_outcome_names) if topic else 0.5
+        if sports_slate_query:
+            wanted_tags = league_tag_map.get(league, set())
+            has_wanted_league = _event_has_tag(event, wanted_tags) if wanted_tags else False
+            is_matchup = " vs. " in title.lower() or " vs " in title.lower() or " at " in title.lower()
+            if has_wanted_league and is_matchup:
+                text_score = max(text_score, 0.82)
+            elif wanted_tags and not has_wanted_league:
+                text_score = min(text_score, 0.12)
+            elif _event_has_tag(event, {"awards", "mvp", "nba finals", "nba champion"}):
+                text_score = min(text_score, 0.22)
 
         # Volume signal: log-scaled monthly volume (most stable signal)
         vol_raw = event_volume1mo or event_volume1wk or volume24hr
@@ -532,6 +581,8 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             0.10 * competitive_score
         )
         relevance = min(1.0, text_score * (0.75 + 0.25 * market_quality))
+        if sports_slate_query and league_tag_map.get(league) and _event_has_tag(event, league_tag_map[league]) and (" vs. " in title.lower() or " vs " in title.lower() or " at " in title.lower()):
+            relevance = max(relevance, 0.72 + 0.18 * market_quality)
 
         # Surface the topic-matching outcome to the front before truncating
         if topic and outcome_prices:
@@ -565,6 +616,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             "outcome_prices": top_outcomes,
             "outcomes_remaining": remaining,
             "price_movement": price_movement,
+            "price_movement_pct": (top_market.get("oneDayPriceChange") or 0) * 100 if top_market.get("oneDayPriceChange") is not None else None,
             "volume24hr": volume24hr,
             "volume1mo": event_volume1mo,
             "liquidity": liquidity,

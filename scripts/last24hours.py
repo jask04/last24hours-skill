@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-last24hours - Research a topic from the last 24 hours on Reddit + X + YouTube + Web.
+last24hours - Forecast a topic from the last 24 hours using markets + social + web.
 
 Usage:
     python3 last24hours.py <topic> [options]
@@ -20,6 +20,7 @@ import argparse
 import atexit
 import json
 import os
+import re
 import signal
 import sys
 import threading
@@ -38,15 +39,15 @@ _child_pids: set = set()
 _child_pids_lock = threading.Lock()
 
 TIMEOUT_PROFILES = {
-    "quick":   {"global": 60,  "future": 20, "reddit_future": 40,  "youtube_future": 40,  "tiktok_future": 60,   "instagram_future": 60,   "hackernews_future": 20,  "bluesky_future": 20,  "truthsocial_future": 20,  "polymarket_future": 10,  "http": 10, "enrich_per": 5,  "enrich_total": 20, "enrich_max_items": 10},
-    "default": {"global": 120, "future": 40, "reddit_future": 60,  "youtube_future": 60,  "tiktok_future": 80,   "instagram_future": 80,   "hackernews_future": 40,  "bluesky_future": 40,  "truthsocial_future": 40,  "polymarket_future": 20,  "http": 20, "enrich_per": 10, "enrich_total": 30, "enrich_max_items": 15},
-    "deep":    {"global": 200, "future": 60, "reddit_future": 80,  "youtube_future": 80,  "tiktok_future": 100,  "instagram_future": 100,  "hackernews_future": 60,  "bluesky_future": 60,  "truthsocial_future": 60,  "polymarket_future": 30,  "http": 20, "enrich_per": 10, "enrich_total": 40, "enrich_max_items": 25},
+    "quick":   {"global": 60,  "future": 20, "reddit_future": 40,  "youtube_future": 40,  "tiktok_future": 60,   "instagram_future": 60,   "hackernews_future": 20,  "bluesky_future": 20,  "truthsocial_future": 20,  "polymarket_future": 18,  "kalshi_future": 12, "http": 10, "enrich_per": 5,  "enrich_total": 20, "enrich_max_items": 10},
+    "default": {"global": 120, "future": 40, "reddit_future": 60,  "youtube_future": 60,  "tiktok_future": 80,   "instagram_future": 80,   "hackernews_future": 40,  "bluesky_future": 40,  "truthsocial_future": 40,  "polymarket_future": 25,  "kalshi_future": 25, "http": 20, "enrich_per": 10, "enrich_total": 30, "enrich_max_items": 15},
+    "deep":    {"global": 200, "future": 60, "reddit_future": 80,  "youtube_future": 80,  "tiktok_future": 100,  "instagram_future": 100,  "hackernews_future": 60,  "bluesky_future": 60,  "truthsocial_future": 60,  "polymarket_future": 35,  "kalshi_future": 35, "http": 20, "enrich_per": 10, "enrich_total": 40, "enrich_max_items": 25},
 }
 
 # Valid source names for the --search flag
 VALID_SEARCH_SOURCES = {
     "reddit", "x", "hn", "bluesky", "bsky", "truthsocial", "truth", "youtube", "tiktok", "instagram",
-    "polymarket", "web", "xiaohongshu", "xhs",
+    "polymarket", "kalshi", "web", "xiaohongshu", "xhs",
 }
 
 
@@ -142,6 +143,7 @@ from lib import (
     hackernews,
     xiaohongshu_api,
     polymarket,
+    kalshi,
     entity_extract,
     env,
     http,
@@ -158,6 +160,7 @@ from lib import (
     tiktok,
     instagram,
     websearch,
+    sports_schedule,
     xai_x,
     youtube_yt,
     query_type as qt,
@@ -184,8 +187,8 @@ def _search_reddit(
 ) -> tuple:
     """Search Reddit (runs in thread).
 
-    Uses ScrapeCreators when SCRAPECREATORS_API_KEY is available (preferred).
-    Falls back to OpenAI Responses API otherwise.
+    Uses Reddit public JSON search by default, optionally supplemented by
+    ScrapeCreators or OpenAI when configured.
 
     Returns:
         Tuple of (reddit_items, raw_response, error, used_scrapecreators)
@@ -193,85 +196,90 @@ def _search_reddit(
     raw_response = None
     reddit_error = None
     used_scrapecreators = False
-
-    sc_token = config.get("SCRAPECREATORS_API_KEY")
+    reddit_items = []
 
     if mock:
         raw_response = load_fixture("openai_sample.json")
-    elif sc_token:
-        # === ScrapeCreators path (preferred) ===
+        reddit_items = openai_reddit.parse_reddit_response(raw_response or {})
+    else:
+        # Start with the free public Reddit path so the skill works without paid credits.
+        try:
+            reddit_items = openai_reddit.search_reddit_public(
+                topic, from_date, to_date, depth=depth,
+            )
+            raw_response = {"source": "reddit_public", "items": reddit_items}
+        except Exception as e:
+            reddit_items = []
+            raw_response = {"source": "reddit_public", "error": str(e)}
+            reddit_error = f"Reddit public search error: {type(e).__name__}: {e}"
+
+    sc_token = config.get("SCRAPECREATORS_API_KEY")
+    should_try_scrapecreators = (
+        not mock
+        and sc_token
+        and depth != "quick"
+        and len(reddit_items) < 3
+    )
+    if should_try_scrapecreators:
         used_scrapecreators = True
         try:
-            sys.stderr.write("[Reddit] Using ScrapeCreators API\n")
+            sys.stderr.write("[Reddit] Trying ScrapeCreators enrichment path\n")
             sys.stderr.flush()
             result = reddit.search_and_enrich(
                 topic, from_date, to_date,
                 depth=depth, token=sc_token,
             )
-            reddit_items = result.get("items", [])
-            if result.get("error"):
-                reddit_error = result["error"]
-            return reddit_items, result, reddit_error, used_scrapecreators
-        except Exception as e:
-            reddit_error = f"ScrapeCreators: {type(e).__name__}: {e}"
-            sys.stderr.write(f"[Reddit] ScrapeCreators failed: {e}\n")
-            sys.stderr.flush()
-            # Fall through to OpenAI if we have that key
-            if not config.get("OPENAI_API_KEY"):
-                # No OpenAI either: try public Reddit fallback.
-                try:
-                    reddit_items = openai_reddit.search_reddit_public(
-                        topic, from_date, to_date, depth=depth,
-                    )
-                    raw_response = {"source": "reddit_public", "items": reddit_items}
-                    return reddit_items, raw_response, None, False
-                except Exception as e2:
-                    return [], {"error": str(e)}, reddit_error, used_scrapecreators
+            sc_items = result.get("items", [])
+            if sc_items:
+                raw_response = result
+                reddit_items = sc_items
+                reddit_error = result.get("error")
+                return reddit_items, raw_response, reddit_error, used_scrapecreators
+            # Treat empty results as a soft failure so free fallback survives exhausted credits.
+            if not reddit_items:
+                reddit_error = result.get("error") or "ScrapeCreators returned no usable Reddit results"
             used_scrapecreators = False
-            sys.stderr.write("[Reddit] Falling back to OpenAI\n")
-            sys.stderr.flush()
+        except Exception as e:
+            if not reddit_items:
+                reddit_error = f"ScrapeCreators: {type(e).__name__}: {e}"
+            used_scrapecreators = False
 
-    # === OpenAI path (fallback) ===
-    if not mock:
-        if config.get("OPENAI_API_KEY"):
-            try:
-                raw_response = openai_reddit.search_reddit(
-                    config["OPENAI_API_KEY"],
-                    selected_models["openai"],
-                    topic,
-                    from_date,
-                    to_date,
-                    depth=depth,
-                    auth_source=config.get("OPENAI_AUTH_SOURCE", "api_key"),
-                    account_id=config.get("OPENAI_CHATGPT_ACCOUNT_ID"),
-                )
-            except http.HTTPError as e:
-                raw_response = {"error": str(e)}
+    # === OpenAI path (optional fallback) ===
+    should_try_openai = (
+        not mock
+        and config.get("OPENAI_API_KEY")
+        and depth != "quick"
+        and (not reddit_items or (len(reddit_items) < 3 and depth != "quick"))
+    )
+    if should_try_openai:
+        try:
+            raw_response = openai_reddit.search_reddit(
+                config["OPENAI_API_KEY"],
+                selected_models["openai"],
+                topic,
+                from_date,
+                to_date,
+                depth=depth,
+                auth_source=config.get("OPENAI_AUTH_SOURCE", "api_key"),
+                account_id=config.get("OPENAI_CHATGPT_ACCOUNT_ID"),
+            )
+        except http.HTTPError as e:
+            if not reddit_error and not reddit_items:
                 reddit_error = f"API error: {e}"
-            except Exception as e:
-                raw_response = {"error": str(e)}
+        except Exception as e:
+            if not reddit_error and not reddit_items:
                 reddit_error = f"{type(e).__name__}: {e}"
         else:
-            # No OpenAI auth: direct Reddit public JSON fallback.
-            try:
-                reddit_items = openai_reddit.search_reddit_public(
-                    topic, from_date, to_date, depth=depth,
-                )
-                raw_response = {"source": "reddit_public", "items": reddit_items}
-            except http.HTTPError as e:
-                reddit_items = []
-                raw_response = {"error": str(e), "source": "reddit_public"}
-                reddit_error = f"Reddit public API error: {e}"
-            except Exception as e:
-                reddit_items = []
-                raw_response = {"error": str(e), "source": "reddit_public"}
-                reddit_error = f"Reddit public search error: {type(e).__name__}: {e}"
+            openai_items = openai_reddit.parse_reddit_response(raw_response or {})
+            if openai_items:
+                reddit_items = openai_items
 
-    # Parse response
-    reddit_items = openai_reddit.parse_reddit_response(raw_response or {})
+    # Parse response for OpenAI-shaped payloads only.
+    if raw_response and raw_response.get("source") != "reddit_public" and not used_scrapecreators:
+        reddit_items = openai_reddit.parse_reddit_response(raw_response or {})
 
-    # Quick retry with simpler query if few results
-    if len(reddit_items) < 5 and not mock and not reddit_error and config.get("OPENAI_API_KEY"):
+    # Quick retry with simpler query if few results and OpenAI is available
+    if len(reddit_items) < 5 and not mock and not reddit_error and config.get("OPENAI_API_KEY") and depth != "quick":
         core = openai_reddit._extract_core_subject(topic)
         if core.lower() != topic.lower():
             try:
@@ -293,7 +301,7 @@ def _search_reddit(
                 sys.stderr.write(f"[Reddit] Retry fallback error: {e}\n")
 
     # Subreddit-targeted fallback if still < 3 results
-    if len(reddit_items) < 3 and not mock and not reddit_error and config.get("OPENAI_API_KEY"):
+    if len(reddit_items) < 3 and not mock and not reddit_error and config.get("OPENAI_API_KEY") and depth != "quick":
         sub_query = openai_reddit._build_subreddit_query(topic)
         try:
             sub_raw = openai_reddit.search_reddit(
@@ -595,11 +603,178 @@ def _search_polymarket(
         return [], f"{type(e).__name__}: {e}"
 
     pm_items = polymarket.parse_polymarket_response(response, topic=topic)
+    if depth == "quick" and (response.get("error") or not pm_items):
+        try:
+            retry_response = polymarket.search_polymarket(
+                topic, from_date, to_date, depth="default",
+            )
+            retry_items = polymarket.parse_polymarket_response(retry_response, topic=topic)
+            if retry_items:
+                response = retry_response
+                pm_items = retry_items
+        except Exception:
+            pass
 
     if response.get("error"):
         pm_error = response["error"]
 
     return pm_items, pm_error
+
+
+def _search_kalshi(
+    topic: str,
+    from_date: str,
+    to_date: str,
+    depth: str,
+) -> tuple:
+    """Search Kalshi via public market-data API (runs in thread)."""
+    kalshi_error = None
+
+    try:
+        response = kalshi.search_kalshi(topic, from_date, to_date, depth=depth)
+    except Exception as e:
+        return [], f"{type(e).__name__}: {e}"
+
+    kalshi_items = kalshi.parse_kalshi_response(response, topic=topic)
+
+    if response.get("error"):
+        kalshi_error = response["error"]
+
+    return kalshi_items, kalshi_error
+
+
+def _topic_cap_for_depth(depth: str) -> int:
+    return {"quick": 6, "default": 8, "deep": 12}.get(depth, 8)
+
+
+def _matchup_side_tokens(topic: str) -> list[set[str]]:
+    """Return distinctive token sets for each side of a sports matchup."""
+    text = topic.lower()
+    separator = None
+    for candidate in (" vs. ", " vs ", " at "):
+        if candidate in text:
+            separator = candidate
+            break
+    if not separator:
+        return []
+
+    stop = {"the", "and", "at", "vs", "vs.", "of"}
+    sides = []
+    for side in text.split(separator, 1):
+        tokens = {
+            token
+            for token in re.sub(r"[^\w\s]", " ", side).split()
+            if len(token) > 2 and token not in stop
+        }
+        if tokens:
+            sides.append(tokens)
+    return sides if len(sides) == 2 else []
+
+
+def _market_matches_matchup(item: dict, topic: str) -> bool:
+    """Require at least one distinctive token from each matchup side."""
+    sides = _matchup_side_tokens(topic)
+    if len(sides) != 2:
+        return True
+
+    item_text = f"{item.get('title', '')} {item.get('question', '')}".lower()
+    item_tokens = set(re.sub(r"[^\w\s]", " ", item_text).split())
+    return all(side & item_tokens for side in sides)
+
+
+def _search_x_many(
+    topics: list[str],
+    config: dict,
+    selected_models: dict,
+    from_date: str,
+    to_date: str,
+    depth: str,
+    mock: bool,
+    x_source: str = "xai",
+) -> tuple:
+    """Run X search for multiple matchup topics and merge the results."""
+    merged_items = []
+    merged_raw = {"queries": []}
+    errors = []
+
+    with ThreadPoolExecutor(max_workers=min(6, len(topics) or 1)) as executor:
+        futures = {
+            executor.submit(_search_x, topic, config, selected_models, from_date, to_date, depth, mock, x_source): topic
+            for topic in topics
+        }
+        for future in as_completed(futures):
+            topic = futures[future]
+            try:
+                items, raw, err = future.result()
+                merged_items.extend(items)
+                merged_raw["queries"].append({"topic": topic, "response": raw})
+                if err:
+                    errors.append(f"{topic}: {err}")
+            except Exception as e:
+                errors.append(f"{topic}: {type(e).__name__}: {e}")
+
+    merged_error = None if merged_items else "; ".join(errors[:3]) if errors else None
+    return merged_items, merged_raw, merged_error
+
+
+def _search_polymarket_many(
+    topics: list[str],
+    from_date: str,
+    to_date: str,
+    depth: str,
+) -> tuple:
+    """Run Polymarket search across multiple matchup topics and merge."""
+    merged_items = []
+    errors = []
+
+    with ThreadPoolExecutor(max_workers=min(6, len(topics) or 1)) as executor:
+        futures = {
+            executor.submit(_search_polymarket, topic, from_date, to_date, depth): topic
+            for topic in topics
+        }
+        for future in as_completed(futures):
+            topic = futures[future]
+            try:
+                items, err = future.result()
+                items = [item for item in items if _market_matches_matchup(item, topic)]
+                merged_items.extend(items)
+                if err:
+                    errors.append(f"{topic}: {err}")
+            except Exception as e:
+                errors.append(f"{topic}: {type(e).__name__}: {e}")
+
+    merged_error = None if merged_items else "; ".join(errors[:3]) if errors else None
+    return merged_items, merged_error
+
+
+def _search_kalshi_many(
+    topics: list[str],
+    from_date: str,
+    to_date: str,
+    depth: str,
+) -> tuple:
+    """Run Kalshi search across multiple matchup topics and merge."""
+    merged_items = []
+    errors = []
+
+    with ThreadPoolExecutor(max_workers=min(6, len(topics) or 1)) as executor:
+        futures = {
+            executor.submit(_search_kalshi, topic, from_date, to_date, depth): topic
+            for topic in topics
+        }
+        for future in as_completed(futures):
+            topic = futures[future]
+            try:
+                items, err = future.result()
+                items = [item for item in items if _market_matches_matchup(item, topic)]
+                merged_items.extend(items)
+                if err:
+                    errors.append(f"{topic}: {err}")
+            except Exception as e:
+                errors.append(f"{topic}: {type(e).__name__}: {e}")
+
+    merged_error = None if merged_items else "; ".join(errors[:3]) if errors else None
+    return merged_items, merged_error
 
 
 def _search_web(
@@ -890,16 +1065,18 @@ def run_research(
     do_bluesky: bool = True,
     do_truthsocial: bool = True,
     do_polymarket: bool = True,
+    do_kalshi: bool = True,
     no_native_web: bool = False,
+    search_topics: list[str] = None,
 ) -> tuple:
     """Run the research pipeline.
 
     Returns:
         Tuple of (reddit_items, x_items, youtube_items, tiktok_items, instagram_items,
-                  hackernews_items, bluesky_items, truthsocial_items, polymarket_items, web_items, web_needed,
+                  hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed,
                   raw_openai, raw_xai, raw_reddit_enriched,
                   reddit_error, x_error, youtube_error, tiktok_error, instagram_error,
-                  hackernews_error, bluesky_error, truthsocial_error, polymarket_error, web_error)
+                  hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error)
 
     Note: web_needed is True when web search should be performed by the assistant
     (i.e., no native web search API keys are configured). When native web search
@@ -908,6 +1085,7 @@ def run_research(
     if timeouts is None:
         timeouts = TIMEOUT_PROFILES[depth]
     future_timeout = timeouts["future"]
+    topic_scope = search_topics[:_topic_cap_for_depth(depth)] if search_topics else None
 
     reddit_items = []
     x_items = []
@@ -918,6 +1096,7 @@ def run_research(
     bluesky_items = []
     truthsocial_items = []
     polymarket_items = []
+    kalshi_items = []
     web_items = []
     raw_openai = None
     raw_xai = None
@@ -931,6 +1110,7 @@ def run_research(
     bluesky_error = None
     truthsocial_error = None
     polymarket_error = None
+    kalshi_error = None
     web_error = None
     xiaohongshu_error = None
 
@@ -960,6 +1140,45 @@ def run_research(
             if progress:
                 progress.start_web_only()
                 progress.end_web_only()
+        if do_hackernews:
+            if progress:
+                progress.start_hackernews()
+            try:
+                hackernews_items, hackernews_error = _search_hackernews(topic, from_date, to_date, depth)
+                if hackernews_error and progress:
+                    progress.show_error(f"HN error: {hackernews_error}")
+            except Exception as e:
+                hackernews_error = f"{type(e).__name__}: {e}"
+                if progress:
+                    progress.show_error(f"HN error: {e}")
+            if progress:
+                progress.end_hackernews(len(hackernews_items))
+        if do_polymarket:
+            if progress:
+                progress.start_polymarket()
+            try:
+                polymarket_items, polymarket_error = _search_polymarket(topic, from_date, to_date, depth)
+                if polymarket_error and progress:
+                    progress.show_error(f"Polymarket error: {polymarket_error}")
+            except Exception as e:
+                polymarket_error = f"{type(e).__name__}: {e}"
+                if progress:
+                    progress.show_error(f"Polymarket error: {e}")
+            if progress:
+                progress.end_polymarket(len(polymarket_items))
+        if do_kalshi:
+            if progress:
+                progress.start_kalshi()
+            try:
+                kalshi_items, kalshi_error = _search_kalshi(topic, from_date, to_date, depth)
+                if kalshi_error and progress:
+                    progress.show_error(f"Kalshi error: {kalshi_error}")
+            except Exception as e:
+                kalshi_error = f"{type(e).__name__}: {e}"
+                if progress:
+                    progress.show_error(f"Kalshi error: {e}")
+            if progress:
+                progress.end_kalshi(len(kalshi_items))
         # Optional Xiaohongshu search in web-only mode.
         if run_xiaohongshu:
             try:
@@ -1014,7 +1233,7 @@ def run_research(
                     progress.show_error(f"Instagram error: {e}")
             if progress:
                 progress.end_instagram(len(instagram_items))
-        return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, web_error
+        return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error
 
     # Determine which searches to run
     do_reddit = sources in ("both", "reddit", "all", "reddit-web")
@@ -1033,6 +1252,7 @@ def run_research(
     bluesky_future = None
     truthsocial_future = None
     polymarket_future = None
+    kalshi_future = None
     web_future = None
     max_workers = (
         2
@@ -1044,6 +1264,7 @@ def run_research(
         + (1 if do_bluesky else 0)
         + (1 if do_truthsocial else 0)
         + (1 if do_polymarket else 0)
+        + (1 if do_kalshi else 0)
         + (1 if web_backend else 0)
     )
 
@@ -1060,10 +1281,16 @@ def run_research(
         if do_x:
             if progress:
                 progress.start_x()
-            x_future = executor.submit(
-                _search_x, topic, config, selected_models,
-                from_date, to_date, depth, mock, x_source
-            )
+            if topic_scope:
+                x_future = executor.submit(
+                    _search_x_many, topic_scope, config, selected_models,
+                    from_date, to_date, depth, mock, x_source
+                )
+            else:
+                x_future = executor.submit(
+                    _search_x, topic, config, selected_models,
+                    from_date, to_date, depth, mock, x_source
+                )
 
         if run_youtube:
             if progress:
@@ -1113,9 +1340,26 @@ def run_research(
         if do_polymarket:
             if progress:
                 progress.start_polymarket()
-            polymarket_future = executor.submit(
-                _search_polymarket, topic, from_date, to_date, depth
-            )
+            if topic_scope:
+                polymarket_future = executor.submit(
+                    _search_polymarket_many, topic_scope, from_date, to_date, depth
+                )
+            else:
+                polymarket_future = executor.submit(
+                    _search_polymarket, topic, from_date, to_date, depth
+                )
+
+        if do_kalshi:
+            if progress:
+                progress.start_kalshi()
+            if topic_scope:
+                kalshi_future = executor.submit(
+                    _search_kalshi_many, topic_scope, from_date, to_date, depth
+                )
+            else:
+                kalshi_future = executor.submit(
+                    _search_kalshi, topic, from_date, to_date, depth
+                )
 
         if web_backend:
             sys.stderr.write(f"[web] Searching via {web_backend}\n")
@@ -1289,6 +1533,23 @@ def run_research(
             if progress:
                 progress.end_polymarket(len(polymarket_items))
 
+        if kalshi_future:
+            ka_timeout = timeouts.get("kalshi_future", future_timeout)
+            try:
+                kalshi_items, kalshi_error = kalshi_future.result(timeout=ka_timeout)
+                if kalshi_error and progress:
+                    progress.show_error(f"Kalshi error: {kalshi_error}")
+            except TimeoutError:
+                kalshi_error = f"Kalshi search timed out after {ka_timeout}s"
+                if progress:
+                    progress.show_error(kalshi_error)
+            except Exception as e:
+                kalshi_error = f"{type(e).__name__}: {e}"
+                if progress:
+                    progress.show_error(f"Kalshi error: {e}")
+            if progress:
+                progress.end_kalshi(len(kalshi_items))
+
         if web_future:
             try:
                 web_items, web_error = web_future.result(timeout=future_timeout)
@@ -1406,7 +1667,7 @@ def run_research(
         if sup_x:
             x_items.extend(sup_x)
 
-    return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, web_error
+    return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error
 
 
 def main():
@@ -1416,7 +1677,7 @@ def main():
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(
-        description="Research a topic from the last N days on Reddit + X"
+        description="Forecast a topic from the last N days using markets, social, and web evidence"
     )
     parser.add_argument("topic", nargs="*", help="Topic to research")
     parser.add_argument("--mock", action="store_true", help="Use fixtures")
@@ -1583,6 +1844,7 @@ def main():
             "bluesky": has_bluesky,
             "truthsocial": has_truthsocial,
             "polymarket": True,
+            "kalshi": True,
             "web_search_backend": web_source,
             "parallel_ai": bool(config.get("PARALLEL_API_KEY")),
             "brave": bool(config.get("BRAVE_API_KEY")),
@@ -1618,6 +1880,7 @@ def main():
         "bluesky": has_bluesky,
         "truthsocial": has_truthsocial,
         "polymarket": True,
+        "kalshi": True,
         "web_search_backend": "deferred to assistant" if args.no_native_web else web_source,
     }
     ui.show_diagnostic_banner(diag)
@@ -1698,6 +1961,16 @@ def main():
 
     # Detect query type for source tiering and scoring adjustments
     query_type = qt.detect_query_type(args.topic)
+    expanded_schedule_date = None
+    search_topics = None
+    if query_type == "prediction" and sports_schedule.is_nba_slate_query(args.topic):
+        try:
+            expanded_schedule_date, slate_games = sports_schedule.expand_nba_slate_query(args.topic)
+            if slate_games:
+                search_topics = slate_games
+        except Exception as e:
+            sys.stderr.write(f"[schedule] NBA slate expansion failed: {e}\n")
+            sys.stderr.flush()
 
     # Apply --search flag: restrict sources to the specified subset
     # Source defaults are query-type-aware (Truth Social always opt-in,
@@ -1706,6 +1979,7 @@ def main():
     search_do_bluesky = has_bluesky and qt.is_source_enabled("bluesky", query_type)
     search_do_truthsocial = False  # Always opt-in (requires --search truthsocial)
     search_do_polymarket = qt.is_source_enabled("polymarket", query_type)
+    search_do_kalshi = qt.is_source_enabled("kalshi", query_type)
     search_run_youtube = has_ytdlp and qt.is_source_enabled("youtube", query_type)
     search_run_tiktok = has_tiktok and qt.is_source_enabled("tiktok", query_type)
     search_run_instagram = has_instagram and qt.is_source_enabled("instagram", query_type)
@@ -1718,6 +1992,7 @@ def main():
         search_do_bluesky = ("bluesky" in search_sources or "bsky" in search_sources) and has_bluesky
         search_do_truthsocial = ("truthsocial" in search_sources or "truth" in search_sources) and has_truthsocial
         search_do_polymarket = "polymarket" in search_sources
+        search_do_kalshi = "kalshi" in search_sources
         search_run_youtube = "youtube" in search_sources and has_ytdlp
         search_run_tiktok = "tiktok" in search_sources and has_tiktok
         search_run_instagram = "instagram" in search_sources and has_instagram
@@ -1736,7 +2011,7 @@ def main():
             sources = "web"  # hn/polymarket only; no Reddit/X
 
     # Run research
-    reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, web_error = run_research(
+    reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error = run_research(
         args.topic,
         sources,
         config,
@@ -1757,7 +2032,9 @@ def main():
         do_bluesky=search_do_bluesky,
         do_truthsocial=search_do_truthsocial,
         do_polymarket=search_do_polymarket,
+        do_kalshi=search_do_kalshi,
         no_native_web=args.no_native_web,
+        search_topics=search_topics,
     )
 
     # Processing phase
@@ -1773,6 +2050,7 @@ def main():
     normalized_bsky = normalize.normalize_bluesky_items(bluesky_items, from_date, to_date) if bluesky_items else []
     normalized_ts = normalize.normalize_truthsocial_items(truthsocial_items, from_date, to_date) if truthsocial_items else []
     normalized_pm = normalize.normalize_polymarket_items(polymarket_items, from_date, to_date) if polymarket_items else []
+    normalized_ka = normalize.normalize_kalshi_items(kalshi_items, from_date, to_date) if kalshi_items else []
     normalized_web = websearch.normalize_websearch_items(web_items, from_date, to_date) if web_items else []
 
     # Hard date filter: exclude items with verified dates outside the range
@@ -1792,6 +2070,7 @@ def main():
     filtered_ts = normalize.filter_by_date_range(normalized_ts, from_date, to_date) if normalized_ts else []
     # Polymarket: skip hard date filter - markets are active/traded, updatedAt is fine
     filtered_pm = normalized_pm
+    filtered_ka = normalized_ka
     filtered_web = normalize.filter_by_date_range(normalized_web, from_date, to_date) if normalized_web else []
 
     # Score items
@@ -1804,6 +2083,7 @@ def main():
     scored_bsky = score.score_bluesky_items(filtered_bsky) if filtered_bsky else []
     scored_ts = score.score_truthsocial_items(filtered_ts) if filtered_ts else []
     scored_pm = score.score_polymarket_items(filtered_pm) if filtered_pm else []
+    scored_ka = score.score_kalshi_items(filtered_ka) if filtered_ka else []
     scored_web = score.score_websearch_items(filtered_web, query_type=query_type) if filtered_web else []
 
     # Sort items (query-type-aware tiebreaker ordering)
@@ -1816,6 +2096,7 @@ def main():
     sorted_bsky = score.sort_items(scored_bsky, query_type=query_type) if scored_bsky else []
     sorted_ts = score.sort_items(scored_ts, query_type=query_type) if scored_ts else []
     sorted_pm = score.sort_items(scored_pm, query_type=query_type) if scored_pm else []
+    sorted_ka = score.sort_items(scored_ka, query_type=query_type) if scored_ka else []
     sorted_web = score.sort_items(scored_web, query_type=query_type) if scored_web else []
 
     # Dedupe items
@@ -1828,6 +2109,7 @@ def main():
     deduped_bsky = dedupe.dedupe_bluesky(sorted_bsky) if sorted_bsky else []
     deduped_ts = dedupe.dedupe_truthsocial(sorted_ts) if sorted_ts else []
     deduped_pm = dedupe.dedupe_polymarket(sorted_pm) if sorted_pm else []
+    deduped_ka = dedupe.dedupe_kalshi(sorted_ka) if sorted_ka else []
     deduped_web = websearch.dedupe_websearch(sorted_web) if sorted_web else []
 
     # Post-retrieval relevance filter: drop low-relevance items per source
@@ -1840,10 +2122,11 @@ def main():
     deduped_bsky = score.relevance_filter(deduped_bsky, "BLUESKY")
     deduped_ts = score.relevance_filter(deduped_ts, "TRUTHSOCIAL")
     deduped_pm = score.relevance_filter(deduped_pm, "POLYMARKET") if deduped_pm else []
+    deduped_ka = score.relevance_filter(deduped_ka, "KALSHI") if deduped_ka else []
 
     # Cross-source linking: annotate items that discuss the same story
     dedupe.cross_source_link(
-        deduped_reddit, deduped_x, deduped_youtube, deduped_tiktok, deduped_ig, deduped_hn, deduped_bsky, deduped_ts, deduped_pm, deduped_web,
+        deduped_reddit, deduped_x, deduped_youtube, deduped_tiktok, deduped_ig, deduped_hn, deduped_bsky, deduped_ts, deduped_pm, deduped_ka, deduped_web,
     )
 
     progress.end_processing()
@@ -1866,6 +2149,7 @@ def main():
     report.bluesky = deduped_bsky
     report.truthsocial = deduped_ts
     report.polymarket = deduped_pm
+    report.kalshi = deduped_ka
     report.web = deduped_web
     report.reddit_error = reddit_error
     report.x_error = x_error
@@ -1876,6 +2160,7 @@ def main():
     report.bluesky_error = bluesky_error
     report.truthsocial_error = truthsocial_error
     report.polymarket_error = polymarket_error
+    report.kalshi_error = kalshi_error
     report.web_error = web_error
     report.resolved_x_handle = args.x_handle
 
@@ -1889,7 +2174,7 @@ def main():
     if sources == "web":
         progress.show_web_only_complete()
     else:
-        progress.show_complete(len(deduped_reddit), len(deduped_x), len(deduped_youtube), len(deduped_hn), len(deduped_pm), len(deduped_tiktok), len(deduped_ig))
+        progress.show_complete(len(deduped_reddit), len(deduped_x), len(deduped_youtube), len(deduped_hn), len(deduped_pm), len(deduped_ka), len(deduped_tiktok), len(deduped_ig))
 
     # Build source info for status footer
     source_info = {}
@@ -1998,6 +2283,16 @@ def main():
                 "author": "polymarket",
                 "content": item.title,
                 "engagement_score": item.engagement.volume if item.engagement and item.engagement.volume else 0,
+                "relevance_score": item.relevance,
+            })
+        for item in deduped_ka:
+            findings.append({
+                "source": "kalshi",
+                "url": item.url,
+                "title": item.question,
+                "author": "kalshi",
+                "content": item.title,
+                "engagement_score": item.engagement.open_interest if item.engagement and item.engagement.open_interest else 0,
                 "relevance_score": item.relevance,
             })
         for item in deduped_ig:

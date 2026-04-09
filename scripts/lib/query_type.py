@@ -26,7 +26,30 @@ _BREAKING_PATTERNS = re.compile(
     r"\b(latest|breaking|just announced|launched|released|new|update|news|happened|today|this week)\b", re.I
 )
 _PREDICTION_PATTERNS = re.compile(
-    r"\b(predict|forecast|odds|chance|probability|election|outcome|bet on|market for)\b", re.I
+    r"\b("
+    r"predict|prediction|forecast|forecasting|odds|line|spread|moneyline|implied probability|probability|"
+    r"chance|likely|likelihood|win probability|cover|over/under|over under|favorite|underdog|"
+    r"election|primary|ballot|polls?|outcome|result|bet on|market for|polymarket|kalshi|"
+    r"storm|rain|snow|temperature|hurricane|tornado|landfall|playoffs?|finals?|matchup|game|tonight|"
+    r"fed|inflation|cpi|jobs report|gdp|recession|rate cut|rate hike|earnings|approval rating"
+    r")\b",
+    re.I,
+)
+_FORECASTABLE_DOMAIN_PATTERNS = re.compile(
+    r"\b("
+    r"nba|nfl|mlb|nhl|wnba|ncaa|soccer|football|baseball|basketball|tennis|golf|ufc|mma|boxing|"
+    r"weather|storm|rain|snow|wind|temperature|hurricane|tornado|heatwave|wildfire|"
+    r"election|senate|house|president|governor|polling|approval|"
+    r"stocks?|stock market|s&p|nasdaq|bitcoin|btc|eth|crypto|economy|inflation|cpi|jobs|gdp|fed|rates?"
+    r")\b",
+    re.I,
+)
+_OUTCOME_PHRASE_PATTERNS = re.compile(
+    r"\b("
+    r"who wins?|who will win|will .+ win|does .+ win|beats? .+|make the playoffs|miss the playoffs|"
+    r"landfall|passes?|fails?|approved?|signs?|cuts?|hikes?|hits? \d+|above \d+|below \d+"
+    r")\b",
+    re.I,
 )
 
 
@@ -38,6 +61,8 @@ def detect_query_type(topic: str) -> QueryType:
     """
     # Most specific first
     if _COMPARISON_PATTERNS.search(topic):
+        if _PREDICTION_PATTERNS.search(topic) or _FORECASTABLE_DOMAIN_PATTERNS.search(topic) or _OUTCOME_PHRASE_PATTERNS.search(topic):
+            return "prediction"
         return "comparison"
     if _HOWTO_PATTERNS.search(topic):
         return "how_to"
@@ -45,14 +70,17 @@ def detect_query_type(topic: str) -> QueryType:
         return "product"
     if _OPINION_PATTERNS.search(topic):
         return "opinion"
-    if _PREDICTION_PATTERNS.search(topic):
+    if _PREDICTION_PATTERNS.search(topic) or _FORECASTABLE_DOMAIN_PATTERNS.search(topic) or _OUTCOME_PHRASE_PATTERNS.search(topic):
         return "prediction"
     if _CONCEPT_PATTERNS.search(topic):
         return "concept"
     if _BREAKING_PATTERNS.search(topic):
         return "breaking_news"
 
-    # Default: treat as breaking news (most common use case for "last 24 hours")
+    # Default to forecast mode for ambiguous but plausibly forecastable requests.
+    if _FORECASTABLE_DOMAIN_PATTERNS.search(topic):
+        return "prediction"
+
     return "breaking_news"
 
 
@@ -66,7 +94,7 @@ SOURCE_TIERS = {
     "how_to":        {"tier1": {"reddit", "hn", "web"},        "tier2": {"x", "youtube"}},
     "comparison":    {"tier1": {"reddit", "x", "hn"},          "tier2": {"web", "youtube"}},
     "breaking_news": {"tier1": {"x", "reddit", "web", "hn"},   "tier2": {"bluesky", "truthsocial", "youtube"}},
-    "prediction":    {"tier1": {"polymarket", "x", "reddit"},   "tier2": {"web", "hn"}},
+    "prediction":    {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"},   "tier2": {"hn", "bluesky"}},
 }
 
 # WebSearch penalty adjustment by query type.
@@ -79,7 +107,7 @@ WEBSEARCH_PENALTY_BY_TYPE = {
     "how_to": 5,          # tutorials on web are valuable
     "comparison": 10,     # mix of social and web
     "breaking_news": 10,  # news sites are valuable
-    "prediction": 15,     # social/market data > web articles
+    "prediction": 8,      # web still matters as explanatory evidence
 }
 
 # Tiebreaker priority overrides by query type.
@@ -91,7 +119,7 @@ TIEBREAKER_BY_TYPE = {
     "how_to":        {"reddit": 0, "hn": 1, "web": 2, "x": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "comparison":    {"reddit": 0, "x": 1, "hn": 2, "web": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "breaking_news": {"x": 0, "reddit": 1, "web": 2, "hn": 3, "bluesky": 4, "tiktok": 5, "youtube": 6, "polymarket": 7},
-    "prediction":    {"polymarket": 0, "x": 1, "reddit": 2, "web": 3, "hn": 4, "bluesky": 5, "youtube": 6, "tiktok": 7},
+    "prediction":    {"kalshi": 0, "polymarket": 1, "x": 2, "reddit": 3, "web": 4, "hn": 5, "bluesky": 6, "youtube": 7, "tiktok": 8, "instagram": 9},
 }
 
 

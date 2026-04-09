@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -36,6 +37,8 @@ def _xref_tag(item) -> str:
             source_names.add('Truth Social')
         elif ref_id.startswith('PM'):
             source_names.add('Polymarket')
+        elif ref_id.startswith('KA'):
+            source_names.add('Kalshi')
         elif ref_id.startswith('W'):
             source_names.add('Web')
     if source_names:
@@ -57,6 +60,30 @@ def ensure_output_dir():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _write_text(path: Path, content: str) -> None:
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except PermissionError:
+        global OUTPUT_DIR
+        OUTPUT_DIR = Path(tempfile.gettempdir()) / "last24hours" / "out"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        with open(OUTPUT_DIR / path.name, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+
+def _write_json(path: Path, payload) -> None:
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+    except PermissionError:
+        global OUTPUT_DIR
+        OUTPUT_DIR = Path(tempfile.gettempdir()) / "last24hours" / "out"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        with open(OUTPUT_DIR / path.name, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+
+
 def _assess_data_freshness(report: schema.Report) -> dict:
     """Assess how much data is actually from the last 24 hours."""
     reddit_recent = sum(1 for r in report.reddit if r.date and r.date >= report.range_from)
@@ -66,12 +93,13 @@ def _assess_data_freshness(report: schema.Report) -> dict:
     bsky_recent = sum(1 for b in report.bluesky if b.date and b.date >= report.range_from)
     ts_recent = sum(1 for ts in report.truthsocial if ts.date and ts.date >= report.range_from)
     pm_recent = sum(1 for p in report.polymarket if p.date and p.date >= report.range_from)
+    ka_recent = sum(1 for k in report.kalshi if k.date and k.date >= report.range_from)
 
     tiktok_recent = sum(1 for t in report.tiktok if t.date and t.date >= report.range_from)
     ig_recent = sum(1 for ig in report.instagram if ig.date and ig.date >= report.range_from)
 
-    total_recent = reddit_recent + x_recent + web_recent + hn_recent + bsky_recent + ts_recent + pm_recent + tiktok_recent + ig_recent
-    total_items = len(report.reddit) + len(report.x) + len(report.web) + len(report.hackernews) + len(report.bluesky) + len(report.truthsocial) + len(report.polymarket) + len(report.tiktok) + len(report.instagram)
+    total_recent = reddit_recent + x_recent + web_recent + hn_recent + bsky_recent + ts_recent + pm_recent + ka_recent + tiktok_recent + ig_recent
+    total_items = len(report.reddit) + len(report.x) + len(report.web) + len(report.hackernews) + len(report.bluesky) + len(report.truthsocial) + len(report.polymarket) + len(report.kalshi) + len(report.tiktok) + len(report.instagram)
 
     return {
         "reddit_recent": reddit_recent,
@@ -82,6 +110,151 @@ def _assess_data_freshness(report: schema.Report) -> dict:
         "is_sparse": total_recent < 5,
         "mostly_evergreen": total_items > 0 and total_recent < total_items * 0.3,
     }
+
+
+def _is_nba_slate_topic(topic: str) -> bool:
+    topic_lower = topic.lower()
+    return "nba" in topic_lower and any(term in topic_lower for term in (
+        "games today", "games tonight", "games tomorrow", "tomorrows nba games",
+        "tomorrow's nba games", "todays nba games", "today's nba games", "nba slate",
+    ))
+
+
+def _matchup_side_tokens(text: str) -> list[set[str]]:
+    separator = None
+    text_lower = text.lower()
+    for candidate in (" vs. ", " vs ", " at "):
+        if candidate in text_lower:
+            separator = candidate
+            break
+    if not separator:
+        return []
+    stop = {"the", "and", "at", "vs", "vs.", "of"}
+    sides = []
+    for side in text_lower.split(separator, 1):
+        tokens = {
+            token
+            for token in re.sub(r"[^\w\s]", " ", side).split()
+            if len(token) > 2 and token not in stop
+        }
+        if tokens:
+            sides.append(tokens)
+    return sides if len(sides) == 2 else []
+
+
+def _matchup_signature(text: str) -> Optional[str]:
+    sides = _matchup_side_tokens(text)
+    if len(sides) != 2:
+        return None
+    normalized = [" ".join(sorted(side)) for side in sides]
+    normalized.sort()
+    return " | ".join(normalized)
+
+
+def _market_forecast_line(item: schema.PolymarketItem) -> Optional[tuple[str, str, str]]:
+    if not item.outcome_prices:
+        return None
+    ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True)
+    favorite_name, favorite_price = ordered[0]
+    market_view = " | ".join(f"{name}: {price * 100:.0f}%" for name, price in ordered[:2])
+    if item.price_movement:
+        market_view += f" ({item.price_movement})"
+    uncertainty = "Tight market" if len(ordered) > 1 and abs((ordered[0][1] - ordered[1][1]) * 100) < 8 else "Moderate edge"
+    return (f"{favorite_name} {favorite_price * 100:.0f}%", market_view, uncertainty)
+
+
+def _forecast_change_line(item: schema.PolymarketItem) -> str:
+    ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True) if item.outcome_prices else []
+    gap = abs((ordered[0][1] - ordered[1][1]) * 100) if len(ordered) > 1 else 0.0
+    if gap < 8:
+        return "What changes the number: one lineup or injury update could flip this."
+    if item.price_movement_pct is not None and abs(item.price_movement_pct) >= 8:
+        return "What changes the number: the market has already moved sharply; another major injury/rest report would matter most."
+    return "What changes the number: starting lineups, injury/rest news, and late market moves near tipoff."
+
+
+def _evidence_snippet(report: schema.Report, sides: list[set[str]]) -> Optional[str]:
+    candidates = []
+    driver_terms = {
+        "injury", "injuries", "out", "ruled", "rest", "resting", "lineup",
+        "starting", "starter", "bench", "doubtful", "questionable", "available",
+        "inactive", "tank", "playoff", "seed", "odds", "moneyline",
+    }
+    low_signal_terms = {
+        "ticket", "tickets", "dm", "interested", "selling", "sale",
+        "placed", "bet", "bettorbot", "asking", "section", "row",
+    }
+
+    for item in report.x[:12]:
+        text = getattr(item, "text", "")
+        tokens = set(re.sub(r"[^\w\s]", " ", text.lower()).split())
+        if all(side & tokens for side in sides):
+            bonus = 8 if driver_terms & tokens else 0
+            penalty = 10 if (low_signal_terms & tokens and not driver_terms & tokens) else 0
+            candidates.append((getattr(item, "score", 0) + bonus - penalty, text))
+
+    for item in report.reddit[:8]:
+        text = f"{getattr(item, 'title', '')} {getattr(item, 'subreddit', '')}"
+        tokens = set(re.sub(r"[^\w\s]", " ", text.lower()).split())
+        if all(side & tokens for side in sides):
+            bonus = 6 if driver_terms & tokens else 0
+            candidates.append((getattr(item, "score", 0) + bonus, getattr(item, "title", "")))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    snippet = candidates[0][1].strip().replace("\n", " ")
+    return snippet[:160] + ("..." if len(snippet) > 160 else "")
+
+
+def _market_divergence_line(report: schema.Report, signature: str) -> Optional[str]:
+    if not report.kalshi:
+        return None
+
+    for item in report.kalshi:
+        candidate_sig = _matchup_signature(item.title or item.question)
+        if candidate_sig != signature or item.current_probability is None:
+            continue
+        return f"Kalshi view: YES {item.current_probability * 100:.0f}%"
+    return None
+
+
+def _render_nba_slate_board(report: schema.Report) -> list[str]:
+    if not _is_nba_slate_topic(report.topic) or not report.polymarket:
+        return []
+
+    lines = ["### Slate Forecast Board", ""]
+    seen = set()
+
+    for item in report.polymarket:
+        signature = _matchup_signature(item.title or item.question)
+        if not signature or signature in seen:
+            continue
+        seen.add(signature)
+        forecast = _market_forecast_line(item)
+        sides = _matchup_side_tokens(item.title or item.question)
+        if not forecast or len(sides) != 2:
+            continue
+
+        forecast_line, market_view, uncertainty = forecast
+        evidence = _evidence_snippet(report, sides)
+        kalshi_view = _market_divergence_line(report, signature)
+
+        lines.append(f"**{item.title or item.question}**")
+        lines.append(f"Forecast: {forecast_line}")
+        lines.append(f"Market view: {market_view}")
+        if kalshi_view:
+            lines.append(kalshi_view)
+        if evidence:
+            lines.append(f"Why this is the line: {evidence}")
+        if not report.kalshi:
+            uncertainty = f"{uncertainty}; no Kalshi line"
+        lines.append(f"Uncertainty: {uncertainty}")
+        lines.append(_forecast_change_line(item))
+        lines.append("")
+
+    return lines if len(lines) > 2 else []
 
 
 def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "none") -> str:
@@ -98,7 +271,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     lines = []
 
     # Header
-    lines.append(f"## Research Results: {report.topic}")
+    lines.append(f"## Forecast Inputs: {report.topic}")
     lines.append("")
 
     # Assess data freshness and add honesty warning if needed
@@ -115,9 +288,10 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("")
         lines.append("---")
         lines.append("**⚡ Want better results?** Add API keys to unlock Reddit, TikTok, Instagram & X data:")
-        lines.append("- `SCRAPECREATORS_API_KEY` → Reddit + TikTok + Instagram (one key, all three!) — real upvotes, comments, views")
+        lines.append("- Reddit public search works without a paid scraper")
+        lines.append("- `SCRAPECREATORS_API_KEY` is optional and improves Reddit comments + TikTok + Instagram")
         lines.append("- `XAI_API_KEY` → X posts with real likes & reposts")
-        lines.append("- `OPENAI_API_KEY` (legacy) → Reddit threads (slower, higher cost)")
+        lines.append("- `OPENAI_API_KEY` (optional) → extra Reddit fallback/search")
         lines.append("- Edit `~/.config/last24hours/.env` to add keys")
         lines.append("---")
         lines.append("")
@@ -138,12 +312,16 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append(f"**Resolved X Handle:** @{report.resolved_x_handle}")
     lines.append("")
 
+    slate_board = _render_nba_slate_board(report)
+    if slate_board:
+        lines.extend(slate_board)
+
     # Coverage note for partial coverage
     if report.mode == "reddit-only" and missing_keys in ("x", "none"):
         lines.append("*💡 Tip: Add an xAI key (`XAI_API_KEY`) for X/Twitter data and better triangulation.*")
         lines.append("")
     elif report.mode == "x-only" and missing_keys in ("reddit", "none"):
-        lines.append("*💡 Tip: Add `SCRAPECREATORS_API_KEY` for Reddit + TikTok + Instagram data (one key, all three) and better triangulation.*")
+        lines.append("*💡 Tip: Reddit public search already works. Add `SCRAPECREATORS_API_KEY` only if you want richer Reddit comments plus TikTok/Instagram coverage.*")
         lines.append("")
 
     # Reddit items
@@ -451,12 +629,12 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
 
     # Polymarket items
     if report.polymarket_error:
-        lines.append("### Prediction Markets (Polymarket)")
+        lines.append("### Market Pricing (Polymarket)")
         lines.append("")
         lines.append(f"**ERROR:** {report.polymarket_error}")
         lines.append("")
     elif report.polymarket:
-        lines.append("### Prediction Markets (Polymarket)")
+        lines.append("### Market Pricing (Polymarket)")
         lines.append("")
         for item in report.polymarket[:limit]:
             eng_str = ""
@@ -498,6 +676,45 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                     outcome_line += f" ({item.price_movement})"
                 lines.append(f"  {outcome_line}")
 
+            lines.append(f"  {item.url}")
+            lines.append(f"  *{item.why_relevant}*")
+            lines.append("")
+
+    if report.kalshi_error:
+        lines.append("### Market Pricing (Kalshi)")
+        lines.append("")
+        lines.append(f"**ERROR:** {report.kalshi_error}")
+        lines.append("")
+    elif report.kalshi:
+        lines.append("### Market Pricing (Kalshi)")
+        lines.append("")
+        for item in report.kalshi[:limit]:
+            eng_str = ""
+            if item.engagement:
+                parts = []
+                if item.engagement.volume is not None:
+                    parts.append(f"{item.engagement.volume:,.0f} vol")
+                if item.engagement.open_interest is not None:
+                    parts.append(f"{item.engagement.open_interest:,.0f} OI")
+                if item.engagement.liquidity is not None:
+                    parts.append(f"${item.engagement.liquidity:,.0f} liq")
+                if parts:
+                    eng_str = f" [{' | '.join(parts)}]"
+
+            date_str = f" ({item.date})" if item.date else ""
+            lines.append(f"**{item.id}** (score:{item.score}) {item.ticker}{date_str}{eng_str}{_xref_tag(item)}")
+            lines.append(f"  {item.question}")
+            market_line = []
+            if item.current_probability is not None:
+                market_line.append(f"YES: {item.current_probability * 100:.0f}%")
+            if item.price_movement:
+                market_line.append(item.price_movement)
+            if item.end_date:
+                market_line.append(f"expires {item.end_date}")
+            if market_line:
+                lines.append(f"  {' | '.join(market_line)}")
+            if item.title:
+                lines.append(f"  Event: {item.title}")
             lines.append(f"  {item.url}")
             lines.append(f"  *{item.why_relevant}*")
             lines.append("")
@@ -634,6 +851,11 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  ✅ Polymarket: {len(report.polymarket)} markets")
     # Hide when zero results
 
+    if report.kalshi_error:
+        lines.append(f"  ❌ Kalshi: error — {report.kalshi_error}")
+    elif report.kalshi:
+        lines.append(f"  ✅ Kalshi: {len(report.kalshi)} markets")
+
     # Web
     if report.web_error:
         lines.append(f"  ❌ Web: error — {report.web_error}")
@@ -683,6 +905,8 @@ def render_context_snippet(report: schema.Report) -> str:
         all_items.append((item.score, "Truth Social", item.text[:50] + "...", item.url))
     for item in report.polymarket[:5]:
         all_items.append((item.score, "Polymarket", item.question[:50] + "...", item.url))
+    for item in report.kalshi[:5]:
+        all_items.append((item.score, "Kalshi", item.question[:50] + "...", item.url))
     for item in report.web[:5]:
         all_items.append((item.score, "Web", item.title[:50] + "...", item.url))
 
@@ -711,7 +935,7 @@ def render_full_report(report: schema.Report) -> str:
     lines = []
 
     # Title
-    lines.append(f"# {report.topic} - Last 24 Hours Research Report")
+    lines.append(f"# {report.topic} - Last 24 Hours Forecast Inputs")
     lines.append("")
     lines.append(f"**Generated:** {report.generated_at}")
     lines.append(f"**Date Range:** {report.range_from} to {report.range_to}")
@@ -896,7 +1120,7 @@ def render_full_report(report: schema.Report) -> str:
 
     # Polymarket section
     if report.polymarket:
-        lines.append("## Prediction Markets (Polymarket)")
+        lines.append("## Market Pricing (Polymarket)")
         lines.append("")
         for item in report.polymarket:
             lines.append(f"### {item.id}: {item.question}")
@@ -915,6 +1139,28 @@ def render_full_report(report: schema.Report) -> str:
                 eng = item.engagement
                 lines.append(f"- **Volume:** ${eng.volume or 0:,.0f} | Liquidity: ${eng.liquidity or 0:,.0f}")
 
+            lines.append("")
+
+    if report.kalshi:
+        lines.append("## Market Pricing (Kalshi)")
+        lines.append("")
+        for item in report.kalshi:
+            lines.append(f"### {item.id}: {item.question}")
+            lines.append("")
+            lines.append(f"- **Event:** {item.title}")
+            lines.append(f"- **Ticker:** {item.ticker}")
+            lines.append(f"- **URL:** {item.url}")
+            lines.append(f"- **Date:** {item.date or 'Unknown'}")
+            lines.append(f"- **Score:** {item.score}/100")
+            if item.current_probability is not None:
+                lines.append(f"- **Implied probability:** {item.current_probability * 100:.0f}%")
+            if item.price_movement:
+                lines.append(f"- **Trend:** {item.price_movement}")
+            if item.engagement:
+                eng = item.engagement
+                lines.append(f"- **Volume:** {eng.volume or 0:,.0f} | Open interest: {eng.open_interest or 0:,.0f} | Liquidity: ${eng.liquidity or 0:,.0f}")
+            if item.end_date:
+                lines.append(f"- **Expiration:** {item.end_date}")
             lines.append("")
 
     # Web section
@@ -966,29 +1212,23 @@ def write_outputs(
     ensure_output_dir()
 
     # report.json
-    with open(OUTPUT_DIR / "report.json", 'w', encoding='utf-8') as f:
-        json.dump(report.to_dict(), f, indent=2)
+    _write_json(OUTPUT_DIR / "report.json", report.to_dict())
 
     # report.md
-    with open(OUTPUT_DIR / "report.md", 'w', encoding='utf-8') as f:
-        f.write(render_full_report(report))
+    _write_text(OUTPUT_DIR / "report.md", render_full_report(report))
 
     # last24hours.context.md
-    with open(OUTPUT_DIR / "last24hours.context.md", 'w', encoding='utf-8') as f:
-        f.write(render_context_snippet(report))
+    _write_text(OUTPUT_DIR / "last24hours.context.md", render_context_snippet(report))
 
     # Raw responses
     if raw_openai:
-        with open(OUTPUT_DIR / "raw_openai.json", 'w', encoding='utf-8') as f:
-            json.dump(raw_openai, f, indent=2)
+        _write_json(OUTPUT_DIR / "raw_openai.json", raw_openai)
 
     if raw_xai:
-        with open(OUTPUT_DIR / "raw_xai.json", 'w', encoding='utf-8') as f:
-            json.dump(raw_xai, f, indent=2)
+        _write_json(OUTPUT_DIR / "raw_xai.json", raw_xai)
 
     if raw_reddit_enriched:
-        with open(OUTPUT_DIR / "raw_reddit_threads_enriched.json", 'w', encoding='utf-8') as f:
-            json.dump(raw_reddit_enriched, f, indent=2)
+        _write_json(OUTPUT_DIR / "raw_reddit_threads_enriched.json", raw_reddit_enriched)
 
 
 def get_context_path() -> str:

@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Kalshi market discovery, normalization, scoring, rendering, and report serialization
+- Forecast-first response contract across the skill, README, and extension metadata
+- NBA slate expansion for broad queries such as `tomorrows nba games`, with matchup-level fan-out
+- Slate forecast board rendering for broad NBA game queries
+
+### Changed
+- Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
+- Prediction queries now prioritize Kalshi, Polymarket, X, Reddit, and relevant web above supporting social/video sources
+- Compact rendering now frames output as forecast inputs and includes dedicated Kalshi sections
+- Market ranking now weights liquidity, volume, open interest, and recent movement more heavily
+- Broken localhost proxy environment variables are ignored automatically during HTTP requests
+- Output writing now falls back cleanly when the default context-output directory is unavailable
+- Reddit now uses free public search by default, with ScrapeCreators as optional enrichment
+- Bluesky search now tries the public API path first and only falls back to authenticated search when needed
+
+### Fixed
+- Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
+- X matchup query extraction now preserves full team names such as `New York Knicks` and `Golden State Warriors`
+
 ## [1.0.0] - 2026-03-29
 
 ### Added

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, TypeVar, Union
 
 from . import dates, schema
 
-T = TypeVar("T", schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.PolymarketItem)
+T = TypeVar("T", schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.PolymarketItem, schema.KalshiItem)
 
 
 def filter_by_date_range(
@@ -473,7 +473,45 @@ def normalize_polymarket_items(
             outcome_prices=item.get("outcome_prices", []),
             outcomes_remaining=item.get("outcomes_remaining", 0),
             price_movement=item.get("price_movement"),
+            price_movement_pct=item.get("price_movement_pct"),
             date=date_str,
+            date_confidence="high",
+            engagement=engagement,
+            end_date=item.get("end_date"),
+            relevance=item.get("relevance", 0.5),
+            why_relevant=item.get("why_relevant", ""),
+        ))
+
+    return normalized
+
+
+def normalize_kalshi_items(
+    items: List[Dict[str, Any]],
+    from_date: str,
+    to_date: str,
+) -> List[schema.KalshiItem]:
+    """Normalize raw Kalshi items to schema."""
+    normalized = []
+
+    for i, item in enumerate(items):
+        engagement = schema.Engagement(
+            volume=item.get("volume"),
+            liquidity=item.get("liquidity"),
+            open_interest=item.get("open_interest"),
+        )
+
+        normalized.append(schema.KalshiItem(
+            id=f"KA{i+1}",
+            title=item.get("title", ""),
+            question=item.get("question", ""),
+            url=item.get("url", ""),
+            ticker=item.get("ticker", ""),
+            event_ticker=item.get("event_ticker", ""),
+            series_ticker=item.get("series_ticker", ""),
+            current_probability=item.get("current_probability"),
+            price_movement=item.get("price_movement"),
+            price_movement_pct=item.get("price_movement_pct"),
+            date=item.get("date"),
             date_confidence="high",
             engagement=engagement,
             end_date=item.get("end_date"),

@@ -5,7 +5,8 @@ import re
 import sys
 from typing import Any, Dict, List, Optional
 
-from . import http, env
+from . import http, env, sports_schedule
+from .relevance import token_overlap_relevance
 
 # Fallback models when the selected model isn't accessible (e.g., org not verified).
 # Ordered by cost-efficiency: mini models handle structured extraction equally well.
@@ -364,6 +365,79 @@ def _public_relevance(score: int, num_comments: int) -> float:
     return round((score_component * 0.6) + (comments_component * 0.4), 3)
 
 
+def _public_topic_relevance(topic: str, title: str, subreddit: str = "") -> float:
+    """Estimate semantic match for public Reddit results."""
+    title_score = token_overlap_relevance(topic, title)
+    subreddit_score = token_overlap_relevance(topic, subreddit) if subreddit else 0.0
+    return round(max(title_score, 0.85 * title_score + 0.15 * subreddit_score), 3)
+
+
+LOW_QUALITY_SUBREDDITS = {
+    "test", "testcommunityfortra", "freekarma4you", "freekarma4u",
+    "upvote", "upvotes", "karma", "shadowban", "testingground4bots",
+    "basketballreddit", "nbareddit", "sportsreddit",
+}
+
+
+def _subreddit_quality_ok(subreddit: str, topic: str) -> bool:
+    """Filter obviously low-quality public-search subreddit matches."""
+    if not subreddit:
+        return False
+
+    sub = subreddit.strip().lower()
+    if sub in LOW_QUALITY_SUBREDDITS:
+        return False
+    if sub.startswith(("test", "u_", "freekarma", "upvote")):
+        return False
+
+    # For sports matchups, prefer discussion-heavy sports/team subs over random matches.
+    if _matchup_side_tokens(topic):
+        sportsish = (
+            "nba", "basketball", "sportsbook", "warriors", "lakers", "celtics", "knicks",
+            "rockets", "sixers", "pacers", "nets", "heat", "raptors", "bulls", "wizards",
+        )
+        if not any(token in sub for token in sportsish):
+            return False
+        low_signal_sports = ("reddit", "stream", "highlights", "live", "scores", "updates")
+        if any(token in sub for token in low_signal_sports) and sub not in {"sportsbook", "nba"}:
+            return False
+
+    return True
+
+
+def _matchup_side_tokens(topic: str) -> List[set[str]]:
+    """Return token sets for each side of a sports matchup query."""
+    text = topic.lower()
+    separator = None
+    for candidate in (" vs. ", " vs ", " at "):
+        if candidate in text:
+            separator = candidate
+            break
+    if not separator:
+        return []
+
+    stop = {"the", "and", "at", "vs", "vs.", "of", "today", "tonight", "tomorrow"}
+    sides = []
+    for side in text.split(separator, 1):
+        tokens = {
+            token
+            for token in re.sub(r"[^\w\s]", " ", side).split()
+            if len(token) > 2 and token not in stop
+        }
+        if tokens:
+            sides.append(tokens)
+    return sides if len(sides) == 2 else []
+
+
+def _matches_matchup_topic(topic: str, title: str, subreddit: str = "") -> bool:
+    """Require one meaningful token from each team side for matchup queries."""
+    sides = _matchup_side_tokens(topic)
+    if len(sides) != 2:
+        return True
+    text_tokens = set(re.sub(r"[^\w\s]", " ", f"{title} {subreddit}".lower()).split())
+    return all(side & text_tokens for side in sides)
+
+
 def search_reddit_public(
     topic: str,
     from_date: str,
@@ -415,6 +489,16 @@ def search_reddit_public(
 
                 score = int(post.get("score", 0) or 0)
                 num_comments = int(post.get("num_comments", 0) or 0)
+                title = str(post.get("title", "")).strip()
+                subreddit = str(post.get("subreddit", "")).strip()
+                if not _subreddit_quality_ok(subreddit, topic):
+                    continue
+                topic_relevance = _public_topic_relevance(topic, title, subreddit)
+                if not _matches_matchup_topic(topic, title, subreddit):
+                    continue
+                # Drop obvious low-match noise from free Reddit search.
+                if topic_relevance < 0.22:
+                    continue
 
                 # Parse date from created_utc
                 created_utc = post.get("created_utc")
@@ -425,12 +509,12 @@ def search_reddit_public(
 
                 all_items.append({
                     "id": f"R{len(all_items)+1}",
-                    "title": str(post.get("title", "")).strip(),
+                    "title": title,
                     "url": full_url,
-                    "subreddit": str(post.get("subreddit", "")).strip(),
+                    "subreddit": subreddit,
                     "date": date_value,
                     "why_relevant": "Found via Reddit public search",
-                    "relevance": _public_relevance(score, num_comments),
+                    "relevance": round(0.65 * topic_relevance + 0.35 * _public_relevance(score, num_comments), 3),
                     "engagement": {
                         "score": score,
                         "num_comments": num_comments,
@@ -445,6 +529,64 @@ def search_reddit_public(
         except Exception as e:
             _log_info(f"Public Reddit search error for query '{query}': {e}")
             continue
+
+    # For NBA matchup queries, directly probe team/league subreddits.
+    matchup_subs = sports_schedule.matchup_subreddits(topic)
+    if matchup_subs:
+        for sub in matchup_subs[:4]:
+            try:
+                sub_url = (
+                    f"https://www.reddit.com/r/{sub}/search/.json"
+                    f"?q={_url_encode(core or topic)}&restrict_sr=on&sort=new&limit={min(25, limit)}&raw_json=1"
+                )
+                data = http.get(sub_url, headers=headers, timeout=15, retries=1)
+                children = data.get("data", {}).get("children", [])
+                for child in children:
+                    if child.get("kind") != "t3":
+                        continue
+                    post = child.get("data", {})
+                    permalink = str(post.get("permalink", "")).strip()
+                    if not permalink or "/comments/" not in permalink:
+                        continue
+                    full_url = f"https://www.reddit.com{permalink}"
+                    if full_url in seen_urls:
+                        continue
+                    seen_urls.add(full_url)
+
+                    score = int(post.get("score", 0) or 0)
+                    num_comments = int(post.get("num_comments", 0) or 0)
+                    title = str(post.get("title", "")).strip()
+                    subreddit = str(post.get("subreddit", "")).strip()
+                    if not _subreddit_quality_ok(subreddit, topic):
+                        continue
+                    topic_relevance = _public_topic_relevance(topic, title, subreddit)
+                    if not _matches_matchup_topic(topic, title, subreddit):
+                        continue
+                    if topic_relevance < 0.22:
+                        continue
+
+                    created_utc = post.get("created_utc")
+                    date_value = None
+                    if created_utc:
+                        from . import dates as dates_mod
+                        date_value = dates_mod.timestamp_to_date(created_utc)
+
+                    all_items.append({
+                        "id": f"R{len(all_items)+1}",
+                        "title": title,
+                        "url": full_url,
+                        "subreddit": subreddit,
+                        "date": date_value,
+                        "why_relevant": f"Found via r/{sub} public search",
+                        "relevance": round(0.72 * topic_relevance + 0.28 * _public_relevance(score, num_comments), 3),
+                        "engagement": {
+                            "score": score,
+                            "num_comments": num_comments,
+                            "upvote_ratio": post.get("upvote_ratio"),
+                        },
+                    })
+            except Exception as e:
+                _log_info(f"Subreddit probe error for r/{sub}: {e}")
 
     # Sort by date (desc, unknown dates last), then relevance desc
     def _sort_key(item: Dict[str, Any]):

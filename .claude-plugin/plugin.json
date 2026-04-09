@@ -1,7 +1,7 @@
 {
   "name": "last24hours",
   "version": "1.0.0",
-  "description": "Research any topic from the last 24 hours across Reddit, X, YouTube, TikTok, Instagram, Hacker News, Polymarket, and the web.",
+  "description": "Forecast any topic from the last 24 hours using Polymarket, Kalshi, X, Reddit, Hacker News, sports, weather, politics, and the web.",
   "author": {
     "name": "Jaskaran Singh",
     "url": "https://github.com/jask04"
@@ -10,9 +10,11 @@
   "repository": "https://github.com/jask04/last24hours-skill",
   "license": "MIT",
   "keywords": [
-    "research",
-    "breaking-news",
-    "trending",
+    "forecasting",
+    "prediction-markets",
+    "sports",
+    "weather",
+    "politics",
     "reddit",
     "twitter",
     "youtube",
@@ -20,6 +22,7 @@
     "instagram",
     "hackernews",
     "polymarket",
+    "kalshi",
     "bluesky",
     "real-time"
   ],

@@ -32,7 +32,7 @@ BANNER = f"""{Colors.PURPLE}{Colors.BOLD}
 {Colors.RESET}{Colors.DIM}  24 hours of breaking intel. 30 seconds of work.{Colors.RESET}
 """
 
-MINI_BANNER = f"""{Colors.PURPLE}{Colors.BOLD}/last24hours{Colors.RESET} {Colors.DIM}· researching...{Colors.RESET}"""
+MINI_BANNER = f"""{Colors.PURPLE}{Colors.BOLD}/last24hours{Colors.RESET} {Colors.DIM}· forecasting...{Colors.RESET}"""
 
 # Fun status messages for each phase
 REDDIT_MESSAGES = [
@@ -95,6 +95,13 @@ POLYMARKET_MESSAGES = [
     "Finding what people are betting on...",
     "Scanning Polymarket for odds...",
     "Discovering prediction markets...",
+]
+
+KALSHI_MESSAGES = [
+    "Scanning Kalshi contracts...",
+    "Checking exchange prices...",
+    "Finding liquid Kalshi markets...",
+    "Pulling Kalshi probabilities...",
 ]
 
 PROCESSING_MESSAGES = [
@@ -237,7 +244,7 @@ class ProgressDisplay:
             sys.stderr.write(f"{Colors.DIM}Topic: {Colors.RESET}{Colors.BOLD}{self.topic}{Colors.RESET}\n\n")
         else:
             # Simple text for non-TTY
-            sys.stderr.write(f"/last24hours · researching: {self.topic}\n")
+            sys.stderr.write(f"/last24hours · forecasting: {self.topic}\n")
         sys.stderr.flush()
 
     def start_reddit(self):
@@ -319,6 +326,15 @@ class ProgressDisplay:
         if self.spinner:
             self.spinner.stop(f"{Colors.GREEN}Polymarket{Colors.RESET} Found {count} markets")
 
+    def start_kalshi(self):
+        msg = random.choice(KALSHI_MESSAGES)
+        self.spinner = Spinner(f"{Colors.GREEN}Kalshi{Colors.RESET} {msg}", Colors.GREEN, quiet=True)
+        self.spinner.start()
+
+    def end_kalshi(self, count: int):
+        if self.spinner:
+            self.spinner.stop(f"{Colors.GREEN}Kalshi{Colors.RESET} Found {count} markets")
+
     def start_processing(self):
         msg = random.choice(PROCESSING_MESSAGES)
         self.spinner = Spinner(f"{Colors.PURPLE}Processing{Colors.RESET} {msg}", Colors.PURPLE)
@@ -328,10 +344,10 @@ class ProgressDisplay:
         if self.spinner:
             self.spinner.stop()
 
-    def show_complete(self, reddit_count: int, x_count: int, youtube_count: int = 0, hn_count: int = 0, pm_count: int = 0, tiktok_count: int = 0, ig_count: int = 0):
+    def show_complete(self, reddit_count: int, x_count: int, youtube_count: int = 0, hn_count: int = 0, pm_count: int = 0, ka_count: int = 0, tiktok_count: int = 0, ig_count: int = 0):
         elapsed = time.time() - self.start_time
         if IS_TTY:
-            sys.stderr.write(f"\n{Colors.GREEN}{Colors.BOLD}✓ Research complete{Colors.RESET} ")
+            sys.stderr.write(f"\n{Colors.GREEN}{Colors.BOLD}✓ Forecast inputs ready{Colors.RESET} ")
             sys.stderr.write(f"{Colors.DIM}({elapsed:.1f}s){Colors.RESET}\n")
             sys.stderr.write(f"  {Colors.YELLOW}Reddit:{Colors.RESET} {reddit_count} threads  ")
             sys.stderr.write(f"{Colors.CYAN}X:{Colors.RESET} {x_count} posts")
@@ -345,6 +361,8 @@ class ProgressDisplay:
                 sys.stderr.write(f"  {Colors.YELLOW}HN:{Colors.RESET} {hn_count} stories")
             if pm_count:
                 sys.stderr.write(f"  {Colors.GREEN}Polymarket:{Colors.RESET} {pm_count} markets")
+            if ka_count:
+                sys.stderr.write(f"  {Colors.GREEN}Kalshi:{Colors.RESET} {ka_count} markets")
             sys.stderr.write("\n\n")
         else:
             parts = [f"Reddit: {reddit_count} threads", f"X: {x_count} posts"]
@@ -358,7 +376,9 @@ class ProgressDisplay:
                 parts.append(f"HN: {hn_count} stories")
             if pm_count:
                 parts.append(f"Polymarket: {pm_count} markets")
-            sys.stderr.write(f"✓ Research complete ({elapsed:.1f}s) - {', '.join(parts)}\n")
+            if ka_count:
+                parts.append(f"Kalshi: {ka_count} markets")
+            sys.stderr.write(f"✓ Forecast inputs ready ({elapsed:.1f}s) - {', '.join(parts)}\n")
         sys.stderr.flush()
 
     def show_cached(self, age_hours: float = None):

@@ -12,11 +12,10 @@ WEIGHT_RELEVANCE = 0.30
 WEIGHT_RECENCY = 0.40
 WEIGHT_ENGAGEMENT = 0.30
 
-# Polymarket needs stronger semantic weighting because volume/liquidity already
-# show up as engagement and lightly influence parse-time relevance.
-PM_WEIGHT_RELEVANCE = 0.60
-PM_WEIGHT_RECENCY = 0.20
-PM_WEIGHT_ENGAGEMENT = 0.20
+# Prediction-market items should lean harder on live market quality and movement.
+PM_WEIGHT_RELEVANCE = 0.48
+PM_WEIGHT_RECENCY = 0.12
+PM_WEIGHT_ENGAGEMENT = 0.40
 
 # WebSearch weights (no engagement data available)
 # For 24h: recency more important than normal
@@ -595,22 +594,30 @@ def score_truthsocial_items(items: List[schema.TruthSocialItem]) -> List[schema.
     return items
 
 
-def compute_polymarket_engagement_raw(engagement: Optional[schema.Engagement]) -> Optional[float]:
-    """Compute raw engagement score for Polymarket item.
+def _movement_score_pct(movement_pct: Optional[float]) -> float:
+    """Convert price movement in percentage points into a 0-1 market-signal bonus."""
+    if movement_pct is None:
+        return 0.0
+    return min(1.0, abs(movement_pct) / 20.0)
 
-    Formula: 0.60*log1p(volume) + 0.40*log1p(liquidity)
-    Volume is the primary signal (money flowing); liquidity indicates market depth.
-    """
+
+def _compute_market_engagement_raw(
+    engagement: Optional[schema.Engagement],
+    movement_pct: Optional[float] = None,
+) -> Optional[float]:
+    """Compute raw market quality score shared by Polymarket and Kalshi."""
     if engagement is None:
         return None
 
-    if engagement.volume is None and engagement.liquidity is None:
+    if engagement.volume is None and engagement.liquidity is None and engagement.open_interest is None:
         return None
 
     volume = math.log1p(engagement.volume or 0)
     liquidity = math.log1p(engagement.liquidity or 0)
+    open_interest = math.log1p(engagement.open_interest or 0)
+    movement = _movement_score_pct(movement_pct)
 
-    return 0.60 * volume + 0.40 * liquidity
+    return 0.45 * volume + 0.25 * liquidity + 0.20 * open_interest + 0.10 * movement
 
 
 def score_polymarket_items(items: List[schema.PolymarketItem]) -> List[schema.PolymarketItem]:
@@ -621,7 +628,7 @@ def score_polymarket_items(items: List[schema.PolymarketItem]) -> List[schema.Po
     if not items:
         return items
 
-    eng_raw = [compute_polymarket_engagement_raw(item.engagement) for item in items]
+    eng_raw = [_compute_market_engagement_raw(item.engagement, item.price_movement_pct) for item in items]
     eng_normalized = normalize_to_100(eng_raw)
 
     for i, item in enumerate(items):
@@ -632,6 +639,39 @@ def score_polymarket_items(items: List[schema.PolymarketItem]) -> List[schema.Po
             eng_score = int(eng_normalized[i])
         else:
             eng_score = DEFAULT_ENGAGEMENT
+
+        item.subs = schema.SubScores(
+            relevance=rel_score,
+            recency=rec_score,
+            engagement=eng_score,
+        )
+
+        overall = (
+            PM_WEIGHT_RELEVANCE * rel_score +
+            PM_WEIGHT_RECENCY * rec_score +
+            PM_WEIGHT_ENGAGEMENT * eng_score
+        )
+
+        if eng_raw[i] is None:
+            overall -= UNKNOWN_ENGAGEMENT_PENALTY
+
+        item.score = max(0, min(100, int(overall)))
+
+    return items
+
+
+def score_kalshi_items(items: List[schema.KalshiItem]) -> List[schema.KalshiItem]:
+    """Compute scores for Kalshi items."""
+    if not items:
+        return items
+
+    eng_raw = [_compute_market_engagement_raw(item.engagement, item.price_movement_pct) for item in items]
+    eng_normalized = normalize_to_100(eng_raw)
+
+    for i, item in enumerate(items):
+        rel_score = int(item.relevance * 100)
+        rec_score = dates.recency_score_hours(item.date)
+        eng_score = int(eng_normalized[i]) if eng_normalized[i] is not None else DEFAULT_ENGAGEMENT
 
         item.subs = schema.SubScores(
             relevance=rel_score,
@@ -719,11 +759,12 @@ _ITEM_SOURCE_MAP = {
     schema.BlueskyItem: "bluesky",
     schema.TruthSocialItem: "truthsocial",
     schema.PolymarketItem: "polymarket",
+    schema.KalshiItem: "kalshi",
 }
-_DEFAULT_TIEBREAKER = {"x": 0, "reddit": 1, "hn": 2, "web": 3, "bluesky": 4, "truthsocial": 5, "polymarket": 6, "youtube": 7, "tiktok": 8, "instagram": 9}
+_DEFAULT_TIEBREAKER = {"x": 0, "reddit": 1, "hn": 2, "web": 3, "bluesky": 4, "truthsocial": 5, "polymarket": 6, "kalshi": 7, "youtube": 8, "tiktok": 9, "instagram": 10}
 
 
-def sort_items(items: List[Union[schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.TruthSocialItem, schema.PolymarketItem]], query_type: QueryType = None) -> List:
+def sort_items(items: List[Union[schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.TruthSocialItem, schema.PolymarketItem, schema.KalshiItem]], query_type: QueryType = None) -> List:
     """Sort items by score (descending), then date, then source tiebreaker.
 
     Tiebreaker (tertiary sort key, after score and date): source priority
@@ -771,6 +812,9 @@ def relevance_filter(items, source_name: str, threshold: float = 0.3):
         return items
     passed = [i for i in items if getattr(i, 'relevance', 0.0) >= threshold]
     if not passed:
+        if source_name in {"POLYMARKET", "KALSHI"}:
+            print(f"[{source_name} WARNING] All results below relevance {threshold}, dropping market results", file=sys.stderr)
+            return []
         print(f"[{source_name} WARNING] All results below relevance {threshold}, keeping top 3", file=sys.stderr)
         by_rel = sorted(items, key=lambda x: getattr(x, 'relevance', 0.0), reverse=True)
         return by_rel[:3]

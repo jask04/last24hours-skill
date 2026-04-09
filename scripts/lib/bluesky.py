@@ -1,7 +1,7 @@
-"""Bluesky search via AT Protocol (requires app password).
+"""Bluesky search via public API with optional authenticated fallback.
 
-Uses bsky.social for auth and public.api.bsky.app for post search.
-Requires BSKY_HANDLE and BSKY_APP_PASSWORD env vars.
+Uses public.api.bsky.app for unauthenticated search first, then falls back to
+authenticated AT Protocol search on bsky.social when credentials are available.
 """
 
 import math
@@ -12,7 +12,8 @@ from typing import Any, Dict, List, Optional
 from . import http
 
 BSKY_SESSION_URL = "https://bsky.social/xrpc/com.atproto.server.createSession"
-BSKY_SEARCH_URL = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+BSKY_PUBLIC_SEARCH_URL = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+BSKY_AUTH_SEARCH_URL = "https://bsky.social/xrpc/app.bsky.feed.searchPosts"
 
 DEPTH_CONFIG = {
     "quick": 15,
@@ -125,18 +126,6 @@ def search_bluesky(
         Dict with 'posts' list from AT Protocol response.
     """
     config = config or {}
-    handle = config.get("BSKY_HANDLE", "")
-    app_password = config.get("BSKY_APP_PASSWORD", "")
-
-    if not handle or not app_password:
-        return {"posts": [], "error": "Bluesky credentials not configured"}
-
-    # Authenticate
-    token = _create_session(handle, app_password)
-    if not token:
-        error_msg = _session_error or "Bluesky session creation failed (unknown error)"
-        return {"posts": [], "error": error_msg}
-
     count = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
     core_topic = _extract_core_subject(topic)
 
@@ -148,26 +137,50 @@ def search_bluesky(
         "limit": str(min(count, 100)),
         "sort": "top",
     }
-    url = f"{BSKY_SEARCH_URL}?{urlencode(params)}"
+    public_url = f"{BSKY_PUBLIC_SEARCH_URL}?{urlencode(params)}"
+    handle = config.get("BSKY_HANDLE", "")
+    app_password = config.get("BSKY_APP_PASSWORD", "")
 
     try:
+        response = http.request("GET", public_url, timeout=30)
+        posts = response.get("posts", [])
+        _log(f"Found {len(posts)} posts via public API")
+        return response
+    except http.HTTPError as e:
+        public_error = str(e)
+        _log(f"Public search failed: {e}")
+        if not handle or not app_password:
+            if e.status_code == 403 and e.body and "cloudflare" in e.body.lower():
+                return {"posts": [], "error": "Bluesky public search is blocked by Cloudflare (403). This is likely a network/API edge issue, not a credential issue."}
+            return {"posts": [], "error": f"Bluesky public search failed: {e}"}
+    except Exception as e:
+        public_error = f"{type(e).__name__}: {e}"
+        _log(f"Public search failed: {e}")
+        if not handle or not app_password:
+            return {"posts": [], "error": f"Bluesky public search failed: {public_error}"}
+
+    token = _create_session(handle, app_password)
+    if not token:
+        error_msg = _session_error or "Bluesky session creation failed"
+        return {"posts": [], "error": f"Bluesky public search failed: {public_error}. Auth fallback also failed: {error_msg}"}
+
+    auth_url = f"{BSKY_AUTH_SEARCH_URL}?{urlencode(params)}"
+    try:
         response = http.request(
-            "GET", url,
+            "GET",
+            auth_url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=30,
         )
+        posts = response.get("posts", [])
+        _log(f"Found {len(posts)} posts via authenticated API")
+        return response
     except http.HTTPError as e:
-        _log(f"Search failed: {e}")
         if e.status_code == 403 and e.body and "cloudflare" in e.body.lower():
-            return {"posts": [], "error": "Bluesky search blocked by Cloudflare (403). This is a network-level block - try a different network or VPN."}
-        return {"posts": [], "error": f"Bluesky search failed: {e}"}
+            return {"posts": [], "error": "Bluesky search is blocked by Cloudflare (403). This appears to be a network/API block, not necessarily a bad app password."}
+        return {"posts": [], "error": f"Bluesky public search failed: {public_error}. Auth fallback failed: {e}"}
     except Exception as e:
-        _log(f"Search failed: {e}")
-        return {"posts": [], "error": f"Bluesky search failed: {type(e).__name__}: {e}"}
-
-    posts = response.get("posts", [])
-    _log(f"Found {len(posts)} posts")
-    return response
+        return {"posts": [], "error": f"Bluesky public search failed: {public_error}. Auth fallback failed: {type(e).__name__}: {e}"}
 
 
 def parse_bluesky_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:

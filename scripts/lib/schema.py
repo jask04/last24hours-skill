@@ -28,6 +28,7 @@ class Engagement:
     # Polymarket fields
     volume: Optional[float] = None
     liquidity: Optional[float] = None
+    open_interest: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {}
@@ -53,6 +54,8 @@ class Engagement:
             d['volume'] = self.volume
         if self.liquidity is not None:
             d['liquidity'] = self.liquidity
+        if self.open_interest is not None:
+            d['open_interest'] = self.open_interest
         return d if d else None
 
 
@@ -441,6 +444,7 @@ class PolymarketItem:
     outcome_prices: List[tuple] = field(default_factory=list)  # [(name, price), ...]
     outcomes_remaining: int = 0
     price_movement: Optional[str] = None  # "down 11.7% this month"
+    price_movement_pct: Optional[float] = None
     date: Optional[str] = None
     date_confidence: str = "high"  # API provides exact timestamps
     engagement: Optional[Engagement] = None  # volume + liquidity
@@ -460,6 +464,56 @@ class PolymarketItem:
             'outcome_prices': self.outcome_prices,
             'outcomes_remaining': self.outcomes_remaining,
             'price_movement': self.price_movement,
+            'price_movement_pct': self.price_movement_pct,
+            'date': self.date,
+            'date_confidence': self.date_confidence,
+            'engagement': self.engagement.to_dict() if self.engagement else None,
+            'end_date': self.end_date,
+            'relevance': self.relevance,
+            'why_relevant': self.why_relevant,
+            'subs': self.subs.to_dict(),
+            'score': self.score,
+        }
+        if self.cross_refs:
+            d['cross_refs'] = self.cross_refs
+        return d
+
+
+@dataclass
+class KalshiItem:
+    """Normalized Kalshi prediction market item."""
+    id: str           # "KA1", "KA2", ...
+    title: str        # Event title
+    question: str     # Contract title
+    url: str          # API market URL
+    ticker: str = ""
+    event_ticker: str = ""
+    series_ticker: str = ""
+    current_probability: Optional[float] = None
+    price_movement: Optional[str] = None
+    price_movement_pct: Optional[float] = None
+    date: Optional[str] = None
+    date_confidence: str = "high"
+    engagement: Optional[Engagement] = None  # volume + liquidity + open interest
+    end_date: Optional[str] = None
+    relevance: float = 0.5
+    why_relevant: str = ""
+    subs: SubScores = field(default_factory=SubScores)
+    score: int = 0
+    cross_refs: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = {
+            'id': self.id,
+            'title': self.title,
+            'question': self.question,
+            'url': self.url,
+            'ticker': self.ticker,
+            'event_ticker': self.event_ticker,
+            'series_ticker': self.series_ticker,
+            'current_probability': self.current_probability,
+            'price_movement': self.price_movement,
+            'price_movement_pct': self.price_movement_pct,
             'date': self.date,
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
@@ -494,6 +548,7 @@ class Report:
     bluesky: List[BlueskyItem] = field(default_factory=list)
     truthsocial: List[TruthSocialItem] = field(default_factory=list)
     polymarket: List[PolymarketItem] = field(default_factory=list)
+    kalshi: List[KalshiItem] = field(default_factory=list)
     best_practices: List[str] = field(default_factory=list)
     prompt_pack: List[str] = field(default_factory=list)
     context_snippet_md: str = ""
@@ -508,6 +563,7 @@ class Report:
     bluesky_error: Optional[str] = None
     truthsocial_error: Optional[str] = None
     polymarket_error: Optional[str] = None
+    kalshi_error: Optional[str] = None
     # Handle resolution
     resolved_x_handle: Optional[str] = None
     # Cache info
@@ -535,6 +591,7 @@ class Report:
             'bluesky': [b.to_dict() for b in self.bluesky],
             'truthsocial': [ts.to_dict() for ts in self.truthsocial],
             'polymarket': [p.to_dict() for p in self.polymarket],
+            'kalshi': [k.to_dict() for k in self.kalshi],
             'best_practices': self.best_practices,
             'prompt_pack': self.prompt_pack,
             'context_snippet_md': self.context_snippet_md,
@@ -561,6 +618,8 @@ class Report:
             d['truthsocial_error'] = self.truthsocial_error
         if self.polymarket_error:
             d['polymarket_error'] = self.polymarket_error
+        if self.kalshi_error:
+            d['kalshi_error'] = self.kalshi_error
         if self.from_cache:
             d['from_cache'] = self.from_cache
         if self.cache_age_hours is not None:
@@ -777,6 +836,7 @@ class Report:
                 outcome_prices=p.get('outcome_prices', []),
                 outcomes_remaining=p.get('outcomes_remaining', 0),
                 price_movement=p.get('price_movement'),
+                price_movement_pct=p.get('price_movement_pct'),
                 date=p.get('date'),
                 date_confidence=p.get('date_confidence', 'high'),
                 engagement=eng,
@@ -786,6 +846,34 @@ class Report:
                 subs=subs,
                 score=p.get('score', 0),
                 cross_refs=p.get('cross_refs', []),
+            ))
+
+        kalshi_items = []
+        for k in data.get('kalshi', []):
+            eng = None
+            if k.get('engagement'):
+                eng = Engagement(**k['engagement'])
+            subs = SubScores(**k.get('subs', {})) if k.get('subs') else SubScores()
+            kalshi_items.append(KalshiItem(
+                id=k['id'],
+                title=k.get('title', ''),
+                question=k.get('question', ''),
+                url=k.get('url', ''),
+                ticker=k.get('ticker', ''),
+                event_ticker=k.get('event_ticker', ''),
+                series_ticker=k.get('series_ticker', ''),
+                current_probability=k.get('current_probability'),
+                price_movement=k.get('price_movement'),
+                price_movement_pct=k.get('price_movement_pct'),
+                date=k.get('date'),
+                date_confidence=k.get('date_confidence', 'high'),
+                engagement=eng,
+                end_date=k.get('end_date'),
+                relevance=k.get('relevance', 0.5),
+                why_relevant=k.get('why_relevant', ''),
+                subs=subs,
+                score=k.get('score', 0),
+                cross_refs=k.get('cross_refs', []),
             ))
 
         return cls(
@@ -805,6 +893,7 @@ class Report:
             hackernews=hn_items,
             truthsocial=ts_items,
             polymarket=pm_items,
+            kalshi=kalshi_items,
             best_practices=data.get('best_practices', []),
             prompt_pack=data.get('prompt_pack', []),
             context_snippet_md=data.get('context_snippet_md', ''),
@@ -817,6 +906,7 @@ class Report:
             hackernews_error=data.get('hackernews_error'),
             truthsocial_error=data.get('truthsocial_error'),
             polymarket_error=data.get('polymarket_error'),
+            kalshi_error=data.get('kalshi_error'),
             resolved_x_handle=data.get('resolved_x_handle'),
             from_cache=data.get('from_cache', False),
             cache_age_hours=data.get('cache_age_hours'),

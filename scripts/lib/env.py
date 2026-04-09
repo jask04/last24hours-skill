@@ -27,6 +27,7 @@ CODEX_AUTH_FILE = Path(os.environ.get("CODEX_AUTH_FILE", str(Path.home() / ".cod
 
 AuthSource = Literal["api_key", "codex", "none"]
 AuthStatus = Literal["ok", "missing", "expired", "missing_account_id"]
+_BROKEN_PROXY_VALUES = {"http://127.0.0.1:9", "http://localhost:9"}
 
 AUTH_SOURCE_API_KEY: AuthSource = "api_key"
 AUTH_SOURCE_CODEX: AuthSource = "codex"
@@ -221,6 +222,7 @@ def get_config() -> Dict[str, Any]:
       3. ~/.config/last24hours/.env (global config)
     """
     # Load from global config file
+    _sanitize_broken_proxy_env()
     file_env = load_env_file(CONFIG_FILE) if CONFIG_FILE else {}
 
     # Load from per-project config (overrides global)
@@ -278,6 +280,19 @@ def get_config() -> Dict[str, Any]:
     return config
 
 
+def _sanitize_broken_proxy_env() -> None:
+    """Clear obviously broken localhost proxy traps that break desktop runs."""
+    proxy_names = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")
+    values = {
+        os.environ.get(name, "").strip().lower()
+        for name in proxy_names
+        if os.environ.get(name)
+    }
+    if values and values.issubset(_BROKEN_PROXY_VALUES):
+        for name in proxy_names:
+            os.environ.pop(name, None)
+
+
 def config_exists() -> bool:
     """Check if any configuration source exists."""
     if _find_project_env():
@@ -290,25 +305,28 @@ def config_exists() -> bool:
 def is_reddit_available(config: Dict[str, Any]) -> bool:
     """Check if Reddit search is available.
 
-    Reddit can use either ScrapeCreators (preferred) or OpenAI.
+    Reddit public JSON search is always available. ScrapeCreators and OpenAI
+    are optional higher-coverage paths.
     """
-    has_sc = bool(config.get('SCRAPECREATORS_API_KEY'))
-    has_openai = bool(config.get('OPENAI_API_KEY')) and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
-    return has_sc or has_openai
+    return True
 
 
 def get_reddit_source(config: Dict[str, Any]) -> Optional[str]:
     """Determine which Reddit backend to use.
 
-    Priority: ScrapeCreators (cheaper, faster) > OpenAI (legacy)
+    Priority: public > ScrapeCreators > OpenAI
 
-    Returns: 'scrapecreators', 'openai', or None
+    Returns: 'public', 'scrapecreators', or 'openai'
     """
+    if not config.get('SCRAPECREATORS_API_KEY') and not (
+        config.get('OPENAI_API_KEY') and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
+    ):
+        return 'public'
     if config.get('SCRAPECREATORS_API_KEY'):
         return 'scrapecreators'
     if config.get('OPENAI_API_KEY') and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK:
         return 'openai'
-    return None
+    return 'public'
 
 
 def get_available_sources(config: Dict[str, Any]) -> str:
@@ -486,7 +504,9 @@ def is_hackernews_available() -> bool:
 def is_bluesky_available(config: Dict[str, Any]) -> bool:
     """Check if Bluesky source is available.
 
-    Requires BSKY_HANDLE and BSKY_APP_PASSWORD (app password from bsky.app/settings).
+    Public Bluesky search is supported, but we only enable the source
+    automatically when credentials are configured so flaky public edge blocks
+    do not add noise on every run.
     """
     return bool(config.get('BSKY_HANDLE') and config.get('BSKY_APP_PASSWORD'))
 

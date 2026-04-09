@@ -46,7 +46,7 @@ def jaccard_similarity(set1: Set[str], set2: Set[str]) -> float:
 
 
 AnyItem = Union[schema.RedditItem, schema.XItem, schema.YouTubeItem, schema.TikTokItem,
-                schema.InstagramItem, schema.HackerNewsItem, schema.PolymarketItem, schema.WebSearchItem]
+                schema.InstagramItem, schema.HackerNewsItem, schema.PolymarketItem, schema.KalshiItem, schema.WebSearchItem]
 
 
 def get_item_text(item: AnyItem) -> str:
@@ -62,6 +62,8 @@ def get_item_text(item: AnyItem) -> str:
     elif isinstance(item, schema.InstagramItem):
         return f"{item.text} {item.author_name}"
     elif isinstance(item, schema.PolymarketItem):
+        return f"{item.title} {item.question}"
+    elif isinstance(item, schema.KalshiItem):
         return f"{item.title} {item.question}"
     elif isinstance(item, schema.WebSearchItem):
         return item.title
@@ -90,6 +92,8 @@ def _get_cross_source_text(item: AnyItem) -> str:
             title = title[7:].strip()
         return title
     if isinstance(item, schema.PolymarketItem):
+        return item.title
+    if isinstance(item, schema.KalshiItem):
         return item.title
     return get_item_text(item)
 
@@ -247,6 +251,14 @@ def dedupe_polymarket(
     threshold: float = 0.7,
 ) -> List[schema.PolymarketItem]:
     """Dedupe Polymarket items."""
+    return dedupe_items(items, threshold)
+
+
+def dedupe_kalshi(
+    items: List[schema.KalshiItem],
+    threshold: float = 0.7,
+) -> List[schema.KalshiItem]:
+    """Dedupe Kalshi items."""
     return dedupe_items(items, threshold)
 
 

@@ -68,6 +68,23 @@ def _extract_core_subject(topic: str) -> str:
     core product/concept name (max 5 words).
     """
     from .query import extract_core_subject
+
+    topic_lower = topic.lower()
+    if any(sep in topic_lower for sep in (" at ", " vs ", " vs. ")):
+        # Preserve both team names for sports matchup searches.
+        keep = []
+        drop_tokens = {
+            "today", "tonight", "tomorrow", "tomorrows", "tomorrow's",
+            "odds", "probability", "forecast", "chance",
+        }
+        for word in topic_lower.replace("vs.", "vs").split():
+            cleaned = word.strip("?!.,")
+            if cleaned in {"at", "vs"} or cleaned in drop_tokens:
+                continue
+            keep.append(cleaned)
+        if keep:
+            return " ".join(keep)
+
     return extract_core_subject(topic, max_words=5, strip_suffixes=True)
 
 

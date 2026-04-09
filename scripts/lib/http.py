@@ -20,6 +20,7 @@ def log(msg: str):
 MAX_RETRIES = 5
 RETRY_DELAY = 2.0
 USER_AGENT = "last24hours-skill/2.1 (Assistant Skill)"
+_BROKEN_PROXY_VALUES = {"http://127.0.0.1:9", "http://localhost:9"}
 
 
 class HTTPError(Exception):
@@ -70,7 +71,8 @@ def request(
     last_error = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
+            opener = _get_url_opener()
+            with opener.open(req, timeout=timeout) as response:
                 body = response.read().decode('utf-8')
                 log(f"Response: {response.status} ({len(body)} bytes)")
                 if raw:
@@ -126,6 +128,19 @@ def request(
     if last_error:
         raise last_error
     raise HTTPError("Request failed with no error details")
+
+
+def _get_url_opener():
+    """Bypass obviously broken localhost proxy traps in desktop environments."""
+    proxy_names = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")
+    proxy_values = {
+        os.environ.get(name, "").strip().lower()
+        for name in proxy_names
+        if os.environ.get(name)
+    }
+    if proxy_values and proxy_values.issubset(_BROKEN_PROXY_VALUES):
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener()
 
 
 def get(url: str, headers: Optional[Dict[str, str]] = None, **kwargs) -> Dict[str, Any]:
