@@ -16,6 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Official no-key National Weather Service weather anchor for supported U.S. city aliases
 - First-class weather report serialization via `WeatherItem` and `Report.weather`
 - Shared domain evidence-quality helpers for sports, weather, macro, and NBA market filtering
+- Topic-scoped `market_watchlist` query mode for prompts such as `NBA markets to watch today`, `best macro markets right now`, and `recommend Polymarket/Kalshi markets around Fed cuts`
+- `MarketWatchItem` report serialization and compact rendering for ranked market picks with market signal, catalyst evidence, and risk notes
+- One-shot market-watchlist ranker that scores Polymarket/Kalshi candidates by topic relevance, market depth, recent movement, catalyst evidence, and cross-market signal
 
 ### Changed
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
@@ -35,6 +38,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Weather and macro raw-section suppression now also applies to supporting social sections such as Bluesky and Truth Social
 - No-market sports matchup forecasts now render with a neutral model-implied label instead of `Yes`
 - NBA slate prompts now render an explicit no-direct-slate forecast fallback when only futures/awards markets are found
+- Market-watchlist prompts now render `Market Picks To Watch` instead of a single forecast and keep rankings framed as informational market monitoring
+- Watchlist mode keeps a wider market candidate pool than forecast mode before applying its own ranker
+- Skill, README, and extension metadata now describe `/last24hours` as forecasting plus topic-scoped market-watchlist discovery
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively

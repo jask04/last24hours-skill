@@ -3,7 +3,7 @@
 import re
 from typing import Literal
 
-QueryType = Literal["product", "concept", "opinion", "how_to", "comparison", "breaking_news", "prediction"]
+QueryType = Literal["product", "concept", "opinion", "how_to", "comparison", "breaking_news", "prediction", "market_watchlist"]
 
 # Pattern-based classification (no LLM, no external deps)
 _PRODUCT_PATTERNS = re.compile(
@@ -21,6 +21,15 @@ _HOWTO_PATTERNS = re.compile(
 )
 _COMPARISON_PATTERNS = re.compile(
     r"\b(vs\.?|versus|compared to|comparison|better than|difference between|switch from)\b", re.I
+)
+_MARKET_WATCHLIST_PATTERNS = re.compile(
+    r"\b("
+    r"markets?\s+to\s+watch|best\s+[^?]{0,40}\s+markets?|recommend\s+[^?]{0,50}\s+markets?|"
+    r"market\s+opportunit(?:y|ies)|market\s+picks?|biggest\s+market\s+moves?|"
+    r"interesting\s+(?:polymarket|kalshi|prediction\s+market)[^?]{0,40}\s+markets?|"
+    r"(?:polymarket|kalshi)\s+markets?\s+to\s+watch|prediction\s+markets?\s+to\s+watch"
+    r")\b",
+    re.I,
 )
 _BREAKING_PATTERNS = re.compile(
     r"\b(latest|breaking|just announced|launched|released|new|update|news|happened|today|this week)\b", re.I
@@ -61,13 +70,20 @@ def _looks_like_sports_matchup(topic: str) -> bool:
     return has_separator and has_timing
 
 
+def is_market_watchlist_query(topic: str) -> bool:
+    """Return True for one-shot market discovery/watchlist prompts."""
+    return bool(_MARKET_WATCHLIST_PATTERNS.search(topic or ""))
+
+
 def detect_query_type(topic: str) -> QueryType:
     """Classify a query into a type using pattern matching.
 
     Returns the first match in priority order:
-    comparison > how_to > product > opinion > prediction > concept > breaking_news.
+    market_watchlist > comparison > how_to > product > opinion > prediction > concept > breaking_news.
     """
     # Most specific first
+    if is_market_watchlist_query(topic):
+        return "market_watchlist"
     if _COMPARISON_PATTERNS.search(topic):
         if _PREDICTION_PATTERNS.search(topic) or _FORECASTABLE_DOMAIN_PATTERNS.search(topic) or _OUTCOME_PHRASE_PATTERNS.search(topic):
             return "prediction"
@@ -105,6 +121,7 @@ SOURCE_TIERS = {
     "comparison":    {"tier1": {"reddit", "x", "hn"},          "tier2": {"web", "youtube"}},
     "breaking_news": {"tier1": {"x", "reddit", "web", "hn"},   "tier2": {"bluesky", "truthsocial", "youtube"}},
     "prediction":    {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"},   "tier2": {"hn", "bluesky"}},
+    "market_watchlist": {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"}, "tier2": {"hn"}},
 }
 
 # WebSearch penalty adjustment by query type.
@@ -118,6 +135,7 @@ WEBSEARCH_PENALTY_BY_TYPE = {
     "comparison": 10,     # mix of social and web
     "breaking_news": 10,  # news sites are valuable
     "prediction": 8,      # web still matters as explanatory evidence
+    "market_watchlist": 6, # web can supply catalyst context for market ranking
 }
 
 # Tiebreaker priority overrides by query type.
@@ -130,6 +148,7 @@ TIEBREAKER_BY_TYPE = {
     "comparison":    {"reddit": 0, "x": 1, "hn": 2, "web": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "breaking_news": {"x": 0, "reddit": 1, "web": 2, "hn": 3, "bluesky": 4, "tiktok": 5, "youtube": 6, "polymarket": 7},
     "prediction":    {"kalshi": 0, "polymarket": 1, "x": 2, "reddit": 3, "web": 4, "hn": 5, "bluesky": 6, "youtube": 7, "tiktok": 8, "instagram": 9},
+    "market_watchlist": {"kalshi": 0, "polymarket": 1, "web": 2, "x": 3, "reddit": 4, "hn": 5, "bluesky": 6, "youtube": 7, "tiktok": 8, "instagram": 9},
 }
 
 

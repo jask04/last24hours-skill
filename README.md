@@ -1,10 +1,12 @@
 # /last24hours v1.0.0
 
-`/last24hours` is a real-time forecasting skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it.
+`/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
 Codex chat is the primary target UX. The compact output is designed to open with a forecast block that feels native in chat, with raw evidence sections following underneath for inspection.
 
 Forecasts are now market-anchored by default. When Polymarket and Kalshi both exist for the same outcome, the skill blends them with liquidity/quality weighting and widens uncertainty when the spread is meaningful.
+
+Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, market depth, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
 
 For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers injuries, lineups, rest, playoff incentives, and meaningful line movement over betting-bot chatter, ticket resale posts, or generic hype.
 
@@ -14,6 +16,7 @@ For supported U.S. weather prompts, `/last24hours` now uses the public National 
 
 The skill is optimized for:
 - prediction markets
+- market-watchlist discovery
 - sports outcomes
 - weather outcomes
 - elections and politics
@@ -50,6 +53,20 @@ What changes the number:
 
 If no live market exists, `/last24hours` still returns a model-implied forecast, but marks confidence lower and leans more heavily on non-market evidence.
 
+For market-watchlist queries, the default answer shape is:
+
+```text
+Market Picks To Watch
+
+Pick: Polymarket or Kalshi market, outcome label, and implied probability
+Why it ranks: market depth, movement, catalyst context, or cross-market signal
+Market signal: price, recent move, volume, liquidity, or open interest
+Catalyst / evidence: X, Reddit, web, or HN context when it clears quality filters
+Risk / what would change it: why the ranking could break or need revision
+```
+
+If the request is too broad, the skill returns a lower-confidence watchlist using only high-quality available candidates. If no clean candidates exist, it says `No high-quality market picks found` and lists the filters that failed.
+
 ## Source Priority
 
 For prediction queries:
@@ -63,6 +80,16 @@ For prediction queries:
 For supported U.S. weather queries, the National Weather Service forecast is used as a first-class anchor before falling back to model-implied weather estimates.
 
 YouTube, TikTok, Instagram, Bluesky, and Truth Social are supporting sources unless explicitly requested.
+
+For market-watchlist queries:
+1. Kalshi
+2. Polymarket
+3. Relevant web
+4. X
+5. Reddit
+6. Hacker News
+
+Video/social expansion is opt-in for watchlist prompts unless explicitly requested.
 
 ## Installation
 
@@ -132,6 +159,17 @@ Examples:
 - `/last24hours Trump approval next month`
 - `/last24hours Lakers vs Nuggets odds tonight`
 - `/last24hours Bitcoin above 100k this week`
+- `/last24hours NBA markets to watch today`
+- `/last24hours macro markets to watch around Fed cuts`
+- `/last24hours recommend Polymarket and Kalshi markets around inflation`
+- `/last24hours crypto prediction markets to watch today`
+
+Usage guidelines:
+- Forecast prompts return one forecast-first answer with `Forecast`, `Market view`, `Why this is the current line`, `Confidence / uncertainty`, and `What changes the number`.
+- Market-watchlist prompts return ranked market picks, not one synthesized forecast.
+- Narrow watchlist prompts by domain, league, asset, or macro theme when possible.
+- Broad prompts such as `markets to watch` degrade to a lower-confidence scan and may return no picks if market matches are weak.
+- Watchlist rankings are informational market-monitoring outputs, not trade execution or allocation advice.
 
 ## Local Runs
 
@@ -140,6 +178,7 @@ python3 scripts/last24hours.py "Duke vs Houston tonight" --quick
 python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
+python3 scripts/last24hours.py "NBA markets to watch today" --quick --emit=compact
 python3 scripts/last24hours.py --diagnose
 python3 scripts/last24hours.py "Fed rate cut probability" --search=polymarket,kalshi,x,reddit --emit=compact
 ```
@@ -157,6 +196,9 @@ python3 -c "import py_compile; py_compile.compile('scripts/lib/kalshi.py', dorai
 python3 -c "import py_compile; py_compile.compile('scripts/lib/forecast.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/weather.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/evidence_quality.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/market_watchlist.py', doraise=True)"
+python3 scripts/last24hours.py "NBA markets to watch today" --quick --emit=compact
+python3 scripts/last24hours.py "macro markets to watch around Fed cuts" --quick --emit=compact
 python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
 python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact
@@ -174,6 +216,7 @@ Recommended extra smoke tests:
 ## Forecasting Behavior
 
 - Forecastable requests default to `prediction` mode.
+- Market-watchlist requests such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, and `biggest market moves` route to `market_watchlist` mode.
 - Sports, weather, elections, macro, and event/outcome phrasing map to prediction mode automatically.
 - Comparison mode compares probability and market quality, not just sentiment.
 - Market evidence outranks social chatter when relevance is similar.
@@ -183,6 +226,25 @@ Recommended extra smoke tests:
 - For supported U.S. weather prompts, NWS precipitation probability can anchor the forecast and renders as `NWS-led`.
 - Broad NBA slate queries automatically expand into one search per scheduled matchup.
 - Broad NBA slate queries league-lock market sections so cross-league city collisions such as MLB markets do not leak into NBA boards.
+
+## Market Watchlist Mode
+
+Market-watchlist mode is a one-shot discovery flow inside `scripts/last24hours.py`. It does not use `scripts/watchlist.py`, which remains reserved for persistent topic monitoring.
+
+The ranker combines:
+- topic relevance
+- volume, liquidity, and open interest
+- recent market movement
+- fresh catalyst evidence from X, Reddit, web, and Hacker News
+- cross-market disagreement when comparable Polymarket and Kalshi contracts exist
+
+Good prompts:
+- `/last24hours NBA markets to watch today`
+- `/last24hours macro markets to watch this week`
+- `/last24hours recommend Polymarket and Kalshi markets around Fed cuts`
+- `/last24hours crypto prediction markets to watch today`
+
+Too-broad prompts such as `/last24hours markets to watch` are allowed, but they return a lower-confidence scan and only surface candidates that clear the ranker.
 
 ## Official Weather Support
 

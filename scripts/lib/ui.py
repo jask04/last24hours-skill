@@ -230,10 +230,11 @@ class Spinner:
 class ProgressDisplay:
     """Progress display for research phases."""
 
-    def __init__(self, topic: str, show_banner: bool = True):
+    def __init__(self, topic: str, show_banner: bool = True, mode_label: str = "forecasting"):
         self.topic = topic
         self.spinner: Optional[Spinner] = None
         self.start_time = time.time()
+        self.mode_label = mode_label
 
         if show_banner:
             self._show_banner()
@@ -244,7 +245,7 @@ class ProgressDisplay:
             sys.stderr.write(f"{Colors.DIM}Topic: {Colors.RESET}{Colors.BOLD}{self.topic}{Colors.RESET}\n\n")
         else:
             # Simple text for non-TTY
-            sys.stderr.write(f"/last24hours · forecasting: {self.topic}\n")
+            sys.stderr.write(f"/last24hours · {self.mode_label}: {self.topic}\n")
         sys.stderr.flush()
 
     def start_reddit(self):

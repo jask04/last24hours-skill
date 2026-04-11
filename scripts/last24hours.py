@@ -148,6 +148,7 @@ from lib import (
     entity_extract,
     env,
     forecast,
+    market_watchlist,
     http,
     models,
     normalize,
@@ -1888,8 +1889,11 @@ def main():
         print("Usage: python3 last24hours.py <topic> [options]", file=sys.stderr)
         sys.exit(1)
 
+    initial_query_type = qt.detect_query_type(args.topic)
+
     # Initialize progress display with topic
-    progress = ui.ProgressDisplay(args.topic, show_banner=True)
+    progress_mode = "market watchlist" if initial_query_type == "market_watchlist" else "forecasting"
+    progress = ui.ProgressDisplay(args.topic, show_banner=True, mode_label=progress_mode)
 
     # Show diagnostic banner when sources are missing
     web_source = env.get_web_search_source(config)
@@ -1989,10 +1993,12 @@ def main():
         mode = sources
 
     # Detect query type for source tiering and scoring adjustments
-    query_type = qt.detect_query_type(args.topic)
+    query_type = initial_query_type
     expanded_schedule_date = None
     search_topics = None
-    if query_type == "prediction" and sports_schedule.is_nba_slate_query(args.topic):
+    if query_type == "market_watchlist":
+        search_topics = market_watchlist.search_topics(args.topic)
+    elif query_type == "prediction" and sports_schedule.is_nba_slate_query(args.topic):
         try:
             expanded_schedule_date, slate_games = sports_schedule.expand_nba_slate_query(args.topic)
             if slate_games:
@@ -2009,7 +2015,7 @@ def main():
     search_do_truthsocial = False  # Always opt-in (requires --search truthsocial)
     search_do_polymarket = qt.is_source_enabled("polymarket", query_type)
     search_do_kalshi = qt.is_source_enabled("kalshi", query_type)
-    search_do_weather = weather.is_weather_query(args.topic)
+    search_do_weather = query_type in {"prediction", "market_watchlist"} and weather.is_weather_query(args.topic)
     search_run_youtube = has_ytdlp and qt.is_source_enabled("youtube", query_type)
     search_run_tiktok = has_tiktok and qt.is_source_enabled("tiktok", query_type)
     search_run_instagram = has_instagram and qt.is_source_enabled("instagram", query_type)
@@ -2070,7 +2076,7 @@ def main():
 
     weather_items = []
     weather_error = None
-    if query_type == "prediction" and search_do_weather:
+    if query_type in {"prediction", "market_watchlist"} and search_do_weather:
         weather_items, weather_error = _search_weather(args.topic, from_date, to_date, depth)
 
     # Processing phase
@@ -2162,8 +2168,12 @@ def main():
     deduped_hn = score.relevance_filter(deduped_hn, "HN")
     deduped_bsky = score.relevance_filter(deduped_bsky, "BLUESKY")
     deduped_ts = score.relevance_filter(deduped_ts, "TRUTHSOCIAL")
-    deduped_pm = score.relevance_filter(deduped_pm, "POLYMARKET") if deduped_pm else []
-    deduped_ka = score.relevance_filter(deduped_ka, "KALSHI") if deduped_ka else []
+    if query_type == "market_watchlist":
+        deduped_pm = deduped_pm or []
+        deduped_ka = deduped_ka or []
+    else:
+        deduped_pm = score.relevance_filter(deduped_pm, "POLYMARKET") if deduped_pm else []
+        deduped_ka = score.relevance_filter(deduped_ka, "KALSHI") if deduped_ka else []
 
     # Cross-source linking: annotate items that discuss the same story
     dedupe.cross_source_link(
@@ -2194,6 +2204,8 @@ def main():
     report.weather = deduped_weather
     report.web = deduped_web
     report.forecasts = forecast.synthesize_forecasts(report)
+    if query_type == "market_watchlist":
+        report.market_watchlist = market_watchlist.synthesize_market_watchlist(report)
     report.reddit_error = reddit_error
     report.x_error = x_error
     report.youtube_error = youtube_error

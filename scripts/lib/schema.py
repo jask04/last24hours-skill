@@ -623,6 +623,57 @@ class ForecastItem:
 
 
 @dataclass
+class MarketWatchItem:
+    """Ranked one-shot market discovery item."""
+    id: str
+    title: str
+    question: str
+    venue: str
+    url: str
+    outcome_label: str = ""
+    probability: Optional[float] = None
+    price_movement: Optional[str] = None
+    price_movement_pct: Optional[float] = None
+    volume: Optional[float] = None
+    liquidity: Optional[float] = None
+    open_interest: Optional[float] = None
+    rank_score: int = 0
+    catalyst_summary: str = ""
+    market_signal: str = ""
+    risk: str = ""
+    why_ranks: str = ""
+    source_item_id: str = ""
+    evidence_refs: List[str] = field(default_factory=list)
+    cross_market_note: str = ""
+    end_date: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'title': self.title,
+            'question': self.question,
+            'venue': self.venue,
+            'url': self.url,
+            'outcome_label': self.outcome_label,
+            'probability': self.probability,
+            'price_movement': self.price_movement,
+            'price_movement_pct': self.price_movement_pct,
+            'volume': self.volume,
+            'liquidity': self.liquidity,
+            'open_interest': self.open_interest,
+            'rank_score': self.rank_score,
+            'catalyst_summary': self.catalyst_summary,
+            'market_signal': self.market_signal,
+            'risk': self.risk,
+            'why_ranks': self.why_ranks,
+            'source_item_id': self.source_item_id,
+            'evidence_refs': self.evidence_refs,
+            'cross_market_note': self.cross_market_note,
+            'end_date': self.end_date,
+        }
+
+
+@dataclass
 class Report:
     """Full research report."""
     topic: str
@@ -645,6 +696,7 @@ class Report:
     polymarket: List[PolymarketItem] = field(default_factory=list)
     kalshi: List[KalshiItem] = field(default_factory=list)
     forecasts: List[ForecastItem] = field(default_factory=list)
+    market_watchlist: List[MarketWatchItem] = field(default_factory=list)
     best_practices: List[str] = field(default_factory=list)
     prompt_pack: List[str] = field(default_factory=list)
     context_snippet_md: str = ""
@@ -691,6 +743,7 @@ class Report:
             'polymarket': [p.to_dict() for p in self.polymarket],
             'kalshi': [k.to_dict() for k in self.kalshi],
             'forecasts': [f.to_dict() for f in self.forecasts],
+            'market_watchlist': [m.to_dict() for m in self.market_watchlist],
             'best_practices': self.best_practices,
             'prompt_pack': self.prompt_pack,
             'context_snippet_md': self.context_snippet_md,
@@ -1025,6 +1078,32 @@ class Report:
                 model_implied=f.get('model_implied', False),
             ))
 
+        market_watchlist_items = []
+        for m in data.get('market_watchlist', []):
+            market_watchlist_items.append(MarketWatchItem(
+                id=m.get('id', ''),
+                title=m.get('title', ''),
+                question=m.get('question', ''),
+                venue=m.get('venue', ''),
+                url=m.get('url', ''),
+                outcome_label=m.get('outcome_label', ''),
+                probability=m.get('probability'),
+                price_movement=m.get('price_movement'),
+                price_movement_pct=m.get('price_movement_pct'),
+                volume=m.get('volume'),
+                liquidity=m.get('liquidity'),
+                open_interest=m.get('open_interest'),
+                rank_score=m.get('rank_score', 0),
+                catalyst_summary=m.get('catalyst_summary', ''),
+                market_signal=m.get('market_signal', ''),
+                risk=m.get('risk', ''),
+                why_ranks=m.get('why_ranks', ''),
+                source_item_id=m.get('source_item_id', ''),
+                evidence_refs=m.get('evidence_refs', []),
+                cross_market_note=m.get('cross_market_note', ''),
+                end_date=m.get('end_date'),
+            ))
+
         return cls(
             topic=data['topic'],
             range_from=range_from,
@@ -1045,6 +1124,7 @@ class Report:
             polymarket=pm_items,
             kalshi=kalshi_items,
             forecasts=forecast_items,
+            market_watchlist=market_watchlist_items,
             best_practices=data.get('best_practices', []),
             prompt_pack=data.get('prompt_pack', []),
             context_snippet_md=data.get('context_snippet_md', ''),

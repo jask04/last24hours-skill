@@ -1,8 +1,8 @@
 ---
 name: last24hours
 version: "1.0.0"
-description: "Real-time forecasting skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, and event outcomes."
-argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability"
+description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
+argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
 homepage: https://github.com/jask04/last24hours-skill
 repository: https://github.com/jask04/last24hours-skill
@@ -36,6 +36,7 @@ metadata:
     homepage: https://github.com/jask04/last24hours-skill
     tags:
       - forecasting
+      - market-watchlist
       - prediction-markets
       - polymarket
       - kalshi
@@ -55,7 +56,7 @@ metadata:
 
 # last24hours v1.0.0: Forecast From the Last 24 Hours
 
-Use `/last24hours` as a forecasting assistant first and a research brief second.
+Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
 
 The default job is to answer:
@@ -65,9 +66,18 @@ The default job is to answer:
 - What uncertainty matters?
 - What would move the forecast up or down?
 
+For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
+- What are the best-ranked markets to monitor for this topic?
+- Which venue and outcome is being surfaced?
+- What market signal explains the rank?
+- What catalyst or evidence supports watching it?
+- What risk or uncertainty would change the ranking?
+
 ## Core Rule
 
 If the request is forecastable, default to `PREDICTION`.
+
+If the request asks for market discovery, default to `MARKET_WATCHLIST`.
 
 Treat these as forecastable by default:
 - prediction-market topics
@@ -79,6 +89,18 @@ Treat these as forecastable by default:
 
 Only fall back to non-prediction behavior when the request is clearly not about an outcome.
 
+Treat these as `MARKET_WATCHLIST` prompts:
+- `markets to watch`
+- `best markets`
+- `recommend markets`
+- `market opportunities`
+- `market picks`
+- `biggest market moves`
+- `interesting Polymarket markets`
+- `interesting Kalshi markets`
+
+Keep v1 watchlist scans topic-scoped when possible. Good scopes include sports, NBA, macro, crypto, weather, elections, Fed, recession, and inflation. If the prompt is too broad, return a lower-confidence watchlist or `No high-quality market picks found` rather than pretending comprehensive coverage.
+
 ## Parse Intent
 
 Before running tools, parse:
@@ -88,6 +110,7 @@ Before running tools, parse:
 
 Supported query types:
 - `PREDICTION` - default for forecastable requests
+- `MARKET_WATCHLIST` - ranked one-shot market discovery using Polymarket/Kalshi first
 - `COMPARISON` - compare probability, market quality, and evidence quality across outcomes or competing contracts
 - `NEWS`
 - `RECOMMENDATIONS`
@@ -121,6 +144,16 @@ For `PREDICTION`, prioritize:
 
 Use YouTube, TikTok, Instagram, Bluesky, and Truth Social only when they add signal or were explicitly requested. They are supporting evidence, not the forecast anchor.
 
+For `MARKET_WATCHLIST`, prioritize:
+1. Kalshi
+2. Polymarket
+3. Relevant web
+4. X
+5. Reddit
+6. Hacker News
+
+Do not run weather/NWS unless the watchlist topic is explicitly weather. Do not expand into YouTube, TikTok, Instagram, Bluesky, or Truth Social unless explicitly requested.
+
 Reddit public search is available without paid scraper credentials. `SCRAPECREATORS_API_KEY` is optional and mainly improves Reddit comment enrichment plus TikTok/Instagram coverage.
 
 For supported U.S. weather prompts, use the public National Weather Service API as the official no-key anchor when no clean Polymarket/Kalshi market exists.
@@ -146,6 +179,8 @@ The script now returns forecast inputs, including:
 - Kalshi
 - National Weather Service forecasts for supported U.S. weather prompts
 - WebSearch results when available
+
+For market-watchlist prompts, the script returns ranked market-watchlist inputs and opens with `Market Picks To Watch` instead of `Forecast`.
 
 For broad NBA slate prompts such as `tomorrows nba games`, the script expands the slate into matchup-specific searches before ranking markets and social evidence.
 
@@ -178,6 +213,32 @@ For weather and macro/politics:
 
 Never give trade sizing or betting advice.
 
+## Market Watchlist Rules
+
+Use this mode for one-shot market discovery only. Do not use `scripts/watchlist.py`; that file is for persistent topic monitoring.
+
+Rank markets by:
+- topic relevance
+- volume, liquidity, and open interest
+- recent market movement
+- fresh catalyst evidence from X, Reddit, web, and Hacker News
+- cross-market disagreement when Polymarket and Kalshi have comparable contracts
+
+Allowed language:
+- `top pick to watch`
+- `interesting setup`
+- `best-ranked market`
+- `market-monitoring output`
+
+Avoid trade-execution language, allocation advice, guaranteed-return framing, and exact position sizing. State explicitly that the watchlist is informational market monitoring.
+
+If no clean candidates exist, say:
+
+```text
+No high-quality market picks found.
+Filters: needed topic-relevant Polymarket/Kalshi candidates with enough market depth, movement, catalyst evidence, or cross-market signal.
+```
+
 ## Default Answer Shape For Prediction Queries
 
 Use this structure at the top of the answer:
@@ -208,6 +269,28 @@ Preferred headings:
 - `Confidence / uncertainty`
 
 For Codex chat invocations, the top of the compact output should already contain that forecast block. Raw source sections belong below it.
+
+## Default Answer Shape For Market Watchlist Queries
+
+Use this structure at the top of the answer:
+
+```text
+Market Picks To Watch
+
+Pick: {venue} - {outcome label and implied probability}
+Why it ranks: {market depth, movement, catalyst context, or cross-market signal}
+Market signal: {price, recent move, volume, liquidity, open interest}
+Catalyst / evidence: {highest-signal X, Reddit, web, or HN context}
+Risk / what would change it: {conditions that would change the ranking}
+```
+
+Good prompts:
+- `/last24hours NBA markets to watch today`
+- `/last24hours macro markets to watch this week`
+- `/last24hours recommend Polymarket and Kalshi markets around Fed cuts`
+- `/last24hours crypto prediction markets to watch today`
+
+Bad or too-broad prompts such as `/last24hours markets to watch` should degrade cleanly and only show high-quality candidates.
 
 ## Comparison Mode
 

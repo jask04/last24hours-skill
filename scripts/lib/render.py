@@ -321,9 +321,52 @@ def _render_forecast_item(item: schema.ForecastItem) -> list[str]:
     return lines
 
 
+def _format_watch_probability(item: schema.MarketWatchItem) -> str:
+    if item.probability is None:
+        return "probability unavailable"
+    return f"{item.outcome_label or 'Top outcome'} {item.probability * 100:.0f}%"
+
+
+def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
+    if qt.detect_query_type(report.topic) != "market_watchlist":
+        return []
+
+    lines = ["### Market Picks To Watch", ""]
+    lines.append("*Informational market-monitoring output, not trade execution or allocation advice.*")
+    lines.append("")
+    if not report.market_watchlist:
+        lines.append("No high-quality market picks found.")
+        lines.append("Filters: needed topic-relevant Polymarket/Kalshi candidates with enough market depth, movement, catalyst evidence, or cross-market signal.")
+        lines.append("If the prompt is broad, narrow it by domain, league, asset, or macro theme for a cleaner scan.")
+        lines.append("")
+        return lines
+
+    for item in report.market_watchlist:
+        lines.append(f"**{item.id}. {item.title or item.question}**")
+        lines.append(f"Pick: {item.venue} - {_format_watch_probability(item)}")
+        lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
+        lines.append(f"Market signal: {item.market_signal}")
+        catalyst = item.catalyst_summary or "Catalyst context is thin; ranking is mostly market-signal driven."
+        if item.evidence_refs:
+            catalyst += f" Evidence refs: {', '.join(item.evidence_refs[:3])}."
+        lines.append(f"Catalyst / evidence: {catalyst}")
+        risk = item.risk or "Fresh news or market repricing could change the ranking."
+        if item.cross_market_note:
+            risk += f" {item.cross_market_note}"
+        lines.append(f"Risk / what would change it: {risk}")
+        if item.end_date:
+            lines.append(f"Expiration: {item.end_date}")
+        if item.url:
+            lines.append(item.url)
+        lines.append("")
+    return lines
+
+
 def _used_market_ids(report: schema.Report) -> tuple[set[str], set[str]]:
     poly_ids = {item.polymarket_market_id for item in report.forecasts if item.polymarket_market_id}
     kalshi_ids = {item.kalshi_market_id for item in report.forecasts if item.kalshi_market_id}
+    poly_ids |= {item.source_item_id for item in report.market_watchlist if item.source_item_id.startswith("PM")}
+    kalshi_ids |= {item.source_item_id for item in report.market_watchlist if item.source_item_id.startswith("KA")}
     return poly_ids, kalshi_ids
 
 
@@ -489,6 +532,8 @@ def _render_prediction_summary(report: schema.Report) -> list[str]:
 
 
 def _compact_sports_items(items: list, source: str, report: schema.Report, limit: int) -> list:
+    if qt.detect_query_type(report.topic) == "market_watchlist":
+        return []
     if qt.detect_query_type(report.topic) != "prediction" or not _is_nba_slate_topic(report.topic) and not _matchup_signature(report.topic):
         return items[:limit]
 
@@ -581,7 +626,10 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     lines = []
 
     # Header
-    lines.append(f"## Forecast Inputs: {report.topic}")
+    if qt.detect_query_type(report.topic) == "market_watchlist":
+        lines.append(f"## Market Watchlist Inputs: {report.topic}")
+    else:
+        lines.append(f"## Forecast Inputs: {report.topic}")
     lines.append("")
 
     # Assess data freshness and add honesty warning if needed
@@ -622,9 +670,13 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append(f"**Resolved X Handle:** @{report.resolved_x_handle}")
     lines.append("")
 
-    prediction_summary = _render_prediction_summary(report)
-    if prediction_summary:
-        lines.extend(prediction_summary)
+    market_watchlist_summary = _render_market_watchlist_summary(report)
+    if market_watchlist_summary:
+        lines.extend(market_watchlist_summary)
+    else:
+        prediction_summary = _render_prediction_summary(report)
+        if prediction_summary:
+            lines.extend(prediction_summary)
 
     if report.weather:
         lines.append("### Official Weather")
@@ -668,6 +720,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         domain = _prediction_domain(report.topic)
         if not compact_reddit and (qt.detect_query_type(report.topic) == "prediction") and domain:
             lines.append(f"*No high-signal Reddit threads found for this {domain} forecast.*")
+            lines.append("")
+        elif not compact_reddit and qt.detect_query_type(report.topic) == "market_watchlist":
+            lines.append("*Raw Reddit snippets suppressed in market-watchlist mode; catalyst snippets are included in the ranked picks when they clear quality filters.*")
             lines.append("")
         for item in compact_reddit:
             eng_str = ""
@@ -725,6 +780,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         domain = _prediction_domain(report.topic)
         if not compact_x and (qt.detect_query_type(report.topic) == "prediction") and domain:
             lines.append(f"*No high-signal X posts found for this {domain} forecast.*")
+            lines.append("")
+        elif not compact_x and qt.detect_query_type(report.topic) == "market_watchlist":
+            lines.append("*Raw X snippets suppressed in market-watchlist mode; catalyst snippets are included in the ranked picks when they clear quality filters.*")
             lines.append("")
         for item in compact_x:
             eng_str = ""
@@ -994,10 +1052,15 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                 market_items = used_items + extra_items[:max(0, limit - len(used_items))]
             else:
                 market_items = used_items
+        elif qt.detect_query_type(report.topic) == "market_watchlist":
+            market_items = []
         if _is_nba_slate_topic(report.topic):
             market_items = [item for item in market_items if _is_nba_market_item(item)]
         if not market_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Polymarket markets found after league filtering.*")
+            lines.append("")
+        elif not market_items and qt.detect_query_type(report.topic) == "market_watchlist":
+            lines.append("*No ranked Polymarket watchlist candidates shown beyond the summary above.*")
             lines.append("")
         for item in market_items[:limit]:
             eng_str = ""
@@ -1059,10 +1122,15 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                 kalshi_items = used_items + extra_items[:max(0, limit - len(used_items))]
             else:
                 kalshi_items = used_items
+        elif qt.detect_query_type(report.topic) == "market_watchlist":
+            kalshi_items = []
         if _is_nba_slate_topic(report.topic):
             kalshi_items = [item for item in kalshi_items if _is_nba_market_item(item)]
         if not kalshi_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Kalshi markets found after league filtering.*")
+            lines.append("")
+        elif not kalshi_items and qt.detect_query_type(report.topic) == "market_watchlist":
+            lines.append("*No ranked Kalshi watchlist candidates shown beyond the summary above.*")
             lines.append("")
         for item in kalshi_items[:limit]:
             eng_str = ""
@@ -1276,6 +1344,12 @@ def render_context_snippet(report: schema.Report) -> str:
         for item in report.forecasts[:5]:
             lines.append(f"- {item.title}: {_format_probability_range(item)} via {_anchor_label(item)}")
         lines.append("")
+    if report.market_watchlist:
+        lines.append("## Market Watchlist Summary")
+        lines.append("")
+        for item in report.market_watchlist[:5]:
+            lines.append(f"- {item.id}: {item.title or item.question} - {_format_watch_probability(item)} via {item.venue}")
+        lines.append("")
 
     # Key sources summary
     lines.append("## Key Sources")
@@ -1300,6 +1374,8 @@ def render_context_snippet(report: schema.Report) -> str:
         all_items.append((item.score, "Polymarket", item.question[:50] + "...", item.url))
     for item in report.kalshi[:5]:
         all_items.append((item.score, "Kalshi", item.question[:50] + "...", item.url))
+    for item in report.market_watchlist[:5]:
+        all_items.append((item.rank_score, "MarketWatch", item.question[:50] + "...", item.url))
     for item in report.weather[:5]:
         all_items.append((item.score, "Weather", item.title[:50] + "...", item.url))
     for item in report.web[:5]:
@@ -1330,7 +1406,10 @@ def render_full_report(report: schema.Report) -> str:
     lines = []
 
     # Title
-    lines.append(f"# {report.topic} - Last 24 Hours Forecast Inputs")
+    if qt.detect_query_type(report.topic) == "market_watchlist":
+        lines.append(f"# {report.topic} - Last 24 Hours Market Watchlist Inputs")
+    else:
+        lines.append(f"# {report.topic} - Last 24 Hours Forecast Inputs")
     lines.append("")
     lines.append(f"**Generated:** {report.generated_at}")
     lines.append(f"**Date Range:** {report.range_from} to {report.range_to}")
@@ -1349,6 +1428,27 @@ def render_full_report(report: schema.Report) -> str:
             lines.append(f"- **Confidence:** {item.confidence_level}")
             if item.uncertainty:
                 lines.append(f"- **Uncertainty:** {item.uncertainty}")
+            lines.append("")
+
+    if report.market_watchlist:
+        lines.append("## Market Picks To Watch")
+        lines.append("")
+        lines.append("*Informational market-monitoring output, not trade execution or allocation advice.*")
+        lines.append("")
+        for item in report.market_watchlist:
+            lines.append(f"### {item.id}: {item.title or item.question}")
+            lines.append("")
+            lines.append(f"- **Pick:** {item.venue} - {_format_watch_probability(item)}")
+            lines.append(f"- **Why it ranks:** {item.why_ranks} (rank score {item.rank_score}/100)")
+            lines.append(f"- **Market signal:** {item.market_signal}")
+            lines.append(f"- **Catalyst / evidence:** {item.catalyst_summary}")
+            lines.append(f"- **Risk / what would change it:** {item.risk}")
+            if item.cross_market_note:
+                lines.append(f"- **Cross-market note:** {item.cross_market_note}")
+            if item.evidence_refs:
+                lines.append(f"- **Evidence refs:** {', '.join(item.evidence_refs[:5])}")
+            if item.url:
+                lines.append(f"- **URL:** {item.url}")
             lines.append("")
 
     # Models
