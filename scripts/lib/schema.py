@@ -494,6 +494,16 @@ class PolymarketItem:
     outcomes_remaining: int = 0
     price_movement: Optional[str] = None  # "down 11.7% this month"
     price_movement_pct: Optional[float] = None
+    implied_probability: Optional[float] = None
+    best_bid: Optional[float] = None
+    best_ask: Optional[float] = None
+    spread: Optional[float] = None
+    midpoint: Optional[float] = None
+    movement_24h: Optional[float] = None
+    volume_24h: Optional[float] = None
+    market_signal_quality: Optional[float] = None
+    signal_timestamp: Optional[str] = None
+    signal_missing_reason: str = ""
     date: Optional[str] = None
     date_confidence: str = "high"  # API provides exact timestamps
     engagement: Optional[Engagement] = None  # volume + liquidity
@@ -514,6 +524,16 @@ class PolymarketItem:
             'outcomes_remaining': self.outcomes_remaining,
             'price_movement': self.price_movement,
             'price_movement_pct': self.price_movement_pct,
+            'implied_probability': self.implied_probability,
+            'best_bid': self.best_bid,
+            'best_ask': self.best_ask,
+            'spread': self.spread,
+            'midpoint': self.midpoint,
+            'movement_24h': self.movement_24h,
+            'volume_24h': self.volume_24h,
+            'market_signal_quality': self.market_signal_quality,
+            'signal_timestamp': self.signal_timestamp,
+            'signal_missing_reason': self.signal_missing_reason,
             'date': self.date,
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
@@ -541,6 +561,16 @@ class KalshiItem:
     current_probability: Optional[float] = None
     price_movement: Optional[str] = None
     price_movement_pct: Optional[float] = None
+    implied_probability: Optional[float] = None
+    best_bid: Optional[float] = None
+    best_ask: Optional[float] = None
+    spread: Optional[float] = None
+    midpoint: Optional[float] = None
+    movement_24h: Optional[float] = None
+    volume_24h: Optional[float] = None
+    market_signal_quality: Optional[float] = None
+    signal_timestamp: Optional[str] = None
+    signal_missing_reason: str = ""
     date: Optional[str] = None
     date_confidence: str = "high"
     engagement: Optional[Engagement] = None  # volume + liquidity + open interest
@@ -563,6 +593,16 @@ class KalshiItem:
             'current_probability': self.current_probability,
             'price_movement': self.price_movement,
             'price_movement_pct': self.price_movement_pct,
+            'implied_probability': self.implied_probability,
+            'best_bid': self.best_bid,
+            'best_ask': self.best_ask,
+            'spread': self.spread,
+            'midpoint': self.midpoint,
+            'movement_24h': self.movement_24h,
+            'volume_24h': self.volume_24h,
+            'market_signal_quality': self.market_signal_quality,
+            'signal_timestamp': self.signal_timestamp,
+            'signal_missing_reason': self.signal_missing_reason,
             'date': self.date,
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
@@ -634,6 +674,16 @@ class MarketWatchItem:
     probability: Optional[float] = None
     price_movement: Optional[str] = None
     price_movement_pct: Optional[float] = None
+    implied_probability: Optional[float] = None
+    best_bid: Optional[float] = None
+    best_ask: Optional[float] = None
+    spread: Optional[float] = None
+    midpoint: Optional[float] = None
+    movement_24h: Optional[float] = None
+    volume_24h: Optional[float] = None
+    market_signal_quality: Optional[float] = None
+    signal_timestamp: Optional[str] = None
+    signal_missing_reason: str = ""
     volume: Optional[float] = None
     liquidity: Optional[float] = None
     open_interest: Optional[float] = None
@@ -658,6 +708,16 @@ class MarketWatchItem:
             'probability': self.probability,
             'price_movement': self.price_movement,
             'price_movement_pct': self.price_movement_pct,
+            'implied_probability': self.implied_probability,
+            'best_bid': self.best_bid,
+            'best_ask': self.best_ask,
+            'spread': self.spread,
+            'midpoint': self.midpoint,
+            'movement_24h': self.movement_24h,
+            'volume_24h': self.volume_24h,
+            'market_signal_quality': self.market_signal_quality,
+            'signal_timestamp': self.signal_timestamp,
+            'signal_missing_reason': self.signal_missing_reason,
             'volume': self.volume,
             'liquidity': self.liquidity,
             'open_interest': self.open_interest,
@@ -1016,6 +1076,16 @@ class Report:
                 outcomes_remaining=p.get('outcomes_remaining', 0),
                 price_movement=p.get('price_movement'),
                 price_movement_pct=p.get('price_movement_pct'),
+                implied_probability=p.get('implied_probability'),
+                best_bid=p.get('best_bid'),
+                best_ask=p.get('best_ask'),
+                spread=p.get('spread'),
+                midpoint=p.get('midpoint'),
+                movement_24h=p.get('movement_24h'),
+                volume_24h=p.get('volume_24h'),
+                market_signal_quality=p.get('market_signal_quality'),
+                signal_timestamp=p.get('signal_timestamp'),
+                signal_missing_reason=p.get('signal_missing_reason', ''),
                 date=p.get('date'),
                 date_confidence=p.get('date_confidence', 'high'),
                 engagement=eng,
@@ -1044,6 +1114,16 @@ class Report:
                 current_probability=k.get('current_probability'),
                 price_movement=k.get('price_movement'),
                 price_movement_pct=k.get('price_movement_pct'),
+                implied_probability=k.get('implied_probability'),
+                best_bid=k.get('best_bid'),
+                best_ask=k.get('best_ask'),
+                spread=k.get('spread'),
+                midpoint=k.get('midpoint'),
+                movement_24h=k.get('movement_24h'),
+                volume_24h=k.get('volume_24h'),
+                market_signal_quality=k.get('market_signal_quality'),
+                signal_timestamp=k.get('signal_timestamp'),
+                signal_missing_reason=k.get('signal_missing_reason', ''),
                 date=k.get('date'),
                 date_confidence=k.get('date_confidence', 'high'),
                 engagement=eng,
@@ -1090,6 +1170,16 @@ class Report:
                 probability=m.get('probability'),
                 price_movement=m.get('price_movement'),
                 price_movement_pct=m.get('price_movement_pct'),
+                implied_probability=m.get('implied_probability'),
+                best_bid=m.get('best_bid'),
+                best_ask=m.get('best_ask'),
+                spread=m.get('spread'),
+                midpoint=m.get('midpoint'),
+                movement_24h=m.get('movement_24h'),
+                volume_24h=m.get('volume_24h'),
+                market_signal_quality=m.get('market_signal_quality'),
+                signal_timestamp=m.get('signal_timestamp'),
+                signal_missing_reason=m.get('signal_missing_reason', ''),
                 volume=m.get('volume'),
                 liquidity=m.get('liquidity'),
                 open_interest=m.get('open_interest'),

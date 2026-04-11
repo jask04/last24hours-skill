@@ -69,7 +69,7 @@ The default job is to answer:
 For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
 - What are the best-ranked markets to monitor for this topic?
 - Which venue and outcome is being surfaced?
-- What market signal explains the rank?
+- What exchange-native market signal explains the rank?
 - What catalyst or evidence supports watching it?
 - What risk or uncertainty would change the ranking?
 
@@ -219,10 +219,16 @@ Use this mode for one-shot market discovery only. Do not use `scripts/watchlist.
 
 Rank markets by:
 - topic relevance
-- volume, liquidity, and open interest
-- recent market movement
+- exchange-native market signal quality
+- 24h volume, liquidity, and open interest
+- bid-ask spread when available
+- recent 24h market movement
 - fresh catalyst evidence from X, Reddit, web, and Hacker News
 - cross-market disagreement when Polymarket and Kalshi have comparable contracts
+
+Prefer measurable market signal over generic catalyst text. Kalshi candidates may include public candlestick-derived 24h movement, 24h volume, latest open interest, and signal timestamps. Polymarket candidates may include Gamma-derived 24h volume, liquidity, one-day movement, and bid/ask or spread fields when present. If those signals are missing, keep an otherwise relevant market but label the missing signal in `Market signal` or `Risk / what would change it`.
+
+For NBA, Fed/rates, BTC, and ETH watchlist scans, Kalshi should check direct series/event markets in addition to generic open-market pages. If a Kalshi candidate is close to the top-five cutoff, include it for venue coverage; do not force weak or poorly matched Kalshi rows into the watchlist.
 
 Allowed language:
 - `top pick to watch`
@@ -278,10 +284,10 @@ Use this structure at the top of the answer:
 Market Picks To Watch
 
 Pick: {venue} - {outcome label and implied probability}
-Why it ranks: {market depth, movement, catalyst context, or cross-market signal}
-Market signal: {price, recent move, volume, liquidity, open interest}
+Why it ranks: {signal quality, 24h volume, spread, movement, catalyst context, or cross-market signal}
+Market signal: {price, 24h move, spread, 24h volume, liquidity, open interest, signal quality}
 Catalyst / evidence: {highest-signal X, Reddit, web, or HN context}
-Risk / what would change it: {conditions that would change the ranking}
+Risk / what would change it: {stale, illiquid, wide-spread, or catalyst conditions that would change the ranking}
 ```
 
 Good prompts:

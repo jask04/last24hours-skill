@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Topic-scoped `market_watchlist` query mode for prompts such as `NBA markets to watch today`, `best macro markets right now`, and `recommend Polymarket/Kalshi markets around Fed cuts`
 - `MarketWatchItem` report serialization and compact rendering for ranked market picks with market signal, catalyst evidence, and risk notes
 - One-shot market-watchlist ranker that scores Polymarket/Kalshi candidates by topic relevance, market depth, recent movement, catalyst evidence, and cross-market signal
+- Shared market-signal fields for Polymarket, Kalshi, and market-watchlist report items, including implied probability, bid/ask, spread, midpoint, 24h movement, 24h volume, signal timestamp, signal quality, and missing-signal reason
+- Kalshi batch candlestick enrichment for watchlist candidates, deriving 24h movement, 24h volume, latest open interest, and signal timestamps when public candle data is available
+- Kalshi direct series/event expansion for NBA, Fed/rates, BTC, and ETH watchlist scans
 
 ### Changed
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
@@ -41,6 +44,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Market-watchlist prompts now render `Market Picks To Watch` instead of a single forecast and keep rankings framed as informational market monitoring
 - Watchlist mode keeps a wider market candidate pool than forecast mode before applying its own ranker
 - Skill, README, and extension metadata now describe `/last24hours` as forecasting plus topic-scoped market-watchlist discovery
+- Watchlist ranking now prioritizes measurable market signal quality, 24h volume, spread tightness, open interest/liquidity, and recent 24h repricing before catalyst context
+- Watchlist risk notes now call out stale/near-certain prices, wide spreads, and missing enrichment instead of hiding weak market data behind generic market-signal wording
+- Watchlist output now includes a near-cutoff Kalshi candidate for venue coverage when its score is close enough to the top-five cutoff
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
@@ -49,6 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - NBA slate runs no longer leak cross-league city-name collisions such as MLB markets into NBA boards
 - Polymarket macro multi-market rendering now falls back to clean `Yes` / `No` labels when question-derived labels would be malformed
 - Market-watchlist phrasing such as `markets to watch` no longer misclassifies as a weather query
+- Cross-market disagreement notes no longer compare adjacent contracts with different numeric thresholds as if they were the same market
 
 ## [1.0.0] - 2026-03-29
 

@@ -2,6 +2,7 @@
 
 import math
 import re
+from datetime import date
 from typing import Optional
 
 from . import evidence_quality as eq, schema
@@ -121,7 +122,13 @@ def _engagement_values(eng: Optional[schema.Engagement]) -> tuple[Optional[float
 
 def _market_probability(item) -> tuple[str, Optional[float]]:
     if isinstance(item, schema.KalshiItem):
-        return "Yes", item.current_probability
+        return "Yes", item.implied_probability if item.implied_probability is not None else item.current_probability
+    if getattr(item, "implied_probability", None) is not None:
+        label = "Top outcome"
+        if getattr(item, "outcome_prices", None):
+            ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True)
+            label = str(ordered[0][0] or label)
+        return label, item.implied_probability
     if item.outcome_prices:
         ordered = sorted(item.outcome_prices, key=lambda pair: pair[1], reverse=True)
         label, probability = ordered[0]
@@ -168,6 +175,13 @@ def _topic_relevance(topic: str, item) -> float:
 def _is_bad_candidate(topic: str, item) -> bool:
     market_lower = _market_text(item).lower()
     domain = _domain(topic)
+    end_date = getattr(item, "end_date", None)
+    if end_date:
+        try:
+            if date.fromisoformat(str(end_date)[:10]) < date.today():
+                return True
+        except ValueError:
+            pass
     if domain in {"sports", "nba"} and any(term in market_lower for term in _META_MARKET_TERMS):
         return True
     if domain == "nba" and not eq.is_nba_market_text(market_lower):
@@ -184,10 +198,39 @@ def _market_quality(volume: Optional[float], liquidity: Optional[float], open_in
     return max(vol * 0.55 + liq * 0.30 + oi * 0.15, vol * 0.65 + liq * 0.35)
 
 
+def _depth_values(item) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    volume, liquidity, open_interest = _engagement_values(getattr(item, "engagement", None))
+    volume = getattr(item, "volume_24h", None) if getattr(item, "volume_24h", None) is not None else volume
+    return volume, liquidity, open_interest
+
+
 def _movement_score(movement_pct: Optional[float]) -> float:
     if movement_pct is None:
         return 0.0
     return min(1.0, abs(movement_pct) / 20.0)
+
+
+def _signal_quality(item, volume: Optional[float], liquidity: Optional[float], open_interest: Optional[float]) -> float:
+    provided = getattr(item, "market_signal_quality", None)
+    if provided is not None:
+        return max(0.0, min(1.0, provided))
+    return _market_quality(volume, liquidity, open_interest)
+
+
+def _spread_score(spread: Optional[float]) -> float:
+    if spread is None:
+        return 0.25
+    return max(0.0, min(1.0, 1.0 - spread / 0.20))
+
+
+def _near_certain_penalty(probability: Optional[float], movement: float, signal_quality: float) -> float:
+    if probability is None:
+        return 0.0
+    if 0.02 < probability < 0.98:
+        return 0.0
+    if movement >= 0.35 or signal_quality >= 0.65:
+        return 0.0
+    return 0.18
 
 
 def _source_text(item) -> str:
@@ -283,16 +326,27 @@ def _cross_market_note(item, other_items: list) -> tuple[float, str]:
     label, probability = _market_probability(item)
     if probability is None:
         return 0.0, ""
+    item_numbers = _numeric_tokens(_market_text(item))
+    sports_item_tokens = item_tokens & eq.SPORTS_TEAM_TOKENS
     best = None
     for other in other_items:
         other_tokens = _tokens(_market_text(other))
         common = len(item_tokens & other_tokens)
         if common < 3:
             continue
+        other_numbers = _numeric_tokens(_market_text(other))
+        if (item_numbers or other_numbers) and not (item_numbers & other_numbers):
+            continue
+        sports_other_tokens = other_tokens & eq.SPORTS_TEAM_TOKENS
+        if sports_item_tokens or sports_other_tokens:
+            if len(sports_item_tokens & sports_other_tokens) < min(2, len(sports_item_tokens | sports_other_tokens)):
+                continue
         _, other_probability = _market_probability(other)
         if other_probability is None:
             continue
         score = common / max(1, len(item_tokens | other_tokens))
+        if score < 0.30:
+            continue
         if not best or score > best[0]:
             best = (score, other, other_probability)
     if not best:
@@ -301,6 +355,19 @@ def _cross_market_note(item, other_items: list) -> tuple[float, str]:
     if spread < 5:
         return 0.05, f"Comparable {best[1].id} is within {spread:.0f} pts."
     return min(0.20, spread / 100.0), f"Comparable {best[1].id} differs by about {spread:.0f} pts on {label}."
+
+
+def _numeric_tokens(text: str) -> set[str]:
+    values = set()
+    for raw in re.findall(r"\b\d+(?:\.\d+)?\b", text or ""):
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if 1900 <= value <= 2100:
+            continue
+        values.add(raw.rstrip("0").rstrip(".") if "." in raw else raw)
+    return values
 
 
 def _format_money(value: Optional[float], label: str) -> Optional[str]:
@@ -313,32 +380,76 @@ def _format_money(value: Optional[float], label: str) -> Optional[str]:
     return f"${value:.0f} {label}"
 
 
-def _market_signal(venue: str, probability: Optional[float], price_movement: Optional[str], volume: Optional[float], liquidity: Optional[float], open_interest: Optional[float]) -> str:
+def _format_pct_value(value: Optional[float], label: str) -> Optional[str]:
+    if value is None:
+        return None
+    direction = "up" if value > 0 else "down"
+    if abs(value) < 0.1:
+        return f"flat {label}"
+    return f"{direction} {abs(value):.1f} pts {label}"
+
+
+def _market_signal(
+    venue: str,
+    probability: Optional[float],
+    movement_24h: Optional[float],
+    best_bid: Optional[float],
+    best_ask: Optional[float],
+    spread: Optional[float],
+    volume: Optional[float],
+    liquidity: Optional[float],
+    open_interest: Optional[float],
+    signal_quality: Optional[float],
+    signal_missing_reason: str,
+) -> str:
     parts = [venue]
     if probability is not None:
         parts.append(f"{probability * 100:.0f}% implied")
-    if price_movement:
-        parts.append(price_movement)
+    move_text = _format_pct_value(movement_24h, "24h")
+    if move_text:
+        parts.append(move_text)
+    if best_bid is not None and best_ask is not None:
+        parts.append(f"bid/ask {best_bid * 100:.0f}/{best_ask * 100:.0f}")
+    if spread is not None:
+        parts.append(f"spread {spread * 100:.0f} pts")
     for value in (
-        _format_money(volume, "volume"),
+        _format_money(volume, "24h volume"),
         _format_money(liquidity, "liquidity"),
         _format_money(open_interest, "open interest"),
     ):
         if value:
             parts.append(value)
+    if signal_quality is not None:
+        parts.append(f"signal quality {signal_quality * 100:.0f}/100")
+    if signal_missing_reason:
+        parts.append(signal_missing_reason)
     return "; ".join(parts)
 
 
-def _risk_line(evidence_score: float, movement_pct: Optional[float], quality: float, cross_note: str) -> str:
+def _risk_line(
+    evidence_score: float,
+    movement_pct: Optional[float],
+    quality: float,
+    cross_note: str,
+    spread: Optional[float],
+    probability: Optional[float],
+    signal_missing_reason: str,
+) -> str:
     risks = []
     if evidence_score < 0.20:
         risks.append("external catalyst evidence is thin")
     if quality < 0.30:
-        risks.append("market depth is limited")
+        risks.append("market signal is thin or stale")
+    if spread is not None and spread >= 0.12:
+        risks.append("spread is wide")
+    if probability is not None and (probability <= 0.02 or probability >= 0.98):
+        risks.append("near-certain price can reflect stale or effectively resolved risk")
     if movement_pct is not None and abs(movement_pct) >= 10:
         risks.append("the recent move is large enough to retrace")
     if cross_note and "differs" in cross_note:
         risks.append("cross-venue pricing disagrees")
+    if signal_missing_reason:
+        risks.append(signal_missing_reason)
     if not risks:
         risks.append("fresh news or market repricing could change the ranking")
     return "; ".join(risks) + "."
@@ -353,32 +464,48 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
 
     outcome_label, probability = _market_probability(item)
-    volume, liquidity, open_interest = _engagement_values(getattr(item, "engagement", None))
-    quality = _market_quality(volume, liquidity, open_interest)
-    movement = _movement_score(getattr(item, "price_movement_pct", None))
+    volume, liquidity, open_interest = _depth_values(item)
+    movement_pct = getattr(item, "movement_24h", None)
+    if movement_pct is None:
+        movement_pct = getattr(item, "price_movement_pct", None)
+    quality = _signal_quality(item, volume, liquidity, open_interest)
+    movement = _movement_score(movement_pct)
+    spread = getattr(item, "spread", None)
+    spread_quality = _spread_score(spread)
     evidence_score, catalyst_summary, evidence_refs = _evidence_for_market(report, item)
-    spread_score, cross_note = _cross_market_note(item, other_items)
+    cross_score, cross_note = _cross_market_note(item, other_items)
+    certainty_penalty = _near_certain_penalty(probability, movement, quality)
     rank_score = int(max(0, min(100, 100 * (
-        0.34 * quality +
-        0.25 * relevance +
-        0.23 * evidence_score +
+        0.40 * quality +
+        0.24 * relevance +
+        0.14 * evidence_score +
         0.12 * movement +
-        0.06 * spread_score
+        0.06 * spread_quality +
+        0.04 * cross_score -
+        certainty_penalty
     ))))
 
     if rank_score < 24 and _domain(report.topic) != "broad":
         return None
 
     why_bits = []
-    if quality >= 0.55:
-        why_bits.append("strong market depth")
+    if spread is not None and spread <= 0.04:
+        why_bits.append("tight spread")
+    elif spread is not None and spread >= 0.12:
+        why_bits.append("wide spread caveat")
+    if (volume or 0) >= 250_000:
+        why_bits.append("high 24h volume")
+    if quality >= 0.60:
+        why_bits.append("strong market signal")
     elif quality >= 0.30:
-        why_bits.append("usable market depth")
+        why_bits.append("usable market signal")
+    else:
+        why_bits.append("thin/stale market signal")
     if movement >= 0.35:
-        why_bits.append("notable recent move")
+        why_bits.append("large 24h repricing")
     if evidence_score >= 0.35:
         why_bits.append("fresh catalyst context")
-    if spread_score >= 0.05:
+    if cross_score >= 0.05:
         why_bits.append("cross-market disagreement/alignment signal")
     if not why_bits:
         why_bits.append("best available topic match, but lower-confidence")
@@ -393,13 +520,43 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         probability=probability,
         price_movement=getattr(item, "price_movement", None),
         price_movement_pct=getattr(item, "price_movement_pct", None),
+        implied_probability=getattr(item, "implied_probability", None),
+        best_bid=getattr(item, "best_bid", None),
+        best_ask=getattr(item, "best_ask", None),
+        spread=spread,
+        midpoint=getattr(item, "midpoint", None),
+        movement_24h=movement_pct,
+        volume_24h=getattr(item, "volume_24h", None),
+        market_signal_quality=quality,
+        signal_timestamp=getattr(item, "signal_timestamp", None),
+        signal_missing_reason=getattr(item, "signal_missing_reason", ""),
         volume=volume,
         liquidity=liquidity,
         open_interest=open_interest,
         rank_score=rank_score,
         catalyst_summary=catalyst_summary,
-        market_signal=_market_signal(venue, probability, getattr(item, "price_movement", None), volume, liquidity, open_interest),
-        risk=_risk_line(evidence_score, getattr(item, "price_movement_pct", None), quality, cross_note),
+        market_signal=_market_signal(
+            venue,
+            probability,
+            movement_pct,
+            getattr(item, "best_bid", None),
+            getattr(item, "best_ask", None),
+            spread,
+            volume,
+            liquidity,
+            open_interest,
+            quality,
+            getattr(item, "signal_missing_reason", ""),
+        ),
+        risk=_risk_line(
+            evidence_score,
+            movement_pct,
+            quality,
+            cross_note,
+            spread,
+            probability,
+            getattr(item, "signal_missing_reason", ""),
+        ),
         why_ranks=", ".join(why_bits),
         source_item_id=getattr(item, "id", ""),
         evidence_refs=evidence_refs,
@@ -432,4 +589,12 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         results.append(candidate)
         if len(results) >= limit:
             break
+    if results and not any(item.venue.lower() == "kalshi" for item in results):
+        best_kalshi = next((item for item in candidates if item.venue.lower() == "kalshi"), None)
+        cutoff = results[-1].rank_score
+        if best_kalshi and best_kalshi.rank_score >= max(30, cutoff - 10):
+            results[-1] = best_kalshi
+            results.sort(key=lambda item: item.rank_score, reverse=True)
+            for idx, item in enumerate(results, start=1):
+                item.id = f"MW{idx}"
     return results

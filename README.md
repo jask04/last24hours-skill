@@ -6,7 +6,7 @@ Codex chat is the primary target UX. The compact output is designed to open with
 
 Forecasts are now market-anchored by default. When Polymarket and Kalshi both exist for the same outcome, the skill blends them with liquidity/quality weighting and widens uncertainty when the spread is meaningful.
 
-Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, market depth, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
+Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
 
 For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers injuries, lineups, rest, playoff incentives, and meaningful line movement over betting-bot chatter, ticket resale posts, or generic hype.
 
@@ -60,7 +60,7 @@ Market Picks To Watch
 
 Pick: Polymarket or Kalshi market, outcome label, and implied probability
 Why it ranks: market depth, movement, catalyst context, or cross-market signal
-Market signal: price, recent move, volume, liquidity, or open interest
+Market signal: price, 24h move, spread, 24h volume, liquidity, open interest, and signal-quality notes
 Catalyst / evidence: X, Reddit, web, or HN context when it clears quality filters
 Risk / what would change it: why the ranking could break or need revision
 ```
@@ -233,10 +233,16 @@ Market-watchlist mode is a one-shot discovery flow inside `scripts/last24hours.p
 
 The ranker combines:
 - topic relevance
-- volume, liquidity, and open interest
-- recent market movement
+- exchange-native signal quality
+- 24h volume, liquidity, and open interest
+- bid-ask spread when available
+- recent 24h market movement
 - fresh catalyst evidence from X, Reddit, web, and Hacker News
 - cross-market disagreement when comparable Polymarket and Kalshi contracts exist
+
+Kalshi watchlist candidates are enriched with public batch candlesticks when available to estimate 24h movement, 24h volume, latest open interest, and signal timestamps. For high-value domains such as NBA, Fed/rates, and BTC/ETH, the Kalshi path also checks direct series/event markets so the first page of generic multigame markets does not hide relevant contracts. Polymarket candidates normalize public Gamma market fields such as 24h volume, liquidity, one-day movement, and bid/ask or spread fields when present. Missing enrichment does not drop a market; it is reflected in the market signal and risk note.
+
+When a Kalshi candidate is within range of the watchlist cutoff, the renderer may include it for venue coverage rather than returning an all-Polymarket list. Weak or poorly matched Kalshi rows are still suppressed.
 
 Good prompts:
 - `/last24hours NBA markets to watch today`

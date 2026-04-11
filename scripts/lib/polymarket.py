@@ -493,6 +493,61 @@ def _safe_float(val, default=0.0) -> float:
         return default
 
 
+def _safe_optional_float(val) -> Optional[float]:
+    """Convert a market field to float while preserving missing/blank values."""
+    if val in (None, ""):
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _top_implied_probability(outcome_prices: List[tuple]) -> Optional[float]:
+    prices = [price for _, price in outcome_prices if price is not None]
+    if not prices:
+        return None
+    return max(prices)
+
+
+def _market_signal_quality(
+    probability: Optional[float],
+    best_bid: Optional[float],
+    best_ask: Optional[float],
+    spread: Optional[float],
+    movement_24h: Optional[float],
+    volume_24h: Optional[float],
+    liquidity: Optional[float],
+) -> tuple[float, str]:
+    volume_score = min(1.0, math.log1p(max(volume_24h or 0.0, 0.0)) / math.log1p(1_000_000))
+    liquidity_score = min(1.0, math.log1p(max(liquidity or 0.0, 0.0)) / math.log1p(500_000))
+    movement_score = min(1.0, abs(movement_24h or 0.0) / 20.0)
+    spread_score = 0.25
+    missing = []
+    if spread is None:
+        missing.append("spread unavailable")
+    else:
+        spread_score = max(0.0, min(1.0, 1.0 - (spread / 0.20)))
+    if volume_24h is None:
+        missing.append("24h volume unavailable")
+    if liquidity is None:
+        missing.append("liquidity unavailable")
+
+    quality = (
+        0.34 * volume_score +
+        0.30 * liquidity_score +
+        0.22 * spread_score +
+        0.14 * movement_score
+    )
+    if probability is not None and (probability <= 0.01 or probability >= 0.99):
+        if volume_score < 0.65 and movement_score < 0.25:
+            quality *= 0.65
+            missing.append("near-certain price can be stale")
+    if best_bid is None and best_ask is None and spread is None:
+        missing.append("orderbook unavailable")
+    return round(max(0.0, min(1.0, quality)), 3), "; ".join(dict.fromkeys(missing))
+
+
 def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List[Dict[str, Any]]:
     """Parse Gamma API response into normalized item dicts.
 
@@ -580,6 +635,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
         # sub-markets, synthesize from market questions to show actual
         # team/entity probabilities instead of a single market's Yes/No
         outcome_prices = _parse_outcome_prices(top_market)
+        synthetic_outcomes_used = False
         top_outcomes_are_binary = (
             len(outcome_prices) == 2
             and {n.lower() for n, _ in outcome_prices} == {"yes", "no"}
@@ -600,6 +656,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
                 cleaned_outcomes = [(name, p) for name, p in shortened if name]
                 if _use_synthetic_outcomes(cleaned_outcomes):
                     outcome_prices = cleaned_outcomes
+                    synthetic_outcomes_used = True
 
         # Format price movement
         price_movement = _format_price_movement(top_market)
@@ -611,6 +668,41 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
         event_competitive = _safe_float(event.get("competitive"))
         volume24hr = _safe_float(event.get("volume24hr")) or _safe_float(top_market.get("volume24hr"))
         liquidity = event_liquidity or _safe_float(top_market.get("liquidity"))
+        implied_probability = _top_implied_probability(outcome_prices)
+        best_bid = _safe_optional_float(top_market.get("bestBid") or top_market.get("best_bid") or top_market.get("bestBidPrice"))
+        best_ask = _safe_optional_float(top_market.get("bestAsk") or top_market.get("best_ask") or top_market.get("bestAskPrice"))
+        spread = _safe_optional_float(top_market.get("spread"))
+        if len(outcome_prices) == 2 and best_bid is not None and best_ask is not None:
+            top_label = max(outcome_prices, key=lambda pair: pair[1])[0]
+            if str(top_label).strip().lower() == "no":
+                best_bid, best_ask = max(0.0, 1.0 - best_ask), min(1.0, 1.0 - best_bid)
+        if spread is None and best_bid is not None and best_ask is not None:
+            spread = max(0.0, best_ask - best_bid)
+        midpoint = (best_bid + best_ask) / 2 if best_bid is not None and best_ask is not None else None
+        movement_24h = (
+            (top_market.get("oneDayPriceChange") or 0) * 100
+            if top_market.get("oneDayPriceChange") is not None
+            else None
+        )
+        if synthetic_outcomes_used:
+            # Multi-market events synthesize outcome labels from several
+            # binary submarkets; a single submarket bid/ask/move would be
+            # misleading for the synthesized top outcome.
+            price_movement = None
+            best_bid = None
+            best_ask = None
+            spread = None
+            midpoint = None
+            movement_24h = None
+        signal_quality, signal_missing_reason = _market_signal_quality(
+            implied_probability,
+            best_bid,
+            best_ask,
+            spread,
+            movement_24h,
+            volume24hr,
+            liquidity,
+        )
 
         # Event URL
         url = f"https://polymarket.com/event/{slug}" if slug else f"https://polymarket.com/event/{event_id}"
@@ -711,7 +803,17 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             "outcome_prices": top_outcomes,
             "outcomes_remaining": remaining,
             "price_movement": price_movement,
-            "price_movement_pct": (top_market.get("oneDayPriceChange") or 0) * 100 if top_market.get("oneDayPriceChange") is not None else None,
+            "price_movement_pct": movement_24h,
+            "implied_probability": implied_probability,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread": spread,
+            "midpoint": midpoint,
+            "movement_24h": movement_24h,
+            "volume_24h": volume24hr,
+            "market_signal_quality": signal_quality,
+            "signal_timestamp": updated_at or None,
+            "signal_missing_reason": signal_missing_reason,
             "volume24hr": volume24hr,
             "volume1mo": event_volume1mo,
             "liquidity": liquidity,
