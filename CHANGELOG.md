@@ -42,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Windows runs no longer show misleading `chmod 600` guidance for `.env` permission warnings
 - NBA slate runs no longer leak cross-league city-name collisions such as MLB markets into NBA boards
 - Polymarket macro multi-market rendering now falls back to clean `Yes` / `No` labels when question-derived labels would be malformed
+- Market-watchlist phrasing such as `markets to watch` no longer misclassifies as a weather query
 
 ## [1.0.0] - 2026-03-29
 

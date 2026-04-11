@@ -22,7 +22,9 @@ WEATHER_SIGNAL_TERMS = {
     "humidity", "model", "models", "rainfall", "snowfall", "accumulation",
 }
 WEATHER_WEAK_TERMS = {"rain", "snow", "storm", "cold", "hot", "weather"}
-WEATHER_QUERY_TERMS = WEATHER_SIGNAL_TERMS | WEATHER_WEAK_TERMS | {"hurricane", "tornado"}
+WEATHER_QUERY_TERMS = (
+    WEATHER_SIGNAL_TERMS - {"watch", "watches", "warning", "warnings"}
+) | WEATHER_WEAK_TERMS | {"hurricane", "tornado"}
 WEATHER_LOCATION_STOP = WEATHER_WEAK_TERMS | {"tomorrow", "today", "tonight", "chance", "probability", "odds"}
 
 MACRO_SIGNAL_TERMS = {
@@ -101,7 +103,10 @@ def tokenize(text: str) -> set[str]:
 
 
 def is_weather_query(text: str) -> bool:
-    return bool(tokenize(text) & WEATHER_QUERY_TERMS)
+    tokens = tokenize(text)
+    if tokens & WEATHER_QUERY_TERMS:
+        return True
+    return bool((tokens & {"watch", "watches", "warning", "warnings"}) and (tokens & {"weather", "storm", "tornado", "hurricane", "flood", "flooding", "severe"}))
 
 
 def is_macro_query(text: str) -> bool:
