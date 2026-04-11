@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Slate forecast board rendering for broad NBA game queries
 - Market-anchored forecast synthesis objects for prediction queries, including blended Polymarket/Kalshi forecasts
 - Sports evidence-quality heuristics that prefer injuries, lineups, rest, playoff context, and meaningful line movement
+- Official no-key National Weather Service weather anchor for supported U.S. city aliases
+- First-class weather report serialization via `WeatherItem` and `Report.weather`
+- Shared domain evidence-quality helpers for sports, weather, macro, and NBA market filtering
 
 ### Changed
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
@@ -27,11 +30,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Compact sports source sections now prefer higher-signal X and Reddit items instead of raw score-only ordering
 - Weather and macro forecasts now suppress weak X, Reddit, and web evidence more aggressively and fall back to explicit market-driven or model-implied wording when signal is thin
 - X query extraction now handles weather and macro prompts more cleanly, improving terms like `NYC rain tomorrow`, `Fed cut rates by June`, and `US recession in 2026`
+- Supported U.S. weather prompts now prefer official NWS precipitation probability over social chatter when no clean market exists
+- NBA slate compact output now league-locks raw Polymarket/Kalshi sections to NBA markets
+- Weather and macro raw-section suppression now also applies to supporting social sections such as Bluesky and Truth Social
+- No-market sports matchup forecasts now render with a neutral model-implied label instead of `Yes`
+- NBA slate prompts now render an explicit no-direct-slate forecast fallback when only futures/awards markets are found
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
 - X matchup query extraction now preserves full team names such as `New York Knicks` and `Golden State Warriors`
 - Windows runs no longer show misleading `chmod 600` guidance for `.env` permission warnings
+- NBA slate runs no longer leak cross-league city-name collisions such as MLB markets into NBA boards
+- Polymarket macro multi-market rendering now falls back to clean `Yes` / `No` labels when question-derived labels would be malformed
 
 ## [1.0.0] - 2026-03-29
 

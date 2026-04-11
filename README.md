@@ -10,6 +10,8 @@ For sports, the market sets the number and social/web evidence mainly explains t
 
 For weather and macro/politics, the skill now suppresses weak supporting evidence hard. If no high-signal weather, policy, data, polling, or market-repricing evidence is available, the forecast stays market-led or model-implied and says so directly instead of filling the answer with noisy social chatter.
 
+For supported U.S. weather prompts, `/last24hours` now uses the public National Weather Service API as an official no-key anchor. If no clean market exists for a prompt such as `NYC rain tomorrow`, NWS precipitation probability can lead the forecast instead of social chatter.
+
 The skill is optimized for:
 - prediction markets
 - sports outcomes
@@ -18,6 +20,8 @@ The skill is optimized for:
 - macro and event-driven forecasts
 
 Polymarket and Kalshi are the primary market anchors. X, Reddit, Hacker News, and the web are supporting inputs used to explain, pressure-test, or challenge the market line.
+
+National Weather Service forecasts are the official anchor for supported U.S. weather prompts when a clean Polymarket/Kalshi market is not available.
 
 For broad NBA slate prompts such as `tomorrows nba games`, the compact output now opens with a per-game slate forecast board before the raw evidence sections.
 
@@ -28,7 +32,7 @@ Built on [last30days](https://github.com/mvanhorn/last30days-skill) by Matt Van 
 For forecastable queries, the default answer shape is:
 
 ```text
-Forecast: 62-66% — slight lean to yes
+Forecast: 62-66% - slight lean to yes
 
 Market view:
 - Polymarket: 64%, up 6% today
@@ -55,6 +59,8 @@ For prediction queries:
 4. Reddit
 5. Relevant web
 6. Hacker News
+
+For supported U.S. weather queries, the National Weather Service forecast is used as a first-class anchor before falling back to model-implied weather estimates.
 
 YouTube, TikTok, Instagram, Bluesky, and Truth Social are supporting sources unless explicitly requested.
 
@@ -109,6 +115,7 @@ OPENROUTER_API_KEY=...
 
 Kalshi requires no auth for public market-data retrieval in v1.
 Polymarket requires no auth for public market discovery in v1.
+National Weather Service weather lookup requires no auth for supported U.S. city aliases.
 
 ## Usage
 
@@ -132,6 +139,7 @@ Examples:
 python3 scripts/last24hours.py "Duke vs Houston tonight" --quick
 python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
+python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
 python3 scripts/last24hours.py --diagnose
 python3 scripts/last24hours.py "Fed rate cut probability" --search=polymarket,kalshi,x,reddit --emit=compact
 ```
@@ -147,6 +155,9 @@ python3 -c "import py_compile; py_compile.compile('scripts/lib/openai_reddit.py'
 python3 -c "import py_compile; py_compile.compile('scripts/lib/score.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/kalshi.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/forecast.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/weather.py', doraise=True)"
+python3 -c "import py_compile; py_compile.compile('scripts/lib/evidence_quality.py', doraise=True)"
+python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
 python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --quick --emit=compact
@@ -169,7 +180,25 @@ Recommended extra smoke tests:
 - Social and web evidence are used to explain the line, not replace it.
 - For sports, low-signal chatter is omitted when there is no clean injury, lineup, rest, or motivation signal.
 - For weather and macro, low-signal X, Reddit, and web snippets are suppressed aggressively when they do not contain actual domain signal.
+- For supported U.S. weather prompts, NWS precipitation probability can anchor the forecast and renders as `NWS-led`.
 - Broad NBA slate queries automatically expand into one search per scheduled matchup.
+- Broad NBA slate queries league-lock market sections so cross-league city collisions such as MLB markets do not leak into NBA boards.
+
+## Official Weather Support
+
+The skill uses the public National Weather Service API for supported U.S. weather prompts. No API key is required.
+
+Supported built-in aliases include:
+- `NYC`, `New York`, `LA`, `Chicago`, `Miami`, `Boston`, `DC`, `Seattle`, `San Francisco`, `Dallas`, `Houston`, `Phoenix`, `Denver`, `Las Vegas`, `Philadelphia`, and `Atlanta`
+
+The weather source captures:
+- peak precipitation probability for the requested today/tomorrow window
+- short forecast
+- temperature
+- wind
+- NWS source URL and timestamp
+
+If the location is not in the built-in alias map, the skill falls back cleanly to the existing market/model-implied behavior and states that no official weather anchor was available.
 
 ## Kalshi Support
 
@@ -247,6 +276,9 @@ Kalshi public market data is retrieved from:
 
 Polymarket public market data is retrieved from:
 - `https://gamma-api.polymarket.com`
+
+National Weather Service public forecast data is retrieved from:
+- `https://api.weather.gov`
 
 ## License
 

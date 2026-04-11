@@ -876,11 +876,12 @@ _ITEM_SOURCE_MAP = {
     schema.TruthSocialItem: "truthsocial",
     schema.PolymarketItem: "polymarket",
     schema.KalshiItem: "kalshi",
+    schema.WeatherItem: "weather",
 }
 _DEFAULT_TIEBREAKER = {"x": 0, "reddit": 1, "hn": 2, "web": 3, "bluesky": 4, "truthsocial": 5, "polymarket": 6, "kalshi": 7, "youtube": 8, "tiktok": 9, "instagram": 10}
 
 
-def sort_items(items: List[Union[schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.TruthSocialItem, schema.PolymarketItem, schema.KalshiItem]], query_type: QueryType = None) -> List:
+def sort_items(items: List[Union[schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.TruthSocialItem, schema.PolymarketItem, schema.KalshiItem, schema.WeatherItem]], query_type: QueryType = None) -> List:
     """Sort items by score (descending), then date, then source tiebreaker.
 
     Tiebreaker (tertiary sort key, after score and date): source priority

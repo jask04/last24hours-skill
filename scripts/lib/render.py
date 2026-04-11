@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from . import query_type as qt, schema
+from . import evidence_quality as eq, query_type as qt, schema
 
 OUTPUT_DIR = Path.home() / ".local" / "share" / "last24hours" / "out"
 
@@ -39,6 +39,8 @@ def _xref_tag(item) -> str:
             source_names.add('Polymarket')
         elif ref_id.startswith('KA'):
             source_names.add('Kalshi')
+        elif ref_id.startswith('WX'):
+            source_names.add('Weather')
         elif ref_id.startswith('W'):
             source_names.add('Web')
     if source_names:
@@ -89,6 +91,7 @@ def _assess_data_freshness(report: schema.Report) -> dict:
     reddit_recent = sum(1 for r in report.reddit if r.date and r.date >= report.range_from)
     x_recent = sum(1 for x in report.x if x.date and x.date >= report.range_from)
     web_recent = sum(1 for w in report.web if w.date and w.date >= report.range_from)
+    weather_recent = sum(1 for w in report.weather if w.date and w.date >= report.range_from)
     hn_recent = sum(1 for h in report.hackernews if h.date and h.date >= report.range_from)
     bsky_recent = sum(1 for b in report.bluesky if b.date and b.date >= report.range_from)
     ts_recent = sum(1 for ts in report.truthsocial if ts.date and ts.date >= report.range_from)
@@ -98,13 +101,14 @@ def _assess_data_freshness(report: schema.Report) -> dict:
     tiktok_recent = sum(1 for t in report.tiktok if t.date and t.date >= report.range_from)
     ig_recent = sum(1 for ig in report.instagram if ig.date and ig.date >= report.range_from)
 
-    total_recent = reddit_recent + x_recent + web_recent + hn_recent + bsky_recent + ts_recent + pm_recent + ka_recent + tiktok_recent + ig_recent
-    total_items = len(report.reddit) + len(report.x) + len(report.web) + len(report.hackernews) + len(report.bluesky) + len(report.truthsocial) + len(report.polymarket) + len(report.kalshi) + len(report.tiktok) + len(report.instagram)
+    total_recent = reddit_recent + x_recent + web_recent + weather_recent + hn_recent + bsky_recent + ts_recent + pm_recent + ka_recent + tiktok_recent + ig_recent
+    total_items = len(report.reddit) + len(report.x) + len(report.web) + len(report.weather) + len(report.hackernews) + len(report.bluesky) + len(report.truthsocial) + len(report.polymarket) + len(report.kalshi) + len(report.tiktok) + len(report.instagram)
 
     return {
         "reddit_recent": reddit_recent,
         "x_recent": x_recent,
         "web_recent": web_recent,
+        "weather_recent": weather_recent,
         "total_recent": total_recent,
         "total_items": total_items,
         "is_sparse": total_recent < 5,
@@ -155,9 +159,9 @@ def _prediction_domain(topic: str) -> Optional[str]:
     topic_lower = (topic or "").lower()
     if _is_nba_slate_topic(topic) or _matchup_signature(topic):
         return "sports"
-    if any(term in topic_lower for term in ("weather", "rain", "snow", "storm", "wind", "temperature", "hurricane", "tornado", "showers")):
+    if eq.is_weather_query(topic_lower):
         return "weather"
-    if any(term in topic_lower for term in ("fed", "fomc", "powell", "cpi", "inflation", "jobs", "gdp", "recession", "approval", "poll", "polls", "rates", "rate", "economy")):
+    if eq.is_macro_query(topic_lower):
         return "macro"
     return None
 
@@ -282,11 +286,19 @@ def _format_probability_range(item: schema.ForecastItem) -> str:
     return "unknown"
 
 
+def _forecast_display_label(item: schema.ForecastItem) -> str:
+    label = item.favorite_label or "Yes"
+    if item.anchor_source == "model_implied" and label.lower() in {"yes", "no"} and _matchup_signature(item.title):
+        return "Model-implied lean"
+    return label
+
+
 def _anchor_label(item: schema.ForecastItem) -> str:
     labels = {
         "polymarket": "Polymarket-led",
         "kalshi": "Kalshi-led",
         "blended": "Blended market anchor",
+        "weather_api": "NWS-led",
         "model_implied": "Model-implied",
     }
     return labels.get(item.anchor_source, item.anchor_source)
@@ -295,7 +307,7 @@ def _anchor_label(item: schema.ForecastItem) -> str:
 def _render_forecast_item(item: schema.ForecastItem) -> list[str]:
     lines = [f"**{item.title}**"]
     probability_range = _format_probability_range(item)
-    call = item.favorite_label or "Yes"
+    call = _forecast_display_label(item)
     lines.append(f"Forecast: {call} {probability_range}")
     market_view = item.market_view or "No clean market view available."
     lines.append(f"Market view: {market_view} [{_anchor_label(item)}]")
@@ -451,6 +463,18 @@ def _render_prediction_summary(report: schema.Report) -> list[str]:
         return []
 
     if not report.forecasts:
+        if _is_nba_slate_topic(report.topic):
+            return [
+                "### Forecast",
+                "",
+                f"**{report.topic}**",
+                "Forecast: No direct slate forecast available",
+                "Market view: No direct NBA game Polymarket or Kalshi market cleared league filtering.",
+                "Why this is the current line: No scheduled-game market or high-signal team-specific driver surfaced in the current quick run.",
+                "Confidence / uncertainty: low confidence. Treat this as a source-availability result, not a game forecast.",
+                "What changes the number: Up: Direct team-vs-team markets or official slate data appears Down: Only futures/awards or cross-league markets remain available",
+                "",
+            ]
         return []
     if len(report.forecasts) > 1:
         lines = ["### Slate Forecast Board", ""]
@@ -488,6 +512,8 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
             tokens.discard("out")
         if source == "reddit":
             tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "subreddit", "").lower()).split())
+        if _is_nba_slate_topic(report.topic) and not ((eq.NBA_TEAM_TOKENS & tokens) or "nba" in tokens):
+            continue
         if len(tokens & {"lakers", "warriors", "celtics", "knicks", "heat", "raptors", "bulls", "wizards", "rockets", "sixers", "pacers", "nets", "nuggets", "grizzlies"}) >= 4:
             continue
         if low_signal & tokens and not driver_terms & tokens:
@@ -504,6 +530,11 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
     return []
 
 
+def _is_nba_market_item(item) -> bool:
+    text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    return eq.is_nba_market_text(text)
+
+
 def _compact_weather_macro_items(items: list, source: str, report: schema.Report, limit: int) -> list:
     if qt.detect_query_type(report.topic) != "prediction":
         return items[:limit]
@@ -511,59 +542,20 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
     if domain not in {"weather", "macro"}:
         return items[:limit]
 
-    weather_signal = {
-        "forecast", "weather", "radar", "precip", "precipitation", "showers", "storm",
-        "warning", "watch", "temperature", "wind", "winds", "model", "models", "humidity",
-        "rainfall", "snowfall", "accumulation",
-    }
-    macro_signal = {
-        "fed", "fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp",
-        "recession", "unemployment", "yield", "yields", "treasury", "treasuries",
-        "cut", "cuts", "hike", "hikes", "rate", "rates", "bps", "basis",
-        "approval", "poll", "polls", "economy", "economic",
-    }
-    macro_support = {
-        "market", "markets", "pricing", "priced", "probability", "odds", "yield",
-        "yields", "treasury", "treasuries", "payrolls", "unemployment", "meeting",
-        "data", "release", "releases", "forecast", "estimates",
-    }
-    recession_support = {
-        "market", "markets", "pricing", "priced", "probability", "odds", "gdp",
-        "jobs", "inflation", "yield", "yields", "treasury", "treasuries",
-        "economists", "data", "forecast", "estimates",
-    }
-    macro_bad = {
-        "grass", "beef", "dog", "album", "hair", "tour", "content", "wedding",
-        "song", "music", "sabrina", "tallow", "food", "well", "biden",
-        "lied", "destroyed", "congrats", "wowee", "screaming",
-    }
-    topic_tokens = set(re.sub(r"[^\w\s-]", " ", report.topic.lower()).split())
-    weather_location = topic_tokens - {"rain", "snow", "storm", "wind", "temperature", "weather", "tomorrow", "today", "tonight"}
-    macro_strong = {"fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp", "recession", "unemployment", "yield", "approval", "poll", "polls"}
+    topic_tokens = eq.tokenize(report.topic)
     results = []
     for item in items:
         text = getattr(item, "text", "") or getattr(item, "title", "") or getattr(item, "snippet", "") or ""
-        tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+        context = ""
         if source == "reddit":
-            tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "subreddit", "").lower()).split())
+            context = getattr(item, "subreddit", "")
         if source == "web":
-            tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "source_domain", "").lower()).split())
+            context = getattr(item, "source_domain", "")
         if domain == "weather":
-            if not (weather_signal & tokens):
-                continue
-            if weather_location and not (weather_location & tokens):
+            if not eq.is_weather_signal(text, topic_tokens, context):
                 continue
         if domain == "macro":
-            if macro_bad & tokens:
-                continue
-            if not (macro_signal & tokens):
-                continue
-            macro_overlap = len((topic_tokens - {"will", "the", "us", "have", "a", "in", "by", "june", "2026", "end", "of"}) & tokens)
-            if not ((macro_strong & tokens) or macro_overlap >= 2):
-                continue
-            if not ((macro_strong & tokens) or (macro_support & tokens and macro_overlap >= 1)):
-                continue
-            if "recession" in topic_tokens and "recession" in tokens and not (recession_support & tokens):
+            if not eq.is_macro_signal(text, topic_tokens, context):
                 continue
         results.append(item)
         if len(results) >= limit:
@@ -633,6 +625,20 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     prediction_summary = _render_prediction_summary(report)
     if prediction_summary:
         lines.extend(prediction_summary)
+
+    if report.weather:
+        lines.append("### Official Weather")
+        lines.append("")
+        for item in report.weather[:limit]:
+            probability = f"{item.probability_pct}%" if item.probability_pct is not None else "unknown"
+            temp = f", {item.temperature}\u00b0{item.temperature_unit}" if item.temperature is not None else ""
+            wind = f", wind {item.wind}" if item.wind else ""
+            lines.append(f"**{item.id}** {item.location} on {item.forecast_date}: peak precipitation {probability}")
+            lines.append(f"  {item.short_forecast}{temp}{wind}")
+            lines.append(f"  {item.url}")
+            if item.why_relevant:
+                lines.append(f"  *{item.why_relevant}*")
+            lines.append("")
 
     # Coverage note for partial coverage
     if report.mode == "reddit-only" and missing_keys in ("x", "none"):
@@ -894,9 +900,14 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append(f"**ERROR:** {report.bluesky_error}")
         lines.append("")
     elif report.bluesky:
+        bluesky_items = _compact_weather_macro_items(report.bluesky, "bluesky", report, limit)
         lines.append("### Bluesky Posts")
         lines.append("")
-        for item in report.bluesky[:limit]:
+        if not bluesky_items and _prediction_domain(report.topic) in {"weather", "macro"}:
+            label = "weather forecast" if _prediction_domain(report.topic) == "weather" else "macro forecast"
+            lines.append(f"*No high-signal Bluesky posts found for this {label}.*")
+            lines.append("")
+        for item in bluesky_items[:limit]:
             eng_str = ""
             if item.engagement:
                 eng = item.engagement
@@ -930,9 +941,14 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append(f"**ERROR:** {report.truthsocial_error}")
         lines.append("")
     elif report.truthsocial:
+        truthsocial_items = _compact_weather_macro_items(report.truthsocial, "truthsocial", report, limit)
         lines.append("### Truth Social Posts")
         lines.append("")
-        for item in report.truthsocial[:limit]:
+        if not truthsocial_items and _prediction_domain(report.topic) in {"weather", "macro"}:
+            label = "weather forecast" if _prediction_domain(report.topic) == "weather" else "macro forecast"
+            lines.append(f"*No high-signal Truth Social posts found for this {label}.*")
+            lines.append("")
+        for item in truthsocial_items[:limit]:
             eng_str = ""
             if item.engagement:
                 eng = item.engagement
@@ -978,6 +994,11 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                 market_items = used_items + extra_items[:max(0, limit - len(used_items))]
             else:
                 market_items = used_items
+        if _is_nba_slate_topic(report.topic):
+            market_items = [item for item in market_items if _is_nba_market_item(item)]
+        if not market_items and _is_nba_slate_topic(report.topic):
+            lines.append("*No direct NBA game Polymarket markets found after league filtering.*")
+            lines.append("")
         for item in market_items[:limit]:
             eng_str = ""
             if item.engagement:
@@ -1038,6 +1059,11 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                 kalshi_items = used_items + extra_items[:max(0, limit - len(used_items))]
             else:
                 kalshi_items = used_items
+        if _is_nba_slate_topic(report.topic):
+            kalshi_items = [item for item in kalshi_items if _is_nba_market_item(item)]
+        if not kalshi_items and _is_nba_slate_topic(report.topic):
+            lines.append("*No direct NBA game Kalshi markets found after league filtering.*")
+            lines.append("")
         for item in kalshi_items[:limit]:
             eng_str = ""
             if item.engagement:
@@ -1220,6 +1246,11 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         reason = source_info.get("web_skip_reason", "assistant will use WebSearch")
         lines.append(f"  ⚡ Web: {reason}")
 
+    if report.weather_error:
+        lines.append(f"  Weather: error - {report.weather_error}")
+    elif report.weather:
+        lines.append(f"  Weather: {len(report.weather)} NWS forecast")
+
     lines.append("")
     return "\n".join(lines)
 
@@ -1269,6 +1300,8 @@ def render_context_snippet(report: schema.Report) -> str:
         all_items.append((item.score, "Polymarket", item.question[:50] + "...", item.url))
     for item in report.kalshi[:5]:
         all_items.append((item.score, "Kalshi", item.question[:50] + "...", item.url))
+    for item in report.weather[:5]:
+        all_items.append((item.score, "Weather", item.title[:50] + "...", item.url))
     for item in report.web[:5]:
         all_items.append((item.score, "Web", item.title[:50] + "...", item.url))
 
@@ -1310,7 +1343,7 @@ def render_full_report(report: schema.Report) -> str:
         for item in report.forecasts:
             lines.append(f"### {item.title}")
             lines.append("")
-            lines.append(f"- **Forecast:** {item.favorite_label or 'Yes'} {_format_probability_range(item)}")
+            lines.append(f"- **Forecast:** {_forecast_display_label(item)} {_format_probability_range(item)}")
             lines.append(f"- **Anchor:** {_anchor_label(item)}")
             lines.append(f"- **Market View:** {item.market_view}")
             lines.append(f"- **Confidence:** {item.confidence_level}")

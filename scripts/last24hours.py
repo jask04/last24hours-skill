@@ -47,7 +47,7 @@ TIMEOUT_PROFILES = {
 # Valid source names for the --search flag
 VALID_SEARCH_SOURCES = {
     "reddit", "x", "hn", "bluesky", "bsky", "truthsocial", "truth", "youtube", "tiktok", "instagram",
-    "polymarket", "kalshi", "web", "xiaohongshu", "xhs",
+    "polymarket", "kalshi", "weather", "web", "xiaohongshu", "xhs",
 }
 
 
@@ -140,6 +140,7 @@ from lib import (
     truthsocial,
     dates,
     dedupe,
+    evidence_quality,
     hackernews,
     xiaohongshu_api,
     polymarket,
@@ -162,6 +163,7 @@ from lib import (
     instagram,
     websearch,
     sports_schedule,
+    weather,
     xai_x,
     youtube_yt,
     query_type as qt,
@@ -644,6 +646,25 @@ def _search_kalshi(
     return kalshi_items, kalshi_error
 
 
+def _search_weather(
+    topic: str,
+    from_date: str,
+    to_date: str,
+    depth: str,
+) -> tuple:
+    """Search official NWS weather data for supported U.S. weather prompts."""
+    weather_error = None
+    try:
+        response = weather.search_weather(topic, from_date, to_date, depth=depth)
+    except Exception as e:
+        return [], f"{type(e).__name__}: {e}"
+
+    weather_items = weather.parse_weather_response(response)
+    if response.get("error"):
+        weather_error = response["error"]
+    return weather_items, weather_error
+
+
 def _topic_cap_for_depth(depth: str) -> int:
     return {"quick": 6, "default": 8, "deep": 12}.get(depth, 8)
 
@@ -680,7 +701,14 @@ def _market_matches_matchup(item: dict, topic: str) -> bool:
 
     item_text = f"{item.get('title', '')} {item.get('question', '')}".lower()
     item_tokens = set(re.sub(r"[^\w\s]", " ", item_text).split())
-    return all(side & item_tokens for side in sides)
+    for side in sides:
+        nba_nickname_tokens = side & evidence_quality.NBA_TEAM_TOKENS
+        if nba_nickname_tokens:
+            if not (nba_nickname_tokens & item_tokens):
+                return False
+        elif not (side & item_tokens):
+            return False
+    return True
 
 
 def _search_x_many(
@@ -1981,6 +2009,7 @@ def main():
     search_do_truthsocial = False  # Always opt-in (requires --search truthsocial)
     search_do_polymarket = qt.is_source_enabled("polymarket", query_type)
     search_do_kalshi = qt.is_source_enabled("kalshi", query_type)
+    search_do_weather = weather.is_weather_query(args.topic)
     search_run_youtube = has_ytdlp and qt.is_source_enabled("youtube", query_type)
     search_run_tiktok = has_tiktok and qt.is_source_enabled("tiktok", query_type)
     search_run_instagram = has_instagram and qt.is_source_enabled("instagram", query_type)
@@ -1994,6 +2023,7 @@ def main():
         search_do_truthsocial = ("truthsocial" in search_sources or "truth" in search_sources) and has_truthsocial
         search_do_polymarket = "polymarket" in search_sources
         search_do_kalshi = "kalshi" in search_sources
+        search_do_weather = "weather" in search_sources
         search_run_youtube = "youtube" in search_sources and has_ytdlp
         search_run_tiktok = "tiktok" in search_sources and has_tiktok
         search_run_instagram = "instagram" in search_sources and has_instagram
@@ -2038,6 +2068,11 @@ def main():
         search_topics=search_topics,
     )
 
+    weather_items = []
+    weather_error = None
+    if query_type == "prediction" and search_do_weather:
+        weather_items, weather_error = _search_weather(args.topic, from_date, to_date, depth)
+
     # Processing phase
     progress.start_processing()
 
@@ -2052,6 +2087,7 @@ def main():
     normalized_ts = normalize.normalize_truthsocial_items(truthsocial_items, from_date, to_date) if truthsocial_items else []
     normalized_pm = normalize.normalize_polymarket_items(polymarket_items, from_date, to_date) if polymarket_items else []
     normalized_ka = normalize.normalize_kalshi_items(kalshi_items, from_date, to_date) if kalshi_items else []
+    normalized_weather = normalize.normalize_weather_items(weather_items, from_date, to_date) if weather_items else []
     normalized_web = websearch.normalize_websearch_items(web_items, from_date, to_date) if web_items else []
 
     # Hard date filter: exclude items with verified dates outside the range
@@ -2072,6 +2108,7 @@ def main():
     # Polymarket: skip hard date filter - markets are active/traded, updatedAt is fine
     filtered_pm = normalized_pm
     filtered_ka = normalized_ka
+    filtered_weather = normalized_weather
     filtered_web = normalize.filter_by_date_range(normalized_web, from_date, to_date) if normalized_web else []
 
     # Score items
@@ -2085,6 +2122,7 @@ def main():
     scored_ts = score.score_truthsocial_items(filtered_ts) if filtered_ts else []
     scored_pm = score.score_polymarket_items(filtered_pm) if filtered_pm else []
     scored_ka = score.score_kalshi_items(filtered_ka) if filtered_ka else []
+    scored_weather = filtered_weather
     scored_web = score.score_websearch_items(filtered_web, query_type=query_type) if filtered_web else []
 
     # Sort items (query-type-aware tiebreaker ordering)
@@ -2098,6 +2136,7 @@ def main():
     sorted_ts = score.sort_items(scored_ts, query_type=query_type) if scored_ts else []
     sorted_pm = score.sort_items(scored_pm, query_type=query_type) if scored_pm else []
     sorted_ka = score.sort_items(scored_ka, query_type=query_type) if scored_ka else []
+    sorted_weather = score.sort_items(scored_weather, query_type=query_type) if scored_weather else []
     sorted_web = score.sort_items(scored_web, query_type=query_type) if scored_web else []
 
     # Dedupe items
@@ -2111,6 +2150,7 @@ def main():
     deduped_ts = dedupe.dedupe_truthsocial(sorted_ts) if sorted_ts else []
     deduped_pm = dedupe.dedupe_polymarket(sorted_pm) if sorted_pm else []
     deduped_ka = dedupe.dedupe_kalshi(sorted_ka) if sorted_ka else []
+    deduped_weather = sorted_weather
     deduped_web = websearch.dedupe_websearch(sorted_web) if sorted_web else []
 
     # Post-retrieval relevance filter: drop low-relevance items per source
@@ -2151,6 +2191,7 @@ def main():
     report.truthsocial = deduped_ts
     report.polymarket = deduped_pm
     report.kalshi = deduped_ka
+    report.weather = deduped_weather
     report.web = deduped_web
     report.forecasts = forecast.synthesize_forecasts(report)
     report.reddit_error = reddit_error
@@ -2163,6 +2204,7 @@ def main():
     report.truthsocial_error = truthsocial_error
     report.polymarket_error = polymarket_error
     report.kalshi_error = kalshi_error
+    report.weather_error = weather_error
     report.web_error = web_error
     report.resolved_x_handle = args.x_handle
 

@@ -203,6 +203,55 @@ class WebSearchItem:
 
 
 @dataclass
+class WeatherItem:
+    """Official weather forecast item."""
+    id: str
+    title: str
+    location: str
+    forecast_date: str
+    url: str
+    source: str = "National Weather Service"
+    probability: Optional[float] = None
+    probability_pct: Optional[int] = None
+    short_forecast: str = ""
+    temperature: Optional[int] = None
+    temperature_unit: str = "F"
+    wind: str = ""
+    date: Optional[str] = None
+    date_confidence: str = "high"
+    relevance: float = 1.0
+    why_relevant: str = ""
+    subs: SubScores = field(default_factory=SubScores)
+    score: int = 100
+    cross_refs: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = {
+            'id': self.id,
+            'title': self.title,
+            'location': self.location,
+            'forecast_date': self.forecast_date,
+            'url': self.url,
+            'source': self.source,
+            'probability': self.probability,
+            'probability_pct': self.probability_pct,
+            'short_forecast': self.short_forecast,
+            'temperature': self.temperature,
+            'temperature_unit': self.temperature_unit,
+            'wind': self.wind,
+            'date': self.date,
+            'date_confidence': self.date_confidence,
+            'relevance': self.relevance,
+            'why_relevant': self.why_relevant,
+            'subs': self.subs.to_dict(),
+            'score': self.score,
+        }
+        if self.cross_refs:
+            d['cross_refs'] = self.cross_refs
+        return d
+
+
+@dataclass
 class YouTubeItem:
     """Normalized YouTube item."""
     id: str  # video_id
@@ -586,6 +635,7 @@ class Report:
     reddit: List[RedditItem] = field(default_factory=list)
     x: List[XItem] = field(default_factory=list)
     web: List[WebSearchItem] = field(default_factory=list)
+    weather: List[WeatherItem] = field(default_factory=list)
     youtube: List[YouTubeItem] = field(default_factory=list)
     tiktok: List[TikTokItem] = field(default_factory=list)
     instagram: List[InstagramItem] = field(default_factory=list)
@@ -602,6 +652,7 @@ class Report:
     reddit_error: Optional[str] = None
     x_error: Optional[str] = None
     web_error: Optional[str] = None
+    weather_error: Optional[str] = None
     youtube_error: Optional[str] = None
     tiktok_error: Optional[str] = None
     instagram_error: Optional[str] = None
@@ -630,6 +681,7 @@ class Report:
             'reddit': [r.to_dict() for r in self.reddit],
             'x': [x.to_dict() for x in self.x],
             'web': [w.to_dict() for w in self.web],
+            'weather': [w.to_dict() for w in self.weather],
             'youtube': [y.to_dict() for y in self.youtube],
             'tiktok': [t.to_dict() for t in self.tiktok],
             'instagram': [ig.to_dict() for ig in self.instagram],
@@ -651,6 +703,8 @@ class Report:
             d['x_error'] = self.x_error
         if self.web_error:
             d['web_error'] = self.web_error
+        if self.weather_error:
+            d['weather_error'] = self.weather_error
         if self.youtube_error:
             d['youtube_error'] = self.youtube_error
         if self.tiktok_error:
@@ -744,6 +798,31 @@ class Report:
                 why_relevant=w.get('why_relevant', ''),
                 subs=subs,
                 score=w.get('score', 0),
+                cross_refs=w.get('cross_refs', []),
+            ))
+
+        weather_items = []
+        for w in data.get('weather', []):
+            subs = SubScores(**w.get('subs', {})) if w.get('subs') else SubScores()
+            weather_items.append(WeatherItem(
+                id=w.get('id', ''),
+                title=w.get('title', ''),
+                location=w.get('location', ''),
+                forecast_date=w.get('forecast_date', ''),
+                url=w.get('url', ''),
+                source=w.get('source', 'National Weather Service'),
+                probability=w.get('probability'),
+                probability_pct=w.get('probability_pct'),
+                short_forecast=w.get('short_forecast', ''),
+                temperature=w.get('temperature'),
+                temperature_unit=w.get('temperature_unit', 'F'),
+                wind=w.get('wind', ''),
+                date=w.get('date'),
+                date_confidence=w.get('date_confidence', 'high'),
+                relevance=w.get('relevance', 1.0),
+                why_relevant=w.get('why_relevant', ''),
+                subs=subs,
+                score=w.get('score', 100),
                 cross_refs=w.get('cross_refs', []),
             ))
 
@@ -957,6 +1036,7 @@ class Report:
             reddit=reddit_items,
             x=x_items,
             web=web_items,
+            weather=weather_items,
             youtube=youtube_items,
             tiktok=tiktok_items,
             instagram=ig_items,
@@ -971,6 +1051,7 @@ class Report:
             reddit_error=data.get('reddit_error'),
             x_error=data.get('x_error'),
             web_error=data.get('web_error'),
+            weather_error=data.get('weather_error'),
             youtube_error=data.get('youtube_error'),
             tiktok_error=data.get('tiktok_error'),
             instagram_error=data.get('instagram_error'),

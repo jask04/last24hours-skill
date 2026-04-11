@@ -369,6 +369,19 @@ def _parse_outcome_prices(market: Dict[str, Any]) -> List[tuple]:
     return result
 
 
+_GENERIC_SYNTH_LABELS = frozenset({
+    "there",
+    "it",
+    "this",
+    "that",
+    "the",
+    "a",
+    "an",
+    "fed",
+    "federal reserve",
+})
+
+
 def _shorten_question(question: str) -> str:
     """Extract a short display name from a market question.
 
@@ -376,15 +389,44 @@ def _shorten_question(question: str) -> str:
     'Will Duke be a number 1 seed in the 2026 NCAA...' -> 'Duke'
     """
     q = question.strip().rstrip("?")
+    # "Will there be..." markets are condition labels, not useful outcome
+    # subjects. Falling back to the raw question creates labels like "there".
+    if re.match(r"^Will\s+there\s+be\b", q, re.IGNORECASE):
+        return ""
     # Common patterns: "Will X win/be/...", "X wins/loses..."
-    m = re.match(r"^Will\s+(.+?)\s+(?:win|be|make|reach|have|lose|qualify|advance|strike|agree|pass|sign|get|become|remain|stay|leave|survive|next)\b", q, re.IGNORECASE)
+    m = re.match(r"^Will\s+(.+?)\s+(?:win|be|make|reach|have|lose|qualify|advance|strike|agree|pass|sign|get|become|remain|stay|leave|survive|next|decrease|increase|cut|hike|raise|lower|hit|exceed|reach)\b", q, re.IGNORECASE)
     if m:
-        return m.group(1).strip()
+        subject = _clean_short_question_subject(m.group(1))
+        if subject:
+            return subject
     m = re.match(r"^Will\s+(.+?)\s+", q, re.IGNORECASE)
     if m and len(m.group(1).split()) <= 4:
-        return m.group(1).strip()
-    # Fallback: truncate
-    return question[:40] if len(question) > 40 else question
+        subject = _clean_short_question_subject(m.group(1))
+        if subject:
+            return subject
+    return ""
+
+
+def _clean_short_question_subject(subject: str) -> str:
+    words = subject.strip().split()
+    while words and words[0].lower() in {"the", "a", "an"}:
+        words.pop(0)
+    cleaned = " ".join(words).strip()
+    if not cleaned or cleaned.lower() in _GENERIC_SYNTH_LABELS:
+        return ""
+    return cleaned
+
+
+def _use_synthetic_outcomes(outcomes: List[tuple]) -> bool:
+    """Return whether question-derived labels are good enough to display."""
+    if len(outcomes) < 2:
+        return False
+    labels = [name.strip().lower() for name, _ in outcomes if name.strip()]
+    if len(set(labels)) < 2:
+        return False
+    if any(label in _GENERIC_SYNTH_LABELS for label in labels):
+        return False
+    return True
 
 
 def _compute_text_similarity(topic: str, title: str, outcomes: List[str] = None) -> float:
@@ -554,7 +596,10 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
                     synth_outcomes.append((q, yes_price))
             if synth_outcomes:
                 synth_outcomes.sort(key=lambda x: x[1], reverse=True)
-                outcome_prices = [(_shorten_question(q), p) for q, p in synth_outcomes]
+                shortened = [(_shorten_question(q), p) for q, p in synth_outcomes]
+                cleaned_outcomes = [(name, p) for name, p in shortened if name]
+                if _use_synthetic_outcomes(cleaned_outcomes):
+                    outcome_prices = cleaned_outcomes
 
         # Format price movement
         price_movement = _format_price_movement(top_market)

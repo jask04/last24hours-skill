@@ -522,6 +522,38 @@ def normalize_kalshi_items(
     return normalized
 
 
+def normalize_weather_items(
+    items: List[Dict[str, Any]],
+    from_date: str,
+    to_date: str,
+) -> List[schema.WeatherItem]:
+    """Normalize official weather forecast items."""
+    normalized = []
+
+    for i, item in enumerate(items):
+        normalized.append(schema.WeatherItem(
+            id=f"WX{i+1}",
+            title=item.get("title", ""),
+            location=item.get("location", ""),
+            forecast_date=item.get("forecast_date", ""),
+            url=item.get("url", ""),
+            source=item.get("source", "National Weather Service"),
+            probability=item.get("probability"),
+            probability_pct=item.get("probability_pct"),
+            short_forecast=item.get("short_forecast", ""),
+            temperature=item.get("temperature"),
+            temperature_unit=item.get("temperature_unit", "F"),
+            wind=item.get("wind", ""),
+            date=item.get("date"),
+            date_confidence="high",
+            relevance=1.0,
+            why_relevant=item.get("why_relevant", ""),
+            score=100,
+        ))
+
+    return normalized
+
+
 def items_to_dicts(items: List) -> List[Dict[str, Any]]:
     """Convert schema items to dicts for JSON serialization."""
     return [item.to_dict() for item in items]

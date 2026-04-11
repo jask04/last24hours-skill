@@ -5,85 +5,25 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from . import query_type as qt, schema
+from . import evidence_quality as eq, query_type as qt, schema
 
-LOW_SIGNAL_SOCIAL_TERMS = {
-    "ticket", "tickets", "selling", "sale", "resale", "bettorbot", "pick", "picks",
-    "parlay", "lock", "tail", "sprinkle", "dm", "interested",
-}
-DRIVER_TERMS = {
-    "injury", "injuries", "out", "ruled", "questionable", "doubtful", "available",
-    "rest", "resting", "lineup", "lineups", "starter", "starters", "inactive",
-    "playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched",
-    "tank", "tanking", "forecast", "radar", "storm", "warning", "watch",
-    "poll", "approval", "inflation", "cpi", "jobs", "rate", "rates", "fed",
-}
-WEATHER_SIGNAL_TERMS = {
-    "forecast", "forecasts", "weather", "radar", "precip", "precipitation", "showers",
-    "storm", "storms", "thunderstorm", "thunderstorms", "warning", "warnings",
-    "watch", "watches", "wind", "winds", "temperature", "temperatures", "front",
-    "humidity", "model", "models", "rainfall", "snowfall", "accumulation",
-}
-WEATHER_WEAK_TERMS = {"rain", "snow", "storm", "cold", "hot", "weather"}
-MACRO_SIGNAL_TERMS = {
-    "fed", "fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp",
-    "recession", "unemployment", "yield", "yields", "treasury", "treasuries",
-    "cut", "cuts", "hike", "hikes", "bps", "basis", "approval", "poll", "polls",
-    "economy", "economic", "rate", "rates",
-}
-MACRO_STRONG_TERMS = {
-    "fomc", "powell", "cpi", "inflation", "jobs", "payrolls", "gdp", "recession",
-    "unemployment", "yield", "yields", "treasury", "treasuries", "approval",
-    "poll", "polls",
-}
-MACRO_CONTEXT_TERMS = {"cut", "cuts", "hike", "hikes", "rate", "rates", "bps", "basis", "meeting", "economy", "economic"}
-MACRO_SUPPORT_TERMS = {
-    "market", "markets", "pricing", "priced", "probability", "odds", "yields",
-    "yield", "treasury", "treasuries", "payrolls", "unemployment", "meeting",
-    "data", "release", "releases", "forecast", "estimates",
-}
-RECESSION_SUPPORT_TERMS = {
-    "market", "markets", "pricing", "priced", "probability", "odds", "gdp",
-    "jobs", "inflation", "yield", "yields", "treasury", "treasuries",
-    "economists", "data", "forecast", "estimates",
-}
-MACRO_BAD_CONTEXT_TERMS = {
-    "grass", "beef", "dog", "album", "hair", "tour", "content", "wedding",
-    "song", "music", "sabrina", "tallow", "eat", "food", "well",
-}
-SPORTS_DRIVER_TERMS = {
-    "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
-    "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
-    "starter", "starters", "starting", "minutes", "restriction", "restricted",
-    "back-to-back", "b2b", "playoff", "playoffs", "seed", "seeding", "elimination",
-    "clinch", "clinched", "tank", "tanking", "odds", "line", "spread", "moneyline",
-}
-SPORTS_HIGH_SIGNAL_TERMS = {
-    "injury", "injuries", "ruled", "questionable", "doubtful", "probable",
-    "available", "inactive", "rest", "resting", "lineup", "lineups", "starter",
-    "starters", "starting", "minutes", "restriction", "restricted", "back-to-back",
-    "b2b", "playoff", "playoffs", "seed", "seeding", "elimination", "clinch",
-    "clinched", "tank", "tanking",
-}
-SPORTS_MARKET_CONTEXT_TERMS = {"odds", "line", "spread", "moneyline"}
-SPORTS_LOW_SIGNAL_TERMS = {
-    "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
-    "giveaway", "fs", "wtb", "parlay", "bettorbot", "pick", "picks", "lock",
-    "tail", "sprinkle", "hype", "buzz", "vibes", "dm", "interested",
-}
-SPORTS_RECAP_TERMS = {
-    "matchup", "season", "series", "previous", "meeting", "sportsbook",
-    "fanduel", "draftkings", "check", "showdown", "get", "ready",
-}
-SPORTS_REPORTER_TOKENS = {
-    "beat", "reporter", "reports", "insider", "news", "updates", "wire",
-    "fantasylabs", "underdog", "rotowire", "gameday", "injuryreport",
-}
-SPORTS_TEAM_TOKENS = {
-    "lakers", "warriors", "celtics", "knicks", "heat", "raptors", "bulls",
-    "wizards", "rockets", "sixers", "76ers", "pacers", "nets", "nuggets",
-    "grizzlies", "spurs", "mavs", "mavericks", "thunder", "suns", "clippers",
-}
+LOW_SIGNAL_SOCIAL_TERMS = eq.LOW_SIGNAL_SOCIAL_TERMS
+DRIVER_TERMS = eq.DRIVER_TERMS
+WEATHER_SIGNAL_TERMS = eq.WEATHER_SIGNAL_TERMS
+WEATHER_WEAK_TERMS = eq.WEATHER_WEAK_TERMS
+MACRO_SIGNAL_TERMS = eq.MACRO_SIGNAL_TERMS
+MACRO_STRONG_TERMS = eq.MACRO_STRONG_TERMS
+MACRO_CONTEXT_TERMS = eq.MACRO_CONTEXT_TERMS
+MACRO_SUPPORT_TERMS = eq.MACRO_SUPPORT_TERMS
+RECESSION_SUPPORT_TERMS = eq.RECESSION_SUPPORT_TERMS
+MACRO_BAD_CONTEXT_TERMS = eq.MACRO_BAD_CONTEXT_TERMS
+SPORTS_DRIVER_TERMS = eq.SPORTS_DRIVER_TERMS
+SPORTS_HIGH_SIGNAL_TERMS = eq.SPORTS_HIGH_SIGNAL_TERMS
+SPORTS_MARKET_CONTEXT_TERMS = eq.SPORTS_MARKET_CONTEXT_TERMS
+SPORTS_LOW_SIGNAL_TERMS = eq.SPORTS_LOW_SIGNAL_TERMS
+SPORTS_RECAP_TERMS = eq.SPORTS_RECAP_TERMS
+SPORTS_REPORTER_TOKENS = eq.SPORTS_REPORTER_TOKENS
+SPORTS_TEAM_TOKENS = eq.SPORTS_TEAM_TOKENS
 
 
 @dataclass
@@ -97,7 +37,7 @@ class _EvidenceCandidate:
 
 
 def _tokenize(text: str) -> set[str]:
-    return set(re.sub(r"[^\w\s-]", " ", (text or "").lower()).split())
+    return eq.tokenize(text)
 
 
 def _matchup_side_tokens(text: str) -> list[set[str]]:
@@ -176,13 +116,11 @@ def _is_sports_query(text: str) -> bool:
 
 
 def _is_weather_query(text: str) -> bool:
-    tokens = _tokenize(text)
-    return bool(tokens & {"weather", "rain", "snow", "storm", "wind", "temperature", "forecast", "hurricane", "tornado", "showers"})
+    return eq.is_weather_query(text)
 
 
 def _is_macro_query(text: str) -> bool:
-    tokens = _tokenize(text)
-    return bool(tokens & {"fed", "fomc", "powell", "cpi", "inflation", "jobs", "gdp", "recession", "approval", "poll", "polls", "rates", "rate", "economy"})
+    return eq.is_macro_query(text)
 
 
 def _favorite_tokens(favorite_label: str) -> set[str]:
@@ -209,6 +147,8 @@ def _sports_candidate_score(
     team_hits = sum(1 for side in sides if side & tokens) if sides else 0
     signal_hits = len(SPORTS_DRIVER_TERMS & tokens)
     concrete_hits = len(SPORTS_HIGH_SIGNAL_TERMS & tokens)
+    if not sides and "nba" in title.lower() and not ((eq.NBA_TEAM_TOKENS & tokens) or "nba" in tokens):
+        return None
     if sides and team_hits == 0:
         return None
     if concrete_hits == 0:
@@ -440,6 +380,11 @@ def _matching_kalshi_for_polymarket(
     return None
 
 
+def _is_nba_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
+    text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    return eq.is_nba_market_text(text)
+
+
 def _top_evidence(report: schema.Report, title: str, limit: int = 2) -> list[str]:
     candidates = _collect_evidence_candidates(report, title)
     results = []
@@ -481,6 +426,15 @@ def _model_implied_range(report: schema.Report) -> tuple[float, float]:
     if evidence_count >= 2:
         return 0.44, 0.58
     return 0.40, 0.60
+
+
+def _weather_probability(report: schema.Report) -> tuple[Optional[schema.WeatherItem], Optional[float]]:
+    if not report.weather:
+        return None, None
+    item = report.weather[0]
+    if item.probability is None:
+        return item, None
+    return item, max(0.0, min(1.0, item.probability))
 
 
 def _confidence_label(spread: Optional[float], quality: float, evidence_count: int, has_market: bool) -> str:
@@ -548,6 +502,8 @@ def _generic_catalysts(report: schema.Report, favorite_label: str) -> tuple[list
 def _generic_fallback_why_line(report: schema.Report) -> str:
     topic = report.topic.lower()
     if _is_weather_query(topic):
+        if report.weather_error:
+            return f"Model-implied because no clean market or official weather anchor was available: {report.weather_error}."
         return "Model-implied because no clean market exists and no high-signal weather evidence surfaced in the last 24 hours."
     if _is_macro_query(topic):
         return "Mostly market-driven right now; no high-signal macro or policy evidence surfaced in the last 24 hours."
@@ -556,6 +512,8 @@ def _generic_fallback_why_line(report: schema.Report) -> str:
 
 def _sports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str) -> tuple[list[str], list[str]]:
     favorite = favorite_label or "the favorite"
+    if favorite.lower() in {"yes", "no"}:
+        favorite = "the forecast side"
     all_tokens = set()
     for candidate in candidates[:5]:
         all_tokens |= candidate.tokens
@@ -606,6 +564,7 @@ def _build_forecast_item(
     if polymarket_item:
         poly_label, poly_probability = _top_polymarket_probability(polymarket_item)
     kalshi_probability = kalshi_item.current_probability if kalshi_item else None
+    weather_item, weather_probability = _weather_probability(report)
 
     poly_quality = market_quality(
         polymarket_item.engagement if polymarket_item else None,
@@ -683,6 +642,28 @@ def _build_forecast_item(
             evidence_count,
             evidence_conflict=_evidence_has_conflict(evidence_candidates, forecast.favorite_label),
         )
+    elif weather_probability is not None and (_is_weather_query(title) or _is_weather_query(report.topic)):
+        range_half = 0.05
+        forecast.forecast_probability = weather_probability
+        forecast.forecast_range_low = max(0.01, weather_probability - range_half)
+        forecast.forecast_range_high = min(0.99, weather_probability + range_half)
+        forecast.anchor_source = "weather_api"
+        forecast.favorite_label = "Yes"
+        forecast.model_implied = False
+        probability_pct = weather_item.probability_pct if weather_item else round(weather_probability * 100)
+        location = weather_item.location if weather_item else "the requested location"
+        forecast_date = weather_item.forecast_date if weather_item else report.range_to
+        forecast.market_view = f"NWS {probability_pct}% peak precipitation probability for {location} on {forecast_date}"
+        details = []
+        if weather_item and weather_item.short_forecast:
+            details.append(weather_item.short_forecast)
+        if weather_item and weather_item.temperature is not None:
+            details.append(f"{weather_item.temperature}°{weather_item.temperature_unit}")
+        if weather_item and weather_item.wind:
+            details.append(f"wind {weather_item.wind}")
+        forecast.why_line = "Official NWS hourly forecast: " + "; ".join(details) if details else "Official NWS hourly forecast provides the current weather anchor."
+        forecast.confidence_level = "moderate-low"
+        forecast.uncertainty = "Official NWS forecast is the anchor, but local precipitation timing can still move as newer model runs update."
     else:
         low, high = _model_implied_range(report)
         forecast.model_implied = True
@@ -716,6 +697,8 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     if is_nba_slate and report.polymarket:
         seen = set()
         for poly_item in report.polymarket:
+            if not _is_nba_market_item(poly_item):
+                continue
             signature = _matchup_signature(poly_item.title or poly_item.question)
             if not signature or signature in seen:
                 continue

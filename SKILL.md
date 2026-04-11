@@ -1,7 +1,7 @@
 ---
 name: last24hours
 version: "1.0.0"
-description: "Real-time forecasting skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, and event outcomes."
+description: "Real-time forecasting skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, and event outcomes."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
 homepage: https://github.com/jask04/last24hours-skill
@@ -11,7 +11,7 @@ license: MIT
 user-invocable: true
 metadata:
   openclaw:
-    emoji: "🔴"
+    emoji: "red"
     requires:
       env: []
       optionalEnv:
@@ -41,6 +41,7 @@ metadata:
       - kalshi
       - sports
       - weather
+      - nws
       - elections
       - macro
       - x
@@ -86,8 +87,8 @@ Before running tools, parse:
 - `TARGET_TOOL` only if explicitly provided
 
 Supported query types:
-- `PREDICTION` — default for forecastable requests
-- `COMPARISON` — compare probability, market quality, and evidence quality across outcomes or competing contracts
+- `PREDICTION` - default for forecastable requests
+- `COMPARISON` - compare probability, market quality, and evidence quality across outcomes or competing contracts
 - `NEWS`
 - `RECOMMENDATIONS`
 - `PROMPTING`
@@ -96,7 +97,7 @@ Supported query types:
 Display this before tool use:
 
 ```text
-I’ll forecast {TOPIC} using the last 24 hours of market, social, and web evidence.
+I'll forecast {TOPIC} using the last 24 hours of market, social, and web evidence.
 
 Parsed intent:
 - TOPIC = {TOPIC}
@@ -106,7 +107,7 @@ Parsed intent:
 Research typically takes 1-4 minutes. Starting now.
 ```
 
-If the request is non-forecastable, say `I’ll research {TOPIC}...` instead of `I’ll forecast {TOPIC}...`.
+If the request is non-forecastable, say `I'll research {TOPIC}...` instead of `I'll forecast {TOPIC}...`.
 
 ## Source Priority
 
@@ -121,6 +122,8 @@ For `PREDICTION`, prioritize:
 Use YouTube, TikTok, Instagram, Bluesky, and Truth Social only when they add signal or were explicitly requested. They are supporting evidence, not the forecast anchor.
 
 Reddit public search is available without paid scraper credentials. `SCRAPECREATORS_API_KEY` is optional and mainly improves Reddit comment enrichment plus TikTok/Instagram coverage.
+
+For supported U.S. weather prompts, use the public National Weather Service API as the official no-key anchor when no clean Polymarket/Kalshi market exists.
 
 ## Execution
 
@@ -141,6 +144,7 @@ The script now returns forecast inputs, including:
 - Hacker News
 - Polymarket
 - Kalshi
+- National Weather Service forecasts for supported U.S. weather prompts
 - WebSearch results when available
 
 For broad NBA slate prompts such as `tomorrows nba games`, the script expands the slate into matchup-specific searches before ranking markets and social evidence.
@@ -169,6 +173,7 @@ When evidence is weak:
 For weather and macro/politics:
 - suppress weak X, Reddit, and web evidence aggressively
 - only surface supporting evidence if it contains real weather, policy, data, polling, or market-repricing signal
+- for supported U.S. weather prompts, prefer official NWS precipitation probability as the anchor when no clean market exists and render it as `NWS-led`
 - if supporting evidence is thin, say the forecast is mostly market-driven or model-implied instead of padding the answer with chatter
 
 Never give trade sizing or betting advice.
@@ -178,7 +183,7 @@ Never give trade sizing or betting advice.
 Use this structure at the top of the answer:
 
 ```text
-Forecast: {single probability or narrow range} — {plain-English call}
+Forecast: {single probability or narrow range} - {plain-English call}
 
 Market view:
 - Polymarket: {price, move, notable divergence if any}
@@ -233,6 +238,7 @@ For sports and weather:
 - give the number first
 - list only the highest-signal drivers
 - for sports, prefer injuries, lineups, rest spots, playoff incentives, and meaningful line movement
+- for U.S. weather prompts, prefer official NWS precipitation, forecast, temperature, and wind data over social chatter
 - omit betting-bot chatter, ticket posts, and generic hype when they are the only non-market signal
 
 ## Agent Mode
@@ -281,14 +287,17 @@ What this skill does:
 - searches public Reddit, X, YouTube, TikTok, Instagram, Hacker News, Polymarket, Kalshi, Bluesky, Truth Social, and web sources
 - uses Polymarket Gamma API for public prediction-market discovery
 - uses Kalshi public market-data endpoints at `api.elections.kalshi.com/trade-api/v2` without auth
+- uses National Weather Service public endpoints at `api.weather.gov` without auth for supported U.S. weather aliases
 - optionally uses user-provided X and Bluesky credentials where configured
 - saves raw briefings to `~/Documents/Last24Hours/`
 
 Recommended validation after edits:
 - `python scripts/last24hours.py "tomorrows nba games" --quick --emit=compact`
+- `python scripts/last24hours.py "todays nba games" --quick --emit=compact`
 - `python scripts/last24hours.py "Los Angeles Lakers at Golden State Warriors tomorrow" --quick --emit=compact`
 - `python scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --quick --emit=compact`
 - `python scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact`
+- `python scripts/last24hours.py "Will the Fed cut rates by June" --quick --emit=compact`
 
 What this skill does not do:
 - place trades
