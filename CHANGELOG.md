@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Output writing now falls back cleanly when the default context-output directory is unavailable
 - Reddit now uses free public search by default, with ScrapeCreators as optional enrichment
 - Bluesky search now tries the public API path first and only falls back to authenticated search when needed
+- Broad NBA Reddit searches now suppress more incidental keyword matches from non-NBA communities, survey spam, and mirror-style sports subs
 - Sports forecast explanations now stay market-led and drop more betting-bot, resale, and generic hype chatter
 - Compact sports source sections now prefer higher-signal X and Reddit items instead of raw score-only ordering
 - Weather and macro forecasts now suppress weak X, Reddit, and web evidence more aggressively and fall back to explicit market-driven or model-implied wording when signal is thin
@@ -66,6 +67,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - NBA slate forecasts no longer use player-prop contracts as game-outcome forecasts
 - Report cache deserialization now round-trips Bluesky items
 - Near-certain crypto threshold markets are suppressed from watchlists unless the unresolved movement/depth signal is strong enough
+- Explicit `--search=bluesky` and `--search=bsky` runs no longer fall through to web-only mode
+- Bluesky 403 errors now distinguish public search, auth-session, and authenticated-search failures without assuming app-password failure
+- Disabled ScrapeCreators settings now gate the legacy ScrapeCreators X path in addition to Reddit, TikTok, and Instagram
 
 ## [1.0.0] - 2026-03-29
 

@@ -33,6 +33,20 @@ def _log(msg: str):
         sys.stderr.flush()
 
 
+def _describe_http_error(stage: str, error: http.HTTPError) -> str:
+    """Return a user-facing Bluesky HTTP failure description."""
+    body = (error.body or "").lower()
+    if error.status_code == 403:
+        if "cloudflare" in body:
+            return f"{stage} blocked by Cloudflare (403). This is a network/API edge block, not a Bluesky app-password issue."
+        if any(term in body for term in ("invalid password", "invalid identifier", "authentication required", "auth")):
+            return f"{stage} forbidden by Bluesky auth (403). Check BSKY_HANDLE and BSKY_APP_PASSWORD."
+        return f"{stage} forbidden (403). This may be a Bluesky API or network-policy block; it is not enough by itself to prove the app password is bad."
+    if error.status_code == 401:
+        return f"{stage} unauthorized (401). Check BSKY_HANDLE and BSKY_APP_PASSWORD."
+    return f"{stage} failed: {error}"
+
+
 def _create_session(handle: str, app_password: str) -> Optional[str]:
     """Create an AT Protocol session and return the access token.
 
@@ -64,12 +78,7 @@ def _create_session(handle: str, app_password: str) -> Optional[str]:
         _session_error = "No accessJwt in session response"
         return None
     except http.HTTPError as e:
-        if e.status_code == 403 and e.body and "cloudflare" in e.body.lower():
-            _session_error = "Cloudflare blocked the request (403 Forbidden). This is a network-level block, not an auth issue. Try a different network or VPN."
-        elif e.status_code == 401:
-            _session_error = "Invalid credentials (401 Unauthorized). Check BSKY_HANDLE and BSKY_APP_PASSWORD."
-        else:
-            _session_error = f"Session request failed: {e}"
+        _session_error = _describe_http_error("Bluesky auth session", e)
         _log(f"Session creation failed: {_session_error}")
         return None
     except Exception as e:
@@ -147,12 +156,10 @@ def search_bluesky(
         _log(f"Found {len(posts)} posts via public API")
         return response
     except http.HTTPError as e:
-        public_error = str(e)
+        public_error = _describe_http_error("Bluesky public search", e)
         _log(f"Public search failed: {e}")
         if not handle or not app_password:
-            if e.status_code == 403 and e.body and "cloudflare" in e.body.lower():
-                return {"posts": [], "error": "Bluesky public search is blocked by Cloudflare (403). This is likely a network/API edge issue, not a credential issue."}
-            return {"posts": [], "error": f"Bluesky public search failed: {e}"}
+            return {"posts": [], "error": public_error}
     except Exception as e:
         public_error = f"{type(e).__name__}: {e}"
         _log(f"Public search failed: {e}")
@@ -176,9 +183,8 @@ def search_bluesky(
         _log(f"Found {len(posts)} posts via authenticated API")
         return response
     except http.HTTPError as e:
-        if e.status_code == 403 and e.body and "cloudflare" in e.body.lower():
-            return {"posts": [], "error": "Bluesky search is blocked by Cloudflare (403). This appears to be a network/API block, not necessarily a bad app password."}
-        return {"posts": [], "error": f"Bluesky public search failed: {public_error}. Auth fallback failed: {e}"}
+        auth_error = _describe_http_error("Bluesky authenticated search", e)
+        return {"posts": [], "error": f"{public_error}. Auth fallback also failed: {auth_error}"}
     except Exception as e:
         return {"posts": [], "error": f"Bluesky public search failed: {public_error}. Auth fallback failed: {type(e).__name__}: {e}"}
 

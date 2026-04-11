@@ -84,6 +84,41 @@ def parse_search_flag(search_str: str) -> set:
     return sources
 
 
+def sources_mode_for_explicit_search(search_sources: set) -> str:
+    """Map --search sources onto the legacy Reddit/X/Web source mode."""
+    has_reddit = "reddit" in search_sources
+    has_x = "x" in search_sources
+    include_search_web = "web" in search_sources
+    if has_reddit and has_x:
+        return "all" if include_search_web else "both"
+    if has_reddit:
+        return "reddit-web" if include_search_web else "reddit"
+    if has_x:
+        return "x-web" if include_search_web else "x"
+    return "web" if include_search_web else "none"
+
+
+def mode_label_for_sources(sources: str) -> str:
+    """Return a readable report mode label for a source mode."""
+    if sources == "all":
+        return "all"
+    if sources == "both":
+        return "both"
+    if sources == "reddit":
+        return "reddit-only"
+    if sources == "reddit-web":
+        return "reddit-web"
+    if sources == "x":
+        return "x-only"
+    if sources == "x-web":
+        return "x-web"
+    if sources == "web":
+        return "web-only"
+    if sources == "none":
+        return "auxiliary-only"
+    return sources
+
+
 def register_child_pid(pid: int):
     """Track a child process for cleanup."""
     with _child_pids_lock:
@@ -375,6 +410,8 @@ def _search_x(
 
     # Use ScrapeCreators if specified
     if x_source == "scrapecreators":
+        if env.scrapecreators_disabled(config):
+            return [], {"items": [], "error": "ScrapeCreators disabled by LAST24HOURS_DISABLE_SCRAPECREATORS"}, "ScrapeCreators disabled by LAST24HOURS_DISABLE_SCRAPECREATORS"
         try:
             raw_response = scrapecreators_x.search_x(
                 topic, from_date, to_date,
@@ -1983,23 +2020,7 @@ def main():
     else:
         selected_models = models.get_models(config)
 
-    # Determine mode string
-    if sources == "all":
-        mode = "all"  # reddit + x + web
-    elif sources == "both":
-        mode = "both"  # reddit + x
-    elif sources == "reddit":
-        mode = "reddit-only"
-    elif sources == "reddit-web":
-        mode = "reddit-web"
-    elif sources == "x":
-        mode = "x-only"
-    elif sources == "x-web":
-        mode = "x-web"
-    elif sources == "web":
-        mode = "web-only"
-    else:
-        mode = sources
+    mode = mode_label_for_sources(sources)
 
     # Detect query type for source tiering and scoring adjustments
     query_type = initial_query_type
@@ -2045,16 +2066,8 @@ def main():
         # If explicitly requested, attempt Xiaohongshu even when preflight says unavailable.
         search_run_xiaohongshu = "xiaohongshu" in search_sources
         include_search_web = "web" in search_sources
-        # Map to existing sources string
-        if has_reddit and has_x:
-            sources = "both" + ("-web" if include_search_web else "")
-            sources = "all" if include_search_web else "both"
-        elif has_reddit:
-            sources = "reddit-web" if include_search_web else "reddit"
-        elif has_x:
-            sources = "x-web" if include_search_web else "x"
-        else:
-            sources = "web"  # hn/polymarket only; no Reddit/X
+        sources = sources_mode_for_explicit_search(search_sources)
+        mode = ",".join(sorted(search_sources)) if sources == "none" else mode_label_for_sources(sources)
 
     # Run research
     reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error = run_research(

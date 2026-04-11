@@ -378,11 +378,15 @@ LOW_QUALITY_SUBREDDITS = {
     "basketballreddit", "nbareddit", "sportsreddit",
     "sportsbook", "sportsbetting", "betting", "gambling",
     "nbastreams", "nbahighlights", "livesports", "gamethreads",
+    "surveyexchange", "takemysurvey",
 }
 TEAM_OR_LEAGUE_SUBREDDITS = {
     "nba", "warriors", "lakers", "celtics", "knicks", "heat", "raptors",
     "bulls", "wizards", "rockets", "sixers", "pacers", "nets",
-    "nuggets", "grizzlies",
+    "nuggets", "grizzlies", "thunder", "mavericks", "suns", "spurs",
+    "timberwolves", "pelicans", "clippers", "kings", "trailblazers",
+    "utahjazz", "orlandomagic", "clevelandcavs", "detroitpistons",
+    "atlantahawks", "charlottehornets", "torontoraptors", "nbatalk",
 }
 SPORTS_DRIVER_TERMS = {
     "injury", "injuries", "out", "ruled", "questionable", "doubtful", "probable",
@@ -401,8 +405,16 @@ def _subreddit_quality_ok(subreddit: str, topic: str) -> bool:
     sub = subreddit.strip().lower()
     if sub in LOW_QUALITY_SUBREDDITS:
         return False
-    if sub.startswith(("test", "u_", "freekarma", "upvote")):
+    if sub.startswith(("test", "u_", "freekarma", "upvote", "allthingssports")):
         return False
+
+    if _is_broad_nba_topic(topic):
+        sportsish = ("nba", "basketball", "nbatalk", "warriors", "lakers", "celtics", "knicks", "heat", "raptors", "bulls", "wizards", "rockets", "sixers", "pacers", "nets", "nuggets", "grizzlies", "thunder", "mavericks", "suns", "spurs", "timberwolves", "pelicans", "clippers", "kings", "trailblazers", "utahjazz", "orlandomagic", "clevelandcavs", "detroitpistons", "atlantahawks", "charlottehornets")
+        if not any(token in sub for token in sportsish):
+            return False
+        low_signal_sports = ("reddit", "stream", "highlight", "live", "score", "update", "2k")
+        if any(token in sub for token in low_signal_sports) and sub not in {"nba", "nbatalk"}:
+            return False
 
     # For sports matchups, prefer discussion-heavy sports/team subs over random matches.
     if _matchup_side_tokens(topic):
@@ -419,9 +431,21 @@ def _subreddit_quality_ok(subreddit: str, topic: str) -> bool:
     return True
 
 
+def _is_broad_nba_topic(topic: str) -> bool:
+    """Return True for broad NBA prompts without team/matchup specificity."""
+    text = topic.strip().lower()
+    if not re.search(r"\bnba\b", text):
+        return False
+    if _matchup_side_tokens(topic):
+        return False
+    specific_terms = {"lakers", "warriors", "celtics", "knicks", "heat", "nuggets", "thunder", "mavericks", "suns", "pacers", "bucks", "cavaliers", "cavs"}
+    tokens = set(re.sub(r"[^\w\s]", " ", text).split())
+    return not bool(tokens & specific_terms)
+
+
 def _sports_public_item_bonus(topic: str, title: str, subreddit: str) -> float:
     """Small quality adjustment for free Reddit sports results."""
-    if not _matchup_side_tokens(topic):
+    if not (_matchup_side_tokens(topic) or _is_broad_nba_topic(topic)):
         return 0.0
 
     tokens = set(re.sub(r"[^\w\s-]", " ", f"{title} {subreddit}".lower()).split())
@@ -432,9 +456,32 @@ def _sports_public_item_bonus(topic: str, title: str, subreddit: str) -> float:
         bonus += 0.10
     if {"ticket", "tickets", "selling", "sale", "resale", "bettorbot", "parlay", "pick", "picks"} & tokens:
         bonus -= 0.15
+    if _is_broad_nba_topic(topic):
+        title_lower = title.lower()
+        if subreddit.strip().lower() in TEAM_OR_LEAGUE_SUBREDDITS:
+            bonus += 0.12
+        if re.search(r"\bnot the nba\b|\bnba youngboy\b|\bnba 2k\b|\bresearch form\b|\bsurvey\b", title_lower):
+            bonus -= 0.5
+        if not re.search(r"\bnba\b|basketball|playoff|game|lineup|injury|seed|mvp|starters?", title_lower):
+            bonus -= 0.25
     if len(tokens & TEAM_OR_LEAGUE_SUBREDDITS) >= 3 and not (SPORTS_DRIVER_TERMS & tokens):
         bonus -= 0.05
     return bonus
+
+
+def _is_low_signal_broad_nba_item(topic: str, title: str, subreddit: str) -> bool:
+    """Suppress incidental or spammy public Reddit matches for broad NBA scans."""
+    if not _is_broad_nba_topic(topic):
+        return False
+    title_lower = title.lower()
+    sub = subreddit.strip().lower()
+    if re.search(r"\bnot the nba\b|\bnba youngboy\b|\bnba 2k\b|\bresearch form\b|\bsurvey\b", title_lower):
+        return True
+    if sub in {"surveyexchange", "takemysurvey"} or sub.startswith("allthingssports"):
+        return True
+    if sub not in TEAM_OR_LEAGUE_SUBREDDITS and not any(token in sub for token in ("nba", "basketball")):
+        return True
+    return False
 
 
 def _matchup_side_tokens(topic: str) -> List[set[str]]:
@@ -525,6 +572,8 @@ def search_reddit_public(
                 subreddit = str(post.get("subreddit", "")).strip()
                 if not _subreddit_quality_ok(subreddit, topic):
                     continue
+                if _is_low_signal_broad_nba_item(topic, title, subreddit):
+                    continue
                 topic_relevance = _public_topic_relevance(topic, title, subreddit)
                 if not _matches_matchup_topic(topic, title, subreddit):
                     continue
@@ -598,6 +647,8 @@ def search_reddit_public(
                     title = str(post.get("title", "")).strip()
                     subreddit = str(post.get("subreddit", "")).strip()
                     if not _subreddit_quality_ok(subreddit, topic):
+                        continue
+                    if _is_low_signal_broad_nba_item(topic, title, subreddit):
                         continue
                     topic_relevance = _public_topic_relevance(topic, title, subreddit)
                     if not _matches_matchup_topic(topic, title, subreddit):

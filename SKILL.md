@@ -157,6 +157,8 @@ Do not run weather/NWS unless the watchlist topic is explicitly weather. Do not 
 
 Reddit public search is available without paid scraper credentials. `SCRAPECREATORS_API_KEY` is optional and mainly improves Reddit comment enrichment plus TikTok/Instagram coverage.
 Set `LAST24HOURS_DISABLE_SCRAPECREATORS=1` to keep a stored key while skipping ScrapeCreators-backed credit paths. For one-off CLI runs, pass `--no-scrapecreators`.
+In source status text, `Reddit enrichment` means free `reddit.com/.json` enrichment unless the message explicitly says `ScrapeCreators`.
+For Bluesky debugging, `--search=bluesky` and `--search=bsky` should run Bluesky directly; public search is attempted before authenticated fallback.
 
 For supported U.S. weather prompts, use the public National Weather Service API as the official no-key anchor when no clean Polymarket/Kalshi market exists.
 

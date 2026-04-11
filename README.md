@@ -328,10 +328,12 @@ If Reddit is sparse or empty:
 - public Reddit search is free but can be thinner for niche topics
 - `SCRAPECREATORS_API_KEY` is optional if you want better Reddit/TikTok/Instagram coverage
 - set `LAST24HOURS_DISABLE_SCRAPECREATORS=1` or pass `--no-scrapecreators` when you want to avoid paid/credit-backed ScrapeCreators calls
+- Reddit enrichment in the source footer refers to free `reddit.com/.json` comment/engagement enrichment unless the message explicitly says `ScrapeCreators`
 
 If Bluesky is failing with 403:
 - the public Bluesky API may be blocking the request at the network edge
 - this does not necessarily mean your app password is wrong
+- run `--search=bluesky` or `--search=bsky` to test Bluesky directly; public search runs first, then authenticated fallback uses `BSKY_HANDLE` and `BSKY_APP_PASSWORD`
 
 If YouTube is missing:
 - install `yt-dlp`
