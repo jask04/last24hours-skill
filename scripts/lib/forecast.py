@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from . import evidence_quality as eq, query_type as qt, schema
+from . import evidence_quality as eq, market_types, query_type as qt, schema
 
 LOW_SIGNAL_SOCIAL_TERMS = eq.LOW_SIGNAL_SOCIAL_TERMS
 DRIVER_TERMS = eq.DRIVER_TERMS
@@ -349,6 +349,10 @@ def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[in
 def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional[schema.PolymarketItem]:
     if not items:
         return None
+    if _is_sports_query(topic):
+        items = [item for item in items if _is_direct_game_market(item)]
+        if not items:
+            return None
     ranked = sorted(items, key=lambda item: (_polymarket_match_score(topic, item), item.score), reverse=True)
     return ranked[0]
 
@@ -356,6 +360,10 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional
 def _best_kalshi(topic: str, items: list[schema.KalshiItem]) -> Optional[schema.KalshiItem]:
     if not items:
         return None
+    if _is_sports_query(topic):
+        items = [item for item in items if _is_direct_game_market(item)]
+        if not items:
+            return None
     topic_signature = _matchup_signature(topic)
     if topic_signature:
         matching = [
@@ -375,7 +383,7 @@ def _matching_kalshi_for_polymarket(
     signature = _matchup_signature(poly_item.title or poly_item.question)
     if signature:
         for item in kalshi_items:
-            if _matchup_signature(item.title or item.question) == signature:
+            if _is_direct_game_market(item) and _matchup_signature(item.title or item.question) == signature:
                 return item
     return None
 
@@ -383,6 +391,19 @@ def _matching_kalshi_for_polymarket(
 def _is_nba_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
     text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
     return eq.is_nba_market_text(text)
+
+
+def _is_direct_game_market(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
+    item_type = getattr(item, "market_type", "unknown")
+    if item_type == "game_outcome":
+        return True
+    if item_type != "unknown":
+        return False
+    return market_types.is_direct_game_outcome(
+        getattr(item, "title", ""),
+        getattr(item, "question", ""),
+        getattr(item, "url", ""),
+    )
 
 
 def _top_evidence(report: schema.Report, title: str, limit: int = 2) -> list[str]:
@@ -658,7 +679,7 @@ def _build_forecast_item(
         if weather_item and weather_item.short_forecast:
             details.append(weather_item.short_forecast)
         if weather_item and weather_item.temperature is not None:
-            details.append(f"{weather_item.temperature}°{weather_item.temperature_unit}")
+            details.append(f"{weather_item.temperature} deg {weather_item.temperature_unit}")
         if weather_item and weather_item.wind:
             details.append(f"wind {weather_item.wind}")
         forecast.why_line = "Official NWS hourly forecast: " + "; ".join(details) if details else "Official NWS hourly forecast provides the current weather anchor."
@@ -697,7 +718,7 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     if is_nba_slate and report.polymarket:
         seen = set()
         for poly_item in report.polymarket:
-            if not _is_nba_market_item(poly_item):
+            if not _is_nba_market_item(poly_item) or not _is_direct_game_market(poly_item):
                 continue
             signature = _matchup_signature(poly_item.title or poly_item.question)
             if not signature or signature in seen:

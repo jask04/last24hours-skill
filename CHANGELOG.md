@@ -22,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Shared market-signal fields for Polymarket, Kalshi, and market-watchlist report items, including implied probability, bid/ask, spread, midpoint, 24h movement, 24h volume, signal timestamp, signal quality, and missing-signal reason
 - Kalshi batch candlestick enrichment for watchlist candidates, deriving 24h movement, 24h volume, latest open interest, and signal timestamps when public candle data is available
 - Kalshi direct series/event expansion for NBA, Fed/rates, BTC, and ETH watchlist scans
+- Market contract-type classification for game outcomes, player props, team props, futures, thresholds, macro binaries, and weather binaries
+- Stdlib `unittest` regression harness for market typing, forecast/watchlist ranking, query classification, and report serialization
 
 ### Changed
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
@@ -47,6 +49,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Watchlist ranking now prioritizes measurable market signal quality, 24h volume, spread tightness, open interest/liquidity, and recent 24h repricing before catalyst context
 - Watchlist risk notes now call out stale/near-certain prices, wide spreads, and missing enrichment instead of hiding weak market data behind generic market-signal wording
 - Watchlist output now includes a near-cutoff Kalshi candidate for venue coverage when its score is close enough to the top-five cutoff
+- Sports forecasts now require direct game-outcome markets before using a market as a matchup/slate anchor
+- Watchlist output now labels props and threshold markets explicitly instead of presenting every item as a generic market pick
+- Compact source-status rendering now uses ASCII-safe status labels for cleaner Windows/Codex output
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
@@ -56,6 +61,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Polymarket macro multi-market rendering now falls back to clean `Yes` / `No` labels when question-derived labels would be malformed
 - Market-watchlist phrasing such as `markets to watch` no longer misclassifies as a weather query
 - Cross-market disagreement notes no longer compare adjacent contracts with different numeric thresholds as if they were the same market
+- NBA slate forecasts no longer use player-prop contracts as game-outcome forecasts
+- Report cache deserialization now round-trips Bluesky items
+- Near-certain crypto threshold markets are suppressed from watchlists unless the unresolved movement/depth signal is strong enough
 
 ## [1.0.0] - 2026-03-29
 

@@ -230,6 +230,8 @@ Prefer measurable market signal over generic catalyst text. Kalshi candidates ma
 
 For NBA, Fed/rates, BTC, and ETH watchlist scans, Kalshi should check direct series/event markets in addition to generic open-market pages. If a Kalshi candidate is close to the top-five cutoff, include it for venue coverage; do not force weak or poorly matched Kalshi rows into the watchlist.
 
+For sports forecasts, only direct game-outcome markets can anchor matchup or slate probabilities. Player props, team props, futures, and threshold markets must not be relabeled as game forecasts. In market-watchlist mode, props can be included only when they are clearly labeled as props or threshold markets.
+
 Allowed language:
 - `top pick to watch`
 - `interesting setup`

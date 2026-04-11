@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, TypeVar, Union
 
-from . import dates, schema
+from . import dates, market_types, schema
 
 T = TypeVar("T", schema.RedditItem, schema.XItem, schema.WebSearchItem, schema.YouTubeItem, schema.TikTokItem, schema.InstagramItem, schema.HackerNewsItem, schema.BlueskyItem, schema.PolymarketItem, schema.KalshiItem)
 
@@ -484,6 +484,11 @@ def normalize_polymarket_items(
             market_signal_quality=item.get("market_signal_quality"),
             signal_timestamp=item.get("signal_timestamp"),
             signal_missing_reason=item.get("signal_missing_reason", ""),
+            market_type=item.get("market_type") or market_types.classify_market(
+                item.get("title", ""),
+                item.get("question", ""),
+                item.get("url", ""),
+            ),
             date=date_str,
             date_confidence="high",
             engagement=engagement,
@@ -531,6 +536,11 @@ def normalize_kalshi_items(
             market_signal_quality=item.get("market_signal_quality"),
             signal_timestamp=item.get("signal_timestamp"),
             signal_missing_reason=item.get("signal_missing_reason", ""),
+            market_type=item.get("market_type") or market_types.classify_market(
+                item.get("title", ""),
+                item.get("question", ""),
+                item.get("url", ""),
+            ),
             date=item.get("date"),
             date_confidence="high",
             engagement=engagement,

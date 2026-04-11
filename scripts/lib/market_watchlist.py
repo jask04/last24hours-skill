@@ -5,7 +5,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from . import evidence_quality as eq, schema
+from . import evidence_quality as eq, market_types, schema
 
 
 _WATCHLIST_PHRASES = re.compile(
@@ -191,6 +191,14 @@ def _is_bad_candidate(topic: str, item) -> bool:
     return False
 
 
+def _candidate_market_type(item) -> str:
+    return getattr(item, "market_type", "") or market_types.classify_market(
+        getattr(item, "title", ""),
+        getattr(item, "question", ""),
+        getattr(item, "url", ""),
+    )
+
+
 def _market_quality(volume: Optional[float], liquidity: Optional[float], open_interest: Optional[float]) -> float:
     vol = min(1.0, math.log1p(max(volume or 0.0, 0.0)) / math.log1p(2_000_000))
     liq = min(1.0, math.log1p(max(liquidity or 0.0, 0.0)) / math.log1p(500_000))
@@ -223,11 +231,15 @@ def _spread_score(spread: Optional[float]) -> float:
     return max(0.0, min(1.0, 1.0 - spread / 0.20))
 
 
-def _near_certain_penalty(probability: Optional[float], movement: float, signal_quality: float) -> float:
+def _near_certain_penalty(probability: Optional[float], movement: float, signal_quality: float, market_type: str = "unknown") -> float:
     if probability is None:
         return 0.0
     if 0.02 < probability < 0.98:
         return 0.0
+    if market_type == "threshold":
+        if movement >= 0.35 and signal_quality >= 0.70:
+            return 0.10
+        return 0.35
     if movement >= 0.35 or signal_quality >= 0.65:
         return 0.0
     return 0.18
@@ -464,6 +476,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
 
     outcome_label, probability = _market_probability(item)
+    market_type = _candidate_market_type(item)
     volume, liquidity, open_interest = _depth_values(item)
     movement_pct = getattr(item, "movement_24h", None)
     if movement_pct is None:
@@ -474,7 +487,14 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     spread_quality = _spread_score(spread)
     evidence_score, catalyst_summary, evidence_refs = _evidence_for_market(report, item)
     cross_score, cross_note = _cross_market_note(item, other_items)
-    certainty_penalty = _near_certain_penalty(probability, movement, quality)
+    certainty_penalty = _near_certain_penalty(probability, movement, quality, market_type)
+    if (
+        market_type == "threshold"
+        and probability is not None
+        and (probability <= 0.02 or probability >= 0.98)
+        and not (movement >= 0.35 and quality >= 0.70 and (volume or 0) >= 250_000)
+    ):
+        return None
     rank_score = int(max(0, min(100, 100 * (
         0.40 * quality +
         0.24 * relevance +
@@ -509,10 +529,16 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.append("cross-market disagreement/alignment signal")
     if not why_bits:
         why_bits.append("best available topic match, but lower-confidence")
+    if market_type == "player_prop":
+        why_bits.insert(0, "player prop")
+    elif market_type == "team_prop":
+        why_bits.insert(0, "team prop")
+    elif market_type == "threshold":
+        why_bits.insert(0, "threshold market")
 
     return schema.MarketWatchItem(
         id=f"MW{idx}",
-        title=getattr(item, "title", "") or getattr(item, "question", ""),
+        title=(getattr(item, "question", "") if market_type in {"player_prop", "team_prop", "threshold"} else getattr(item, "title", "")) or getattr(item, "question", ""),
         question=getattr(item, "question", "") or getattr(item, "title", ""),
         venue=venue,
         url=getattr(item, "url", ""),
@@ -530,6 +556,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         market_signal_quality=quality,
         signal_timestamp=getattr(item, "signal_timestamp", None),
         signal_missing_reason=getattr(item, "signal_missing_reason", ""),
+        market_type=market_type,
         volume=volume,
         liquidity=liquidity,
         open_interest=open_interest,

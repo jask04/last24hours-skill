@@ -197,6 +197,7 @@ python3 -c "import py_compile; py_compile.compile('scripts/lib/forecast.py', dor
 python3 -c "import py_compile; py_compile.compile('scripts/lib/weather.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/evidence_quality.py', doraise=True)"
 python3 -c "import py_compile; py_compile.compile('scripts/lib/market_watchlist.py', doraise=True)"
+python3 -m unittest discover -s tests
 python3 scripts/last24hours.py "NBA markets to watch today" --quick --emit=compact
 python3 scripts/last24hours.py "macro markets to watch around Fed cuts" --quick --emit=compact
 python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
@@ -226,6 +227,7 @@ Recommended extra smoke tests:
 - For supported U.S. weather prompts, NWS precipitation probability can anchor the forecast and renders as `NWS-led`.
 - Broad NBA slate queries automatically expand into one search per scheduled matchup.
 - Broad NBA slate queries league-lock market sections so cross-league city collisions such as MLB markets do not leak into NBA boards.
+- Broad NBA slate forecasts require direct game-outcome markets. Player props can appear in watchlist mode only when explicitly labeled as props.
 
 ## Market Watchlist Mode
 

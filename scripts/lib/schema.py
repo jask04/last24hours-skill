@@ -504,6 +504,7 @@ class PolymarketItem:
     market_signal_quality: Optional[float] = None
     signal_timestamp: Optional[str] = None
     signal_missing_reason: str = ""
+    market_type: str = "unknown"
     date: Optional[str] = None
     date_confidence: str = "high"  # API provides exact timestamps
     engagement: Optional[Engagement] = None  # volume + liquidity
@@ -534,6 +535,7 @@ class PolymarketItem:
             'market_signal_quality': self.market_signal_quality,
             'signal_timestamp': self.signal_timestamp,
             'signal_missing_reason': self.signal_missing_reason,
+            'market_type': self.market_type,
             'date': self.date,
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
@@ -571,6 +573,7 @@ class KalshiItem:
     market_signal_quality: Optional[float] = None
     signal_timestamp: Optional[str] = None
     signal_missing_reason: str = ""
+    market_type: str = "unknown"
     date: Optional[str] = None
     date_confidence: str = "high"
     engagement: Optional[Engagement] = None  # volume + liquidity + open interest
@@ -603,6 +606,7 @@ class KalshiItem:
             'market_signal_quality': self.market_signal_quality,
             'signal_timestamp': self.signal_timestamp,
             'signal_missing_reason': self.signal_missing_reason,
+            'market_type': self.market_type,
             'date': self.date,
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
@@ -684,6 +688,7 @@ class MarketWatchItem:
     market_signal_quality: Optional[float] = None
     signal_timestamp: Optional[str] = None
     signal_missing_reason: str = ""
+    market_type: str = "unknown"
     volume: Optional[float] = None
     liquidity: Optional[float] = None
     open_interest: Optional[float] = None
@@ -718,6 +723,7 @@ class MarketWatchItem:
             'market_signal_quality': self.market_signal_quality,
             'signal_timestamp': self.signal_timestamp,
             'signal_missing_reason': self.signal_missing_reason,
+            'market_type': self.market_type,
             'volume': self.volume,
             'liquidity': self.liquidity,
             'open_interest': self.open_interest,
@@ -1037,6 +1043,29 @@ class Report:
                 cross_refs=h.get('cross_refs', []),
             ))
 
+        # Reconstruct Bluesky items (backward compat: key may not exist)
+        bsky_items = []
+        for b in data.get('bluesky', []):
+            eng = None
+            if b.get('engagement'):
+                eng = Engagement(**b['engagement'])
+            subs = SubScores(**b.get('subs', {})) if b.get('subs') else SubScores()
+            bsky_items.append(BlueskyItem(
+                id=b['id'],
+                text=b['text'],
+                url=b['url'],
+                author_handle=b.get('author_handle', ''),
+                display_name=b.get('display_name', ''),
+                date=b.get('date'),
+                date_confidence=b.get('date_confidence', 'high'),
+                engagement=eng,
+                relevance=b.get('relevance', 0.5),
+                why_relevant=b.get('why_relevant', ''),
+                subs=subs,
+                score=b.get('score', 0),
+                cross_refs=b.get('cross_refs', []),
+            ))
+
         # Reconstruct Truth Social items (backward compat: key may not exist)
         ts_items = []
         for ts in data.get('truthsocial', []):
@@ -1086,6 +1115,7 @@ class Report:
                 market_signal_quality=p.get('market_signal_quality'),
                 signal_timestamp=p.get('signal_timestamp'),
                 signal_missing_reason=p.get('signal_missing_reason', ''),
+                market_type=p.get('market_type', 'unknown'),
                 date=p.get('date'),
                 date_confidence=p.get('date_confidence', 'high'),
                 engagement=eng,
@@ -1124,6 +1154,7 @@ class Report:
                 market_signal_quality=k.get('market_signal_quality'),
                 signal_timestamp=k.get('signal_timestamp'),
                 signal_missing_reason=k.get('signal_missing_reason', ''),
+                market_type=k.get('market_type', 'unknown'),
                 date=k.get('date'),
                 date_confidence=k.get('date_confidence', 'high'),
                 engagement=eng,
@@ -1180,6 +1211,7 @@ class Report:
                 market_signal_quality=m.get('market_signal_quality'),
                 signal_timestamp=m.get('signal_timestamp'),
                 signal_missing_reason=m.get('signal_missing_reason', ''),
+                market_type=m.get('market_type', 'unknown'),
                 volume=m.get('volume'),
                 liquidity=m.get('liquidity'),
                 open_interest=m.get('open_interest'),
@@ -1210,6 +1242,7 @@ class Report:
             tiktok=tiktok_items,
             instagram=ig_items,
             hackernews=hn_items,
+            bluesky=bsky_items,
             truthsocial=ts_items,
             polymarket=pm_items,
             kalshi=kalshi_items,

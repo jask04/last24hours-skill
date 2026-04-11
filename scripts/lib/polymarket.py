@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
-from . import http
+from . import http, market_types
 from .query_type import detect_query_type
 from .relevance import LOW_SIGNAL_QUERY_TOKENS, token_overlap_relevance
 
@@ -814,6 +814,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             "market_signal_quality": signal_quality,
             "signal_timestamp": updated_at or None,
             "signal_missing_reason": signal_missing_reason,
+            "market_type": market_types.classify_market(title, top_market.get("question", title), url),
             "volume24hr": volume24hr,
             "volume1mo": event_volume1mo,
             "liquidity": liquidity,

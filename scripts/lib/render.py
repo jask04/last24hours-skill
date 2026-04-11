@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from . import evidence_quality as eq, query_type as qt, schema
+from . import evidence_quality as eq, market_types, query_type as qt, schema
 
 OUTPUT_DIR = Path.home() / ".local" / "share" / "last24hours" / "out"
 
@@ -327,6 +327,19 @@ def _format_watch_probability(item: schema.MarketWatchItem) -> str:
     return f"{item.outcome_label or 'Top outcome'} {item.probability * 100:.0f}%"
 
 
+def _format_market_type(market_type: str) -> str:
+    labels = {
+        "game_outcome": "Game outcome",
+        "player_prop": "Player prop",
+        "team_prop": "Team prop",
+        "futures": "Futures",
+        "threshold": "Threshold",
+        "macro_binary": "Macro binary",
+        "weather_binary": "Weather binary",
+    }
+    return labels.get(market_type or "unknown", "Market")
+
+
 def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     if qt.detect_query_type(report.topic) != "market_watchlist":
         return []
@@ -343,7 +356,7 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
 
     for item in report.market_watchlist:
         lines.append(f"**{item.id}. {item.title or item.question}**")
-        lines.append(f"Pick: {item.venue} - {_format_watch_probability(item)}")
+        lines.append(f"Pick: {item.venue} {_format_market_type(item.market_type)} - {_format_watch_probability(item)}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
         catalyst = item.catalyst_summary or "Catalyst context is thin; ranking is mostly market-signal driven."
@@ -577,7 +590,14 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
 
 def _is_nba_market_item(item) -> bool:
     text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
-    return eq.is_nba_market_text(text)
+    item_type = getattr(item, "market_type", "unknown")
+    if item_type == "unknown":
+        item_type = market_types.classify_market(
+            getattr(item, "title", ""),
+            getattr(item, "question", ""),
+            getattr(item, "url", ""),
+        )
+    return eq.is_nba_market_text(text) and item_type == "game_outcome"
 
 
 def _compact_weather_macro_items(items: list, source: str, report: schema.Report, limit: int) -> list:
@@ -635,21 +655,21 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     # Assess data freshness and add honesty warning if needed
     freshness = _assess_data_freshness(report)
     if freshness["is_sparse"]:
-        lines.append("**⚠️ LIMITED RECENT DATA** - Few discussions from the last 24 hours.")
+        lines.append("**LIMITED RECENT DATA** - Few discussions from the last 24 hours.")
         lines.append(f"Only {freshness['total_recent']} item(s) confirmed from {report.range_from} to {report.range_to}.")
         lines.append("Results below may include older/evergreen content. Be transparent with the user about this.")
         lines.append("")
 
     # Web-only mode banner (when no API keys)
     if report.mode == "web-only":
-        lines.append("**🌐 WEB SEARCH MODE** - assistant will search blogs, docs & news")
+        lines.append("**WEB SEARCH MODE** - assistant will search blogs, docs & news")
         lines.append("")
         lines.append("---")
-        lines.append("**⚡ Want better results?** Add API keys to unlock Reddit, TikTok, Instagram & X data:")
+        lines.append("**Want better results?** Add API keys to unlock Reddit, TikTok, Instagram & X data:")
         lines.append("- Reddit public search works without a paid scraper")
         lines.append("- `SCRAPECREATORS_API_KEY` is optional and improves Reddit comments + TikTok + Instagram")
-        lines.append("- `XAI_API_KEY` → X posts with real likes & reposts")
-        lines.append("- `OPENAI_API_KEY` (optional) → extra Reddit fallback/search")
+        lines.append("- `XAI_API_KEY` -> X posts with real likes & reposts")
+        lines.append("- `OPENAI_API_KEY` (optional) -> extra Reddit fallback/search")
         lines.append("- Edit `~/.config/last24hours/.env` to add keys")
         lines.append("---")
         lines.append("")
@@ -657,7 +677,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     # Cache indicator
     if report.from_cache:
         age_str = f"{report.cache_age_hours:.1f}h old" if report.cache_age_hours else "cached"
-        lines.append(f"**⚡ CACHED RESULTS** ({age_str}) - use `--refresh` for fresh data")
+        lines.append(f"**CACHED RESULTS** ({age_str}) - use `--refresh` for fresh data")
         lines.append("")
 
     lines.append(f"**Date Range:** {report.range_from} to {report.range_to}")
@@ -683,7 +703,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("")
         for item in report.weather[:limit]:
             probability = f"{item.probability_pct}%" if item.probability_pct is not None else "unknown"
-            temp = f", {item.temperature}\u00b0{item.temperature_unit}" if item.temperature is not None else ""
+            temp = f", {item.temperature} deg {item.temperature_unit}" if item.temperature is not None else ""
             wind = f", wind {item.wind}" if item.wind else ""
             lines.append(f"**{item.id}** {item.location} on {item.forecast_date}: peak precipitation {probability}")
             lines.append(f"  {item.short_forecast}{temp}{wind}")
@@ -744,7 +764,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
             lines.append(f"  {item.url}")
             lines.append(f"  *{item.why_relevant}*")
 
-            # Top comment (elevated — Reddit's value IS the comments)
+            # Top comment (elevated: Reddit's value IS the comments)
             if item.top_comments and item.top_comments[0].score >= 10:
                 tc = item.top_comments[0]
                 excerpt = tc.excerpt[:200]
@@ -1088,6 +1108,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
 
             lines.append(f"**{item.id}** (score:{item.score}){eng_str}{_xref_tag(item)}")
             lines.append(f"  {item.question}")
+            lines.append(f"  Type: {_format_market_type(getattr(item, 'market_type', 'unknown'))}")
 
             # Outcome prices with price movement
             if item.outcome_prices:
@@ -1148,6 +1169,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
             date_str = f" ({item.date})" if item.date else ""
             lines.append(f"**{item.id}** (score:{item.score}) {item.ticker}{date_str}{eng_str}{_xref_tag(item)}")
             lines.append(f"  {item.question}")
+            lines.append(f"  Type: {_format_market_type(getattr(item, 'market_type', 'unknown'))}")
             market_line = []
             if item.current_probability is not None:
                 market_line.append(f"YES: {item.current_probability * 100:.0f}%")
@@ -1211,20 +1233,20 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
 
     # Reddit
     if report.reddit_error:
-        lines.append(f"  ❌ Reddit: error — {report.reddit_error}")
+        lines.append(f"  ERROR Reddit: {report.reddit_error}")
     elif report.reddit:
-        lines.append(f"  ✅ Reddit: {len(report.reddit)} threads")
+        lines.append(f"  OK Reddit: {len(report.reddit)} threads")
     elif report.mode in ("both", "reddit-only", "all", "reddit-web"):
         pass  # Hide zero-result sources
     else:
         reason = source_info.get("reddit_skip_reason", "not configured")
-        lines.append(f"  ⏭️ Reddit: skipped — {reason}")
+        lines.append(f"  SKIP Reddit: {reason}")
 
     # X
     if report.x_error:
-        lines.append(f"  ❌ X: error — {report.x_error}")
+        lines.append(f"  ERROR X: {report.x_error}")
     elif report.x:
-        x_line = f"  ✅ X: {len(report.x)} posts"
+        x_line = f"  OK X: {len(report.x)} posts"
         if report.resolved_x_handle:
             x_line += f" (via @{report.resolved_x_handle} + keyword search)"
         lines.append(x_line)
@@ -1232,30 +1254,30 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         pass  # Hide zero-result sources
     else:
         reason = source_info.get("x_skip_reason", "No Bird CLI or XAI_API_KEY")
-        lines.append(f"  ⏭️ X: skipped — {reason}")
+        lines.append(f"  SKIP X: {reason}")
 
     # YouTube
     if report.youtube_error:
-        lines.append(f"  ❌ YouTube: error — {report.youtube_error}")
+        lines.append(f"  ERROR YouTube: {report.youtube_error}")
     elif report.youtube:
         with_transcripts = sum(1 for v in report.youtube if getattr(v, 'transcript_snippet', None))
-        lines.append(f"  ✅ YouTube: {len(report.youtube)} videos ({with_transcripts} with transcripts)")
+        lines.append(f"  OK YouTube: {len(report.youtube)} videos ({with_transcripts} with transcripts)")
     # Hide when zero results (no skip reason line needed)
 
     # TikTok
     if report.tiktok_error:
-        lines.append(f"  ❌ TikTok: error — {report.tiktok_error}")
+        lines.append(f"  ERROR TikTok: {report.tiktok_error}")
     elif report.tiktok:
         with_captions = sum(1 for v in report.tiktok if getattr(v, 'caption_snippet', None))
-        lines.append(f"  ✅ TikTok: {len(report.tiktok)} videos ({with_captions} with captions)")
+        lines.append(f"  OK TikTok: {len(report.tiktok)} videos ({with_captions} with captions)")
     # Hide when zero results
 
     # Instagram
     if report.instagram_error:
-        lines.append(f"  ❌ Instagram: error — {report.instagram_error}")
+        lines.append(f"  ERROR Instagram: {report.instagram_error}")
     elif report.instagram:
         with_captions = sum(1 for v in report.instagram if getattr(v, 'caption_snippet', None))
-        lines.append(f"  ✅ Instagram: {len(report.instagram)} reels ({with_captions} with captions)")
+        lines.append(f"  OK Instagram: {len(report.instagram)} reels ({with_captions} with captions)")
     # Hide when zero results
 
     # Xiaohongshu (from Web source bucket)
@@ -1266,53 +1288,53 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
             if getattr(w, "source_domain", "").lower().endswith("xiaohongshu.com")
         )
     if xhs_count > 0:
-        lines.append(f"  ✅ Xiaohongshu: {xhs_count} notes")
+        lines.append(f"  OK Xiaohongshu: {xhs_count} notes")
     else:
         reason = source_info.get("xiaohongshu_skip_reason")
         if reason:
-            lines.append(f"  ⚡ Xiaohongshu: {reason}")
+            lines.append(f"  WARN Xiaohongshu: {reason}")
 
     # Hacker News
     if report.hackernews_error:
-        lines.append(f"  ❌ HN: error — {report.hackernews_error}")
+        lines.append(f"  ERROR HN: {report.hackernews_error}")
     elif report.hackernews:
-        lines.append(f"  ✅ HN: {len(report.hackernews)} stories")
+        lines.append(f"  OK HN: {len(report.hackernews)} stories")
     # Hide when zero results
 
     # Bluesky
     if report.bluesky_error:
-        lines.append(f"  ❌ Bluesky: error — {report.bluesky_error}")
+        lines.append(f"  ERROR Bluesky: {report.bluesky_error}")
     elif report.bluesky:
-        lines.append(f"  ✅ Bluesky: {len(report.bluesky)} posts")
+        lines.append(f"  OK Bluesky: {len(report.bluesky)} posts")
     # Hide when zero results
 
     # Truth Social
     if report.truthsocial_error:
-        lines.append(f"  ❌ Truth Social: error — {report.truthsocial_error}")
+        lines.append(f"  ERROR Truth Social: {report.truthsocial_error}")
     elif report.truthsocial:
-        lines.append(f"  ✅ Truth Social: {len(report.truthsocial)} posts")
+        lines.append(f"  OK Truth Social: {len(report.truthsocial)} posts")
     # Hide when zero results
 
     # Polymarket
     if report.polymarket_error:
-        lines.append(f"  ❌ Polymarket: error — {report.polymarket_error}")
+        lines.append(f"  ERROR Polymarket: {report.polymarket_error}")
     elif report.polymarket:
-        lines.append(f"  ✅ Polymarket: {len(report.polymarket)} markets")
+        lines.append(f"  OK Polymarket: {len(report.polymarket)} markets")
     # Hide when zero results
 
     if report.kalshi_error:
-        lines.append(f"  ❌ Kalshi: error — {report.kalshi_error}")
+        lines.append(f"  ERROR Kalshi: {report.kalshi_error}")
     elif report.kalshi:
-        lines.append(f"  ✅ Kalshi: {len(report.kalshi)} markets")
+        lines.append(f"  OK Kalshi: {len(report.kalshi)} markets")
 
     # Web
     if report.web_error:
-        lines.append(f"  ❌ Web: error — {report.web_error}")
+        lines.append(f"  ERROR Web: {report.web_error}")
     elif report.web:
-        lines.append(f"  ✅ Web: {len(report.web)} pages")
+        lines.append(f"  OK Web: {len(report.web)} pages")
     else:
         reason = source_info.get("web_skip_reason", "assistant will use WebSearch")
-        lines.append(f"  ⚡ Web: {reason}")
+        lines.append(f"  WARN Web: {reason}")
 
     if report.weather_error:
         lines.append(f"  Weather: error - {report.weather_error}")

@@ -49,6 +49,9 @@ Reddit public JSON search works without paid scraper credentials. `SCRAPECREATOR
 # Syntax check
 python3 -c "import py_compile; py_compile.compile('scripts/last24hours.py', doraise=True)"
 
+# Regression tests
+python3 -m unittest discover -s tests
+
 # Check for stale last30days references
 grep -r "last30\|30 days\|days.*30" scripts/
 
