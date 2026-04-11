@@ -12,6 +12,11 @@
       "required": false,
       "secret": true
     },
+    "LAST24HOURS_DISABLE_SCRAPECREATORS": {
+      "description": "Set to 1 to keep a stored ScrapeCreators key but skip credit-backed ScrapeCreators calls",
+      "required": false,
+      "secret": false
+    },
     "AUTH_TOKEN": {
       "description": "X.com browser cookie (auth_token) for Twitter search",
       "required": false,

@@ -217,7 +217,7 @@ def _search_reddit(
             raw_response = {"source": "reddit_public", "error": str(e)}
             reddit_error = f"Reddit public search error: {type(e).__name__}: {e}"
 
-    sc_token = config.get("SCRAPECREATORS_API_KEY")
+    sc_token = None if env.scrapecreators_disabled(config) else config.get("SCRAPECREATORS_API_KEY")
     should_try_scrapecreators = (
         not mock
         and sc_token
@@ -1793,6 +1793,12 @@ def main():
         help="Skip native web search backends (Parallel/Brave/OpenRouter). Use when the assistant has its own WebSearch tool.",
     )
     parser.add_argument(
+        "--no-scrapecreators",
+        action="store_true",
+        default=False,
+        help="Disable ScrapeCreators-backed paid/credit sources for this run, even if SCRAPECREATORS_API_KEY is configured.",
+    )
+    parser.add_argument(
         "--save-dir",
         type=str,
         default=None,
@@ -1828,6 +1834,8 @@ def main():
 
     # Load config
     config = env.get_config()
+    if args.no_scrapecreators:
+        config["LAST24HOURS_DISABLE_SCRAPECREATORS"] = "1"
 
     # Inject .env credentials into Bird module before auth check
     bird_x.set_credentials(config.get('AUTH_TOKEN'), config.get('CT0'))
@@ -1879,6 +1887,7 @@ def main():
             "parallel_ai": bool(config.get("PARALLEL_API_KEY")),
             "brave": bool(config.get("BRAVE_API_KEY")),
             "openrouter": bool(config.get("OPENROUTER_API_KEY")),
+            "scrapecreators_disabled": env.scrapecreators_disabled(config),
         }
         print(json.dumps(diag, indent=2))
         sys.exit(0)
@@ -2236,17 +2245,23 @@ def main():
     source_info = {}
     if not x_source:
         if x_source_status["bird_installed"]:
-            source_info["x_skip_reason"] = "Bird installed but not authenticated — log into x.com in browser"
+            source_info["x_skip_reason"] = "Bird installed but not authenticated - log into x.com in browser"
         else:
-            source_info["x_skip_reason"] = "No Bird CLI, XAI_API_KEY, or SCRAPECREATORS_API_KEY"
+            source_info["x_skip_reason"] = "No Bird CLI or XAI_API_KEY"
     if not has_ytdlp:
-        source_info["youtube_skip_reason"] = "yt-dlp not installed — fix: brew install yt-dlp"
+        source_info["youtube_skip_reason"] = "yt-dlp not installed - fix: python -m pip install --user yt-dlp"
     elif has_ytdlp and not report.youtube:
         source_info["youtube_skip_reason"] = "0 results (query may be too specific)"
     if not has_tiktok:
-        source_info["tiktok_skip_reason"] = "No SCRAPECREATORS_API_KEY - sign up at scrapecreators.com (100 free credits)"
+        if env.scrapecreators_disabled(config) and config.get("SCRAPECREATORS_API_KEY"):
+            source_info["tiktok_skip_reason"] = "ScrapeCreators disabled by LAST24HOURS_DISABLE_SCRAPECREATORS"
+        else:
+            source_info["tiktok_skip_reason"] = "No SCRAPECREATORS_API_KEY or APIFY_API_TOKEN configured"
     if not has_instagram:
-        source_info["instagram_skip_reason"] = "No SCRAPECREATORS_API_KEY - sign up at scrapecreators.com (100 free credits)"
+        if env.scrapecreators_disabled(config) and config.get("SCRAPECREATORS_API_KEY"):
+            source_info["instagram_skip_reason"] = "ScrapeCreators disabled by LAST24HOURS_DISABLE_SCRAPECREATORS"
+        else:
+            source_info["instagram_skip_reason"] = "No SCRAPECREATORS_API_KEY configured"
     if not has_xiaohongshu:
         source_info["xiaohongshu_skip_reason"] = (
             f"Xiaohongshu API unavailable or not logged in - start xiaohongshu-mcp and login "

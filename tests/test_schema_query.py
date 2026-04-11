@@ -1,6 +1,7 @@
 import unittest
+from unittest import mock
 
-from scripts.lib import query_type, schema
+from scripts.lib import env, query_type, schema, youtube_yt
 
 
 class SchemaQueryTests(unittest.TestCase):
@@ -101,6 +102,26 @@ class SchemaQueryTests(unittest.TestCase):
         self.assertEqual(restored.kalshi[0].market_type, "macro_binary")
         self.assertEqual(restored.forecasts[0].anchor_source, "kalshi")
         self.assertEqual(restored.market_watchlist[0].market_type, "macro_binary")
+
+    def test_scrapecreators_disable_flag_preserves_free_paths(self):
+        config = {
+            "SCRAPECREATORS_API_KEY": "sc-key",
+            "APIFY_API_TOKEN": None,
+            "LAST24HOURS_DISABLE_SCRAPECREATORS": "1",
+        }
+
+        self.assertTrue(env.scrapecreators_disabled(config))
+        self.assertFalse(env.is_instagram_available(config))
+        self.assertEqual(env.get_instagram_token(config), "")
+        self.assertFalse(env.is_tiktok_available(config))
+        self.assertEqual(env.get_tiktok_token(config), "")
+        self.assertEqual(env.get_reddit_source(config), "public")
+
+    def test_ytdlp_module_fallback_counts_as_available(self):
+        with mock.patch("scripts.lib.youtube_yt.shutil.which", return_value=None), \
+             mock.patch("scripts.lib.youtube_yt.importlib.util.find_spec", return_value=object()):
+            self.assertTrue(youtube_yt.is_ytdlp_installed())
+            self.assertEqual(youtube_yt._ytdlp_command()[:2], [youtube_yt.sys.executable, "-m"])
 
 
 if __name__ == "__main__":

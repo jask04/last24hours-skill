@@ -21,6 +21,7 @@ metadata:
         - PARALLEL_API_KEY
         - BRAVE_API_KEY
         - SCRAPECREATORS_API_KEY
+        - LAST24HOURS_DISABLE_SCRAPECREATORS
         - APIFY_API_TOKEN
         - AUTH_TOKEN
         - CT0
@@ -155,6 +156,7 @@ For `MARKET_WATCHLIST`, prioritize:
 Do not run weather/NWS unless the watchlist topic is explicitly weather. Do not expand into YouTube, TikTok, Instagram, Bluesky, or Truth Social unless explicitly requested.
 
 Reddit public search is available without paid scraper credentials. `SCRAPECREATORS_API_KEY` is optional and mainly improves Reddit comment enrichment plus TikTok/Instagram coverage.
+Set `LAST24HOURS_DISABLE_SCRAPECREATORS=1` to keep a stored key while skipping ScrapeCreators-backed credit paths. For one-off CLI runs, pass `--no-scrapecreators`.
 
 For supported U.S. weather prompts, use the public National Weather Service API as the official no-key anchor when no clean Polymarket/Kalshi market exists.
 

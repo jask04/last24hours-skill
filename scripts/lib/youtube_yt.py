@@ -6,6 +6,7 @@ transcript extraction. No API keys needed — just have yt-dlp installed.
 Inspired by Peter Steinberger's toolchain approach (yt-dlp + summarize CLI).
 """
 
+import importlib.util
 import json
 import os
 import re
@@ -90,8 +91,18 @@ def _log(msg: str):
 
 
 def is_ytdlp_installed() -> bool:
-    """Check if yt-dlp is available in PATH."""
-    return shutil.which("yt-dlp") is not None
+    """Check if yt-dlp is available as a binary or Python module."""
+    return _ytdlp_command() is not None
+
+
+def _ytdlp_command() -> Optional[List[str]]:
+    """Return the best command for invoking yt-dlp in this environment."""
+    binary = shutil.which("yt-dlp")
+    if binary:
+        return [binary]
+    if importlib.util.find_spec("yt_dlp") is not None:
+        return [sys.executable, "-m", "yt_dlp"]
+    return None
 
 
 def _extract_core_subject(topic: str) -> str:
@@ -131,7 +142,8 @@ def search_youtube(
     Returns:
         Dict with 'items' list of video metadata dicts.
     """
-    if not is_ytdlp_installed():
+    ytdlp_cmd = _ytdlp_command()
+    if not ytdlp_cmd:
         return {"items": [], "error": "yt-dlp not installed"}
 
     count = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
@@ -144,7 +156,7 @@ def search_youtube(
     # relevance-sorted results and strict date filtering returns 0 for
     # evergreen topics. Python soft filter (below) handles date filtering.
     cmd = [
-        "yt-dlp",
+        *ytdlp_cmd,
         "--ignore-config",
         "--no-cookies-from-browser",
         f"ytsearch{count}:{core_topic}",
@@ -265,8 +277,12 @@ def fetch_transcript(video_id: str, temp_dir: str) -> Optional[str]:
     Returns:
         Plaintext transcript string, or None if no captions available.
     """
+    ytdlp_cmd = _ytdlp_command()
+    if not ytdlp_cmd:
+        return None
+
     cmd = [
-        "yt-dlp",
+        *ytdlp_cmd,
         "--ignore-config",
         "--no-cookies-from-browser",
         "--write-auto-subs",

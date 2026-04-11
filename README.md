@@ -123,6 +123,7 @@ CT0=...
 ```
 
 The skill also works without any paid Reddit scraper. Reddit public JSON search is enabled by default; `SCRAPECREATORS_API_KEY` is optional and only improves coverage/comment enrichment.
+Set `LAST24HOURS_DISABLE_SCRAPECREATORS=1` to keep a stored key while skipping ScrapeCreators-backed credit paths.
 
 Bluesky search now tries the public API first. If you have `BSKY_HANDLE` and `BSKY_APP_PASSWORD` configured, they are used as an authenticated fallback instead of being the only path.
 
@@ -130,6 +131,7 @@ Optional:
 
 ```bash
 SCRAPECREATORS_API_KEY=...
+LAST24HOURS_DISABLE_SCRAPECREATORS=1
 OPENAI_API_KEY=...
 XAI_API_KEY=...
 BSKY_HANDLE=you.bsky.social
@@ -325,6 +327,7 @@ If X is not working:
 If Reddit is sparse or empty:
 - public Reddit search is free but can be thinner for niche topics
 - `SCRAPECREATORS_API_KEY` is optional if you want better Reddit/TikTok/Instagram coverage
+- set `LAST24HOURS_DISABLE_SCRAPECREATORS=1` or pass `--no-scrapecreators` when you want to avoid paid/credit-backed ScrapeCreators calls
 
 If Bluesky is failing with 403:
 - the public Bluesky API may be blocking the request at the network edge

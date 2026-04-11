@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `LAST24HOURS_DISABLE_SCRAPECREATORS` and `--no-scrapecreators` controls to skip ScrapeCreators-backed credit paths while keeping the key stored
 - Kalshi market discovery, normalization, scoring, rendering, and report serialization
 - Forecast-first response contract across the skill, README, and extension metadata
 - NBA slate expansion for broad queries such as `tomorrows nba games`, with matchup-level fan-out
@@ -26,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Stdlib `unittest` regression harness for market typing, forecast/watchlist ranking, query classification, and report serialization
 
 ### Changed
+- YouTube detection now accepts `yt-dlp` installed as a Python module, not just a `yt-dlp` executable on `PATH`
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
 - Prediction queries now prioritize Kalshi, Polymarket, X, Reddit, and relevant web above supporting social/video sources
 - Compact rendering now frames output as forecast inputs and includes dedicated Kalshi sections
