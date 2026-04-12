@@ -665,8 +665,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("**WEB SEARCH MODE** - assistant will search blogs, docs & news")
         lines.append("")
         lines.append("---")
-        lines.append("**Want better results?** Add API keys to unlock Reddit, TikTok, Instagram & X data:")
+        lines.append("**Want better results?** Add API keys to unlock richer Reddit, TikTok, Instagram & X data:")
         lines.append("- Reddit public search works without a paid scraper")
+        lines.append("- `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` -> official Reddit OAuth")
         lines.append("- `SCRAPECREATORS_API_KEY` is optional and improves Reddit comments + TikTok + Instagram")
         lines.append("- `XAI_API_KEY` -> X posts with real likes & reposts")
         lines.append("- `OPENAI_API_KEY` (optional) -> extra Reddit fallback/search")
@@ -714,10 +715,10 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
 
     # Coverage note for partial coverage
     if report.mode == "reddit-only" and missing_keys in ("x", "none"):
-        lines.append("*💡 Tip: Add an xAI key (`XAI_API_KEY`) for X/Twitter data and better triangulation.*")
+        lines.append("*Tip: Add an xAI key (`XAI_API_KEY`) for X/Twitter data and better triangulation.*")
         lines.append("")
     elif report.mode == "x-only" and missing_keys in ("reddit", "none"):
-        lines.append("*💡 Tip: Reddit public search already works. Add `SCRAPECREATORS_API_KEY` only if you want richer Reddit comments plus TikTok/Instagram coverage.*")
+        lines.append("*Tip: Reddit public search already works. Add Reddit OAuth credentials for the free upgraded path, or `SCRAPECREATORS_API_KEY` only if you want paid Reddit enrichment plus TikTok/Instagram coverage.*")
         lines.append("")
 
     # Reddit items
@@ -1235,7 +1236,17 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
     if report.reddit_error:
         lines.append(f"  ERROR Reddit: {report.reddit_error}")
     elif report.reddit:
-        lines.append(f"  OK Reddit: {len(report.reddit)} threads")
+        source_label = {
+            "reddit_oauth": "Reddit OAuth",
+            "reddit_public": "Reddit public JSON",
+            "scrapecreators": "ScrapeCreators",
+        }.get(source_info.get("reddit_source"), "Reddit")
+        line = f"  OK {source_label}: {len(report.reddit)} threads"
+        if source_info.get("reddit_rate_remaining") is not None:
+            line += f" (rate remaining: {source_info.get('reddit_rate_remaining')})"
+        lines.append(line)
+        if source_info.get("reddit_warning"):
+            lines.append(f"  WARN Reddit: {source_info['reddit_warning']}")
     elif report.mode in ("both", "reddit-only", "all", "reddit-web"):
         pass  # Hide zero-result sources
     else:

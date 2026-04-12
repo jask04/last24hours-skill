@@ -190,6 +190,7 @@ from lib import (
     openai_reddit,
     reddit,
     reddit_enrich,
+    reddit_oauth,
     render,
     schema,
     score,
@@ -226,8 +227,8 @@ def _search_reddit(
 ) -> tuple:
     """Search Reddit (runs in thread).
 
-    Uses Reddit public JSON search by default, optionally supplemented by
-    ScrapeCreators or OpenAI when configured.
+    Uses official Reddit OAuth when configured, otherwise Reddit public JSON,
+    optionally supplemented by ScrapeCreators or OpenAI when configured.
 
     Returns:
         Tuple of (reddit_items, raw_response, error, used_scrapecreators)
@@ -236,21 +237,45 @@ def _search_reddit(
     reddit_error = None
     used_scrapecreators = False
     reddit_items = []
+    reddit_source = env.get_reddit_source_preference(config)
+    oauth_error = None
 
     if mock:
         raw_response = load_fixture("openai_sample.json")
         reddit_items = openai_reddit.parse_reddit_response(raw_response or {})
     else:
-        # Start with the free public Reddit path so the skill works without paid credits.
-        try:
-            reddit_items = openai_reddit.search_reddit_public(
-                topic, from_date, to_date, depth=depth,
+        # Prefer official Reddit OAuth when configured, then fall back to public JSON.
+        if reddit_source in {"auto", "oauth"} and env.is_reddit_oauth_available(config):
+            oauth_result = reddit_oauth.search_reddit_oauth(
+                topic, from_date, to_date, depth=depth, config=config,
             )
-            raw_response = {"source": "reddit_public", "items": reddit_items}
-        except Exception as e:
-            reddit_items = []
-            raw_response = {"source": "reddit_public", "error": str(e)}
-            reddit_error = f"Reddit public search error: {type(e).__name__}: {e}"
+            oauth_items = oauth_result.get("items", [])
+            oauth_error = oauth_result.get("error")
+            if oauth_items:
+                raw_response = oauth_result
+                reddit_items = oauth_items
+            elif oauth_error:
+                raw_response = oauth_result
+        elif reddit_source == "oauth":
+            oauth_error = "Reddit OAuth credentials are not configured"
+
+        if not reddit_items:
+            try:
+                reddit_items = openai_reddit.search_reddit_public(
+                    topic, from_date, to_date, depth=depth,
+                )
+                raw_response = {
+                    "source": "reddit_public",
+                    "items": reddit_items,
+                    "warning": f"Reddit OAuth failed; fell back to public JSON: {oauth_error}" if oauth_error else None,
+                }
+            except Exception as e:
+                reddit_items = []
+                raw_response = {"source": "reddit_public", "error": str(e)}
+                reddit_error = f"Reddit public search error: {type(e).__name__}: {e}"
+
+        if reddit_source == "oauth" and oauth_error and not reddit_items:
+            reddit_error = f"Reddit OAuth failed: {oauth_error}"
 
     sc_token = None if env.scrapecreators_disabled(config) else config.get("SCRAPECREATORS_API_KEY")
     should_try_scrapecreators = (
@@ -270,6 +295,7 @@ def _search_reddit(
             )
             sc_items = result.get("items", [])
             if sc_items:
+                result["source"] = "scrapecreators"
                 raw_response = result
                 reddit_items = sc_items
                 reddit_error = result.get("error")
@@ -314,7 +340,7 @@ def _search_reddit(
                 reddit_items = openai_items
 
     # Parse response for OpenAI-shaped payloads only.
-    if raw_response and raw_response.get("source") != "reddit_public" and not used_scrapecreators:
+    if raw_response and raw_response.get("source") not in {"reddit_public", "reddit_oauth"} and not used_scrapecreators:
         reddit_items = openai_reddit.parse_reddit_response(raw_response or {})
 
     # Quick retry with simpler query if few results and OpenAI is available
@@ -359,6 +385,19 @@ def _search_reddit(
             sys.stderr.write(f"[Reddit] Subreddit fallback error: {e}\n")
 
     return reddit_items, raw_response, reddit_error, used_scrapecreators
+
+
+def _enrich_reddit_item_free(item: dict, config: dict, timeout: int, retries: int) -> dict:
+    """Enrich Reddit item via OAuth when selected, falling back to public JSON."""
+    preference = env.get_reddit_source_preference(config)
+    if preference != "public" and env.is_reddit_oauth_available(config):
+        try:
+            thread_data = reddit_oauth.fetch_thread_data(item.get("url", ""), config, timeout=timeout)
+            if thread_data:
+                return reddit_enrich.enrich_reddit_item(item, thread_data, timeout=timeout, retries=retries)
+        except Exception:
+            pass
+    return reddit_enrich.enrich_reddit_item(item, timeout=timeout, retries=retries)
 
 
 def _search_x(
@@ -1670,7 +1709,13 @@ def run_research(
             rate_limited = False
             with ThreadPoolExecutor(max_workers=5) as enrich_pool:
                 futures = {
-                    enrich_pool.submit(reddit_enrich.enrich_reddit_item, item): i
+                    enrich_pool.submit(
+                        _enrich_reddit_item_free,
+                        item,
+                        config,
+                        timeouts["enrich_per"],
+                        1,
+                    ): i
                     for i, item in enumerate(items_to_enrich)
                 }
                 try:
@@ -1905,6 +1950,8 @@ def main():
         diag = {
             "openai": bool(config.get("OPENAI_API_KEY")),
             "reddit_public": True,
+            "reddit_oauth": env.is_reddit_oauth_available(config),
+            "reddit_source": env.get_reddit_source(config),
             "xai": bool(config.get("XAI_API_KEY")),
             "x_source": x_source_status["source"],
             "bird_installed": x_source_status["bird_installed"],
@@ -1946,6 +1993,8 @@ def main():
     diag = {
         "openai": bool(config.get("OPENAI_API_KEY")),
         "reddit_public": True,
+        "reddit_oauth": env.is_reddit_oauth_available(config),
+        "reddit_source": env.get_reddit_source(config),
         "xai": bool(config.get("XAI_API_KEY")),
         "x_source": x_source_status["source"],
         "bird_installed": x_source_status["bird_installed"],
@@ -2256,6 +2305,14 @@ def main():
 
     # Build source info for status footer
     source_info = {}
+    if isinstance(raw_openai, dict):
+        reddit_source = raw_openai.get("source")
+        if reddit_source:
+            source_info["reddit_source"] = reddit_source
+        if raw_openai.get("warning"):
+            source_info["reddit_warning"] = raw_openai.get("warning")
+        if raw_openai.get("rate_remaining") is not None:
+            source_info["reddit_rate_remaining"] = raw_openai.get("rate_remaining")
     if not x_source:
         if x_source_status["bird_installed"]:
             source_info["x_skip_reason"] = "Bird installed but not authenticated - log into x.com in browser"

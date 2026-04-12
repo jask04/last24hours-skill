@@ -25,7 +25,9 @@ API keys live in `~/.config/last24hours/.env`. Copy from `.env.example` or creat
 
 Minimum useful setup: X cookies (`AUTH_TOKEN`, `CT0`) for X search.
 
-Reddit public JSON search works without paid scraper credentials. `SCRAPECREATORS_API_KEY` is optional and improves Reddit comment enrichment plus TikTok/Instagram coverage.
+Reddit public JSON search works without paid scraper credentials. Optional official Reddit OAuth credentials (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`) improve the free Reddit path when available. `LAST24HOURS_REDDIT_SOURCE=auto|oauth|public` controls whether the skill prefers OAuth, forces OAuth-first fallback warnings, or forces public JSON.
+
+`SCRAPECREATORS_API_KEY` is optional and improves paid Reddit enrichment plus TikTok/Instagram coverage; keep `LAST24HOURS_DISABLE_SCRAPECREATORS=1` set when credits are exhausted.
 
 No auth is required for Polymarket or Kalshi public market discovery.
 

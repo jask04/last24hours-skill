@@ -1,8 +1,8 @@
 """Reddit thread enrichment with real engagement metrics.
 
-Supports two backends:
-1. ScrapeCreators API (preferred) - no rate limits, 1 credit/call
-2. reddit.com/.json (fallback) - free but 429-prone
+Default enrichment uses free reddit.com/.json thread data. Official OAuth can
+provide the same thread JSON via scripts.lib.reddit_oauth before this parser is
+called. ScrapeCreators remains an optional paid enrichment path.
 """
 
 import re

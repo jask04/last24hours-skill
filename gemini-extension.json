@@ -17,6 +17,26 @@
       "required": false,
       "secret": false
     },
+    "REDDIT_CLIENT_ID": {
+      "description": "Optional Reddit app client ID for official OAuth Reddit search",
+      "required": false,
+      "secret": true
+    },
+    "REDDIT_CLIENT_SECRET": {
+      "description": "Optional Reddit app client secret for official OAuth Reddit search",
+      "required": false,
+      "secret": true
+    },
+    "REDDIT_USER_AGENT": {
+      "description": "Optional Reddit API user agent, e.g. last24hours by u/your_username",
+      "required": false,
+      "secret": false
+    },
+    "LAST24HOURS_REDDIT_SOURCE": {
+      "description": "Optional Reddit backend: auto, oauth, or public",
+      "required": false,
+      "secret": false
+    },
     "AUTH_TOKEN": {
       "description": "X.com browser cookie (auth_token) for Twitter search",
       "required": false,

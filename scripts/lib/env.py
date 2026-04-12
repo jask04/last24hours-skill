@@ -260,6 +260,10 @@ def get_config() -> Dict[str, Any]:
         ('OPENAI_MODEL_PIN', None),
         ('XAI_MODEL_POLICY', 'latest'),
         ('XAI_MODEL_PIN', None),
+        ('REDDIT_CLIENT_ID', None),
+        ('REDDIT_CLIENT_SECRET', None),
+        ('REDDIT_USER_AGENT', None),
+        ('LAST24HOURS_REDDIT_SOURCE', 'auto'),
         ('SCRAPECREATORS_API_KEY', None),
         ('LAST24HOURS_DISABLE_SCRAPECREATORS', None),
         ('APIFY_API_TOKEN', None),
@@ -309,29 +313,55 @@ def config_exists() -> bool:
 def is_reddit_available(config: Dict[str, Any]) -> bool:
     """Check if Reddit search is available.
 
-    Reddit public JSON search is always available. ScrapeCreators and OpenAI
-    are optional higher-coverage paths.
+    Reddit public JSON search is always available. Official OAuth improves the
+    free path when configured; ScrapeCreators and OpenAI remain optional paths.
     """
     return True
+
+
+def is_reddit_oauth_available(config: Dict[str, Any]) -> bool:
+    """Check if official Reddit OAuth credentials are configured."""
+    return bool(
+        config.get('REDDIT_CLIENT_ID')
+        and config.get('REDDIT_CLIENT_SECRET')
+        and config.get('REDDIT_USER_AGENT')
+    )
+
+
+def get_reddit_source_preference(config: Dict[str, Any]) -> str:
+    """Return desired Reddit backend preference: auto, oauth, or public."""
+    value = str(config.get('LAST24HOURS_REDDIT_SOURCE') or 'auto').strip().lower()
+    return value if value in {'auto', 'oauth', 'public'} else 'auto'
 
 
 def get_reddit_source(config: Dict[str, Any]) -> Optional[str]:
     """Determine which Reddit backend to use.
 
-    Priority: public > ScrapeCreators > OpenAI
+    Primary source: OAuth when configured, otherwise public JSON. ScrapeCreators
+    and OpenAI remain optional fallback/enrichment paths in the search flow.
 
-    Returns: 'public', 'scrapecreators', or 'openai'
+    Returns: 'oauth' or 'public'
     """
+    preference = get_reddit_source_preference(config)
+    if preference == 'public':
+        return 'public'
+    if is_reddit_oauth_available(config):
+        return 'oauth'
+    return 'public'
+
+
+def get_reddit_fallback_source(config: Dict[str, Any]) -> Optional[str]:
+    """Return the configured paid/model Reddit fallback, if one is available."""
     sc_available = bool(config.get('SCRAPECREATORS_API_KEY') and not scrapecreators_disabled(config))
     if not sc_available and not (
         config.get('OPENAI_API_KEY') and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
     ):
-        return 'public'
+        return None
     if sc_available:
         return 'scrapecreators'
     if config.get('OPENAI_API_KEY') and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK:
         return 'openai'
-    return 'public'
+    return None
 
 
 def get_available_sources(config: Dict[str, Any]) -> str:

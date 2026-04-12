@@ -20,6 +20,10 @@ metadata:
         - OPENROUTER_API_KEY
         - PARALLEL_API_KEY
         - BRAVE_API_KEY
+        - REDDIT_CLIENT_ID
+        - REDDIT_CLIENT_SECRET
+        - REDDIT_USER_AGENT
+        - LAST24HOURS_REDDIT_SOURCE
         - SCRAPECREATORS_API_KEY
         - LAST24HOURS_DISABLE_SCRAPECREATORS
         - APIFY_API_TOKEN
@@ -155,9 +159,11 @@ For `MARKET_WATCHLIST`, prioritize:
 
 Do not run weather/NWS unless the watchlist topic is explicitly weather. Do not expand into YouTube, TikTok, Instagram, Bluesky, or Truth Social unless explicitly requested.
 
-Reddit public search is available without paid scraper credentials. `SCRAPECREATORS_API_KEY` is optional and mainly improves Reddit comment enrichment plus TikTok/Instagram coverage.
+Reddit public search is available without paid scraper credentials. Optional official Reddit OAuth credentials (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`) improve rate-limit handling and free thread/comment enrichment when available.
+Use `LAST24HOURS_REDDIT_SOURCE=auto` to prefer OAuth with public JSON fallback, `oauth` to try OAuth first and report fallback warnings, or `public` to force the no-key public JSON path.
+`SCRAPECREATORS_API_KEY` is optional and mainly improves paid Reddit enrichment plus TikTok/Instagram coverage.
 Set `LAST24HOURS_DISABLE_SCRAPECREATORS=1` to keep a stored key while skipping ScrapeCreators-backed credit paths. For one-off CLI runs, pass `--no-scrapecreators`.
-In source status text, `Reddit enrichment` means free `reddit.com/.json` enrichment unless the message explicitly says `ScrapeCreators`.
+In source status text, `Reddit OAuth`, `Reddit public JSON`, `OpenAI Reddit discovery`, and `ScrapeCreators` are reported separately. Payment/credit errors should only be attached to `ScrapeCreators`.
 For Bluesky debugging, `--search=bluesky` and `--search=bsky` should run Bluesky directly; public search is attempted before authenticated fallback.
 
 For supported U.S. weather prompts, use the public National Weather Service API as the official no-key anchor when no clean Polymarket/Kalshi market exists.
