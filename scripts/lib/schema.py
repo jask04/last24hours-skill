@@ -766,6 +766,9 @@ class Report:
     best_practices: List[str] = field(default_factory=list)
     prompt_pack: List[str] = field(default_factory=list)
     context_snippet_md: str = ""
+    planning_notes: List[str] = field(default_factory=list)
+    planned_queries: List[str] = field(default_factory=list)
+    evidence_fusion_stats: Dict[str, Any] = field(default_factory=dict)
     # Status tracking
     reddit_error: Optional[str] = None
     x_error: Optional[str] = None
@@ -813,6 +816,9 @@ class Report:
             'best_practices': self.best_practices,
             'prompt_pack': self.prompt_pack,
             'context_snippet_md': self.context_snippet_md,
+            'planning_notes': self.planning_notes,
+            'planned_queries': self.planned_queries,
+            'evidence_fusion_stats': self.evidence_fusion_stats,
         }
         if self.resolved_x_handle:
             d['resolved_x_handle'] = self.resolved_x_handle
@@ -1251,6 +1257,9 @@ class Report:
             best_practices=data.get('best_practices', []),
             prompt_pack=data.get('prompt_pack', []),
             context_snippet_md=data.get('context_snippet_md', ''),
+            planning_notes=data.get('planning_notes', []),
+            planned_queries=data.get('planned_queries', []),
+            evidence_fusion_stats=data.get('evidence_fusion_stats', {}),
             reddit_error=data.get('reddit_error'),
             x_error=data.get('x_error'),
             web_error=data.get('web_error'),

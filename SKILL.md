@@ -159,6 +159,17 @@ For `MARKET_WATCHLIST`, prioritize:
 
 Do not run weather/NWS unless the watchlist topic is explicitly weather. Do not expand into YouTube, TikTok, Instagram, Bluesky, or Truth Social unless explicitly requested.
 
+Use deterministic search planning before retrieval:
+- quick mode: 1-3 topic/matchup/market subqueries, no extra entity-resolution web calls
+- default/deep: up to 5 subqueries and record native-web availability for bounded entity resolution fallback
+- preserve market-first weights, with Kalshi and Polymarket above social/web sources for forecastable and watchlist prompts
+
+Use cross-source evidence fusion for explanation quality:
+- fuse X, Reddit, web, HN, Bluesky, and Truth Social into a single non-market driver pool
+- cap repeated authors/domains so one account or source cannot dominate
+- cluster similar evidence and select one representative driver per cluster
+- keep market rows separate; fused social/web evidence explains or challenges the line but does not override clean Polymarket/Kalshi/NWS anchors
+
 Reddit public search is available without paid scraper credentials. Optional official Reddit OAuth credentials (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`) improve rate-limit handling and free thread/comment enrichment when available.
 Use `LAST24HOURS_REDDIT_SOURCE=auto` to prefer OAuth with public JSON fallback, `oauth` to try OAuth first and report fallback warnings, or `public` to force the no-key public JSON path.
 `SCRAPECREATORS_API_KEY` is optional and mainly improves paid Reddit enrichment plus TikTok/Instagram coverage.

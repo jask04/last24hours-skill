@@ -176,6 +176,7 @@ from lib import (
     dates,
     dedupe,
     evidence_quality,
+    forecast_plan,
     hackernews,
     xiaohongshu_api,
     polymarket,
@@ -2090,7 +2091,7 @@ def main():
     # Source defaults are query-type-aware (Truth Social always opt-in,
     # Bluesky only for query types where it adds signal)
     search_do_hackernews = qt.is_source_enabled("hn", query_type) if not args.search else True
-    search_do_bluesky = has_bluesky and qt.is_source_enabled("bluesky", query_type)
+    search_do_bluesky = has_bluesky and depth != "quick" and qt.is_source_enabled("bluesky", query_type)
     search_do_truthsocial = False  # Always opt-in (requires --search truthsocial)
     search_do_polymarket = qt.is_source_enabled("polymarket", query_type)
     search_do_kalshi = qt.is_source_enabled("kalshi", query_type)
@@ -2117,6 +2118,16 @@ def main():
         include_search_web = "web" in search_sources
         sources = sources_mode_for_explicit_search(search_sources)
         mode = ",".join(sorted(search_sources)) if sources == "none" else mode_label_for_sources(sources)
+
+    plan = forecast_plan.build_plan(
+        args.topic,
+        query_type,
+        depth,
+        search_topics=search_topics,
+        web_backend=None if args.no_native_web else web_source,
+    )
+    if query_type in {"prediction", "market_watchlist"}:
+        search_topics = plan.search_topics
 
     # Run research
     reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error = run_research(
@@ -2274,6 +2285,8 @@ def main():
     report.kalshi = deduped_ka
     report.weather = deduped_weather
     report.web = deduped_web
+    report.planning_notes = list(plan.notes)
+    report.planned_queries = plan.search_topics
     report.forecasts = forecast.synthesize_forecasts(report)
     if query_type == "market_watchlist":
         report.market_watchlist = market_watchlist.synthesize_market_watchlist(report)
@@ -2304,7 +2317,9 @@ def main():
         progress.show_complete(len(deduped_reddit), len(deduped_x), len(deduped_youtube), len(deduped_hn), len(deduped_pm), len(deduped_ka), len(deduped_tiktok), len(deduped_ig))
 
     # Build source info for status footer
-    source_info = {}
+    source_info = plan.to_source_info()
+    if report.evidence_fusion_stats:
+        source_info["evidence_fusion_stats"] = report.evidence_fusion_stats
     if isinstance(raw_openai, dict):
         reddit_source = raw_openai.get("source")
         if reddit_source:

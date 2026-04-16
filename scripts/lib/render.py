@@ -1352,6 +1352,18 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
     elif report.weather:
         lines.append(f"  Weather: {len(report.weather)} NWS forecast")
 
+    planned_count = source_info.get("planned_query_count")
+    if planned_count:
+        lines.append(f"  PLAN Queries: {planned_count}")
+    fusion_stats = source_info.get("evidence_fusion_stats") or {}
+    if fusion_stats:
+        lines.append(
+            "  FUSION Evidence: "
+            f"{fusion_stats.get('candidate_count', 0)} candidates -> "
+            f"{fusion_stats.get('driver_count', 0)} drivers "
+            f"({fusion_stats.get('cluster_count', 0)} clusters)"
+        )
+
     lines.append("")
     return "\n".join(lines)
 

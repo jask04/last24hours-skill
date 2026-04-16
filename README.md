@@ -28,6 +28,8 @@ National Weather Service forecasts are the official anchor for supported U.S. we
 
 For broad NBA slate prompts such as `tomorrows nba games`, the compact output now opens with a per-game slate forecast board before the raw evidence sections.
 
+Recent upstream `last30days` v3 ideas are adapted selectively: deterministic search planning, cross-source evidence fusion, small evidence clustering, and per-author caps. These only improve retrieval and explanations; they do not replace the market-anchored forecast engine.
+
 Built on [last30days](https://github.com/mvanhorn/last30days-skill) by Matt Van Horn.
 
 ## What It Returns
@@ -90,6 +92,10 @@ For market-watchlist queries:
 6. Hacker News
 
 Video/social expansion is opt-in for watchlist prompts unless explicitly requested.
+
+Search planning is deterministic-first. Quick mode expands to a small set of exact market/topic queries and does not call extra entity-resolution web searches. Default/deep mode records native-web availability for future bounded entity resolution while preserving clean fallback behavior.
+
+Supporting evidence is fused across X, Reddit, web, HN, Bluesky, and Truth Social with source weights, domain quality filters, light clustering, and per-author caps. This selects cleaner drivers for `Why this is the current line` and market-watchlist catalyst notes without letting social evidence move a clean market anchor.
 
 ## Installation
 

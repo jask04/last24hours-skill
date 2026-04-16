@@ -5,7 +5,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from . import evidence_quality as eq, market_types, schema
+from . import evidence_fusion, evidence_quality as eq, market_types, schema
 
 
 _WATCHLIST_PHRASES = re.compile(
@@ -286,6 +286,29 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
     market_team_tokens = market_tokens & eq.SPORTS_TEAM_TOKENS
     market_crypto_tokens = market_tokens & {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto"}
     scored = []
+    fused = evidence_fusion.fuse_evidence(report, _market_text(item), "market_watchlist", limit=3)
+    if fused.candidate_count:
+        report.evidence_fusion_stats = {
+            "candidate_count": max(
+                int(report.evidence_fusion_stats.get("candidate_count", 0) or 0),
+                fused.candidate_count,
+            ),
+            "driver_count": max(
+                int(report.evidence_fusion_stats.get("driver_count", 0) or 0),
+                len(fused.drivers),
+            ),
+            "cluster_count": max(
+                int(report.evidence_fusion_stats.get("cluster_count", 0) or 0),
+                fused.cluster_count,
+            ),
+        }
+    for driver in fused.drivers:
+        driver_tokens = _tokens(driver.text)
+        overlap = len(market_specific_tokens & driver_tokens)
+        catalyst = len(driver_tokens & _CATALYST_TERMS)
+        if overlap or catalyst:
+            scored.append((driver.score + min(0.20, overlap * 0.04), driver, driver.text))
+
     evidence_items = list(report.x[:12]) + list(report.reddit[:10]) + list(report.web[:10]) + list(report.hackernews[:5])
     for evidence in evidence_items:
         text = _source_text(evidence)

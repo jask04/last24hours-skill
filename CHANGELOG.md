@@ -26,6 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Market contract-type classification for game outcomes, player props, team props, futures, thresholds, macro binaries, and weather binaries
 - Stdlib `unittest` regression harness for market typing, forecast/watchlist ranking, query classification, and report serialization
 - Optional official Reddit OAuth backend using `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`, and `LAST24HOURS_REDDIT_SOURCE`
+- Deterministic forecast/search planner inspired by upstream `last30days` v3, with market-first source weights and bounded subquery expansion
+- Cross-source evidence fusion for forecast explanations and market-watchlist catalysts, including light clustering and per-author caps
 
 ### Changed
 - YouTube detection now accepts `yt-dlp` installed as a Python module, not just a `yt-dlp` executable on `PATH`
@@ -57,6 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Watchlist output now labels props and threshold markets explicitly instead of presenting every item as a generic market pick
 - Compact source-status rendering now uses ASCII-safe status labels for cleaner Windows/Codex output
 - Reddit source selection now prefers official OAuth when configured, falls back to public JSON in `auto`, and reports Reddit OAuth/public JSON/ScrapeCreators separately
+- Forecast and watchlist explanation selection now uses fused high-signal evidence while keeping Polymarket, Kalshi, and NWS as the probability anchors
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively

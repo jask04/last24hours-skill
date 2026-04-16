@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from . import evidence_quality as eq, market_types, query_type as qt, schema
+from . import evidence_fusion, evidence_quality as eq, market_types, query_type as qt, schema
 
 LOW_SIGNAL_SOCIAL_TERMS = eq.LOW_SIGNAL_SOCIAL_TERMS
 DRIVER_TERMS = eq.DRIVER_TERMS
@@ -106,6 +106,52 @@ def _topic_tokens(topic: str) -> set[str]:
         token for token in re.sub(r"[^\w\s]", " ", topic.lower()).split()
         if len(token) > 2 and token not in stop
     }
+
+
+_MONTH_TOKENS = {
+    "jan", "january", "feb", "february", "mar", "march", "apr", "april",
+    "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept",
+    "september", "oct", "october", "nov", "november", "dec", "december",
+}
+
+
+def _month_match_score(topic: str, market_text: str) -> int:
+    topic_months = _tokenize(topic) & _MONTH_TOKENS
+    if not topic_months:
+        return 0
+    market_months = _tokenize(market_text) & _MONTH_TOKENS
+    if topic_months & market_months:
+        return 2
+    if market_months:
+        return -3
+    return -1
+
+
+def _macro_market_allowed(topic: str, market_text: str) -> bool:
+    topic_tokens = _tokenize(topic)
+    market_tokens = _tokenize(market_text)
+    if "fed" in topic_tokens and "ecb" in market_tokens and "fed" not in market_tokens:
+        return False
+    if "ecb" in topic_tokens and "fed" in market_tokens and "ecb" not in market_tokens:
+        return False
+    if (topic_tokens & {"fed", "fomc", "powell"}) and not (market_tokens & {"fed", "fomc", "powell"}):
+        return False
+    topic_core = _topic_tokens(topic) - _MONTH_TOKENS - {"meeting", "meetings"}
+    market_core = market_tokens - _MONTH_TOKENS - {"meeting", "meetings", "interest"}
+    if topic_core & {"fed", "fomc", "powell", "rates", "rate", "cut", "cuts", "hike", "hikes"}:
+        return len(topic_core & market_core) >= 2
+    return True
+
+
+def _filter_date_specific_macro_markets(topic: str, items: list) -> list:
+    topic_months = _tokenize(topic) & _MONTH_TOKENS
+    if not topic_months:
+        return items
+    matching = [
+        item for item in items
+        if topic_months & (_tokenize(f"{getattr(item, 'title', '')} {getattr(item, 'question', '')}") & _MONTH_TOKENS)
+    ]
+    return matching
 
 
 def _is_sports_query(text: str) -> bool:
@@ -272,6 +318,38 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
     macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
     candidates: list[_EvidenceCandidate] = []
 
+    fused = evidence_fusion.fuse_evidence(report, title, "prediction", limit=4)
+    if fused.candidate_count:
+        report.evidence_fusion_stats = {
+            "candidate_count": max(
+                int(report.evidence_fusion_stats.get("candidate_count", 0) or 0),
+                fused.candidate_count,
+            ),
+            "driver_count": max(
+                int(report.evidence_fusion_stats.get("driver_count", 0) or 0),
+                len(fused.drivers),
+            ),
+            "cluster_count": max(
+                int(report.evidence_fusion_stats.get("cluster_count", 0) or 0),
+                fused.cluster_count,
+            ),
+        }
+    title_sides = _matchup_side_tokens(title)
+    for driver in fused.drivers:
+        tokens = _tokenize(driver.text)
+        team_hits = sum(1 for side in title_sides if side & tokens) if title_sides else 0
+        signal_hits = len((DRIVER_TERMS | SPORTS_HIGH_SIGNAL_TERMS | WEATHER_SIGNAL_TERMS | MACRO_SIGNAL_TERMS) & tokens)
+        candidates.append(
+            _EvidenceCandidate(
+                score=driver.score * 100.0,
+                text=driver.text,
+                tokens=tokens,
+                source=driver.source,
+                team_hits=team_hits,
+                signal_hits=signal_hits,
+            )
+        )
+
     for item in report.x[:12]:
         text = getattr(item, "text", "") or ""
         if not text:
@@ -336,14 +414,15 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
     return candidates
 
 
-def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[int, int, float]:
+def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[int, int, int, float]:
     topic_signature = _matchup_signature(topic)
+    market_text = f"{item.title} {item.question}"
     item_signature = _matchup_signature(item.title or item.question)
     signature_match = int(bool(topic_signature and topic_signature == item_signature))
     tokens = _topic_tokens(topic)
-    market_tokens = _tokenize(f"{item.title} {item.question}")
+    market_tokens = _tokenize(market_text)
     overlap = len(tokens & market_tokens)
-    return signature_match, overlap, item.relevance
+    return signature_match, _month_match_score(topic, market_text), overlap, item.relevance
 
 
 def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional[schema.PolymarketItem]:
@@ -351,6 +430,14 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional
         return None
     if _is_sports_query(topic):
         items = [item for item in items if _is_direct_game_market(item)]
+        if not items:
+            return None
+    if _is_macro_query(topic):
+        items = [
+            item for item in items
+            if _macro_market_allowed(topic, f"{item.title} {item.question}")
+        ]
+        items = _filter_date_specific_macro_markets(topic, items)
         if not items:
             return None
     ranked = sorted(items, key=lambda item: (_polymarket_match_score(topic, item), item.score), reverse=True)
@@ -364,6 +451,14 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem]) -> Optional[schema.
         items = [item for item in items if _is_direct_game_market(item)]
         if not items:
             return None
+    if _is_macro_query(topic):
+        items = [
+            item for item in items
+            if _macro_market_allowed(topic, f"{item.title} {item.question}")
+        ]
+        items = _filter_date_specific_macro_markets(topic, items)
+        if not items:
+            return None
     topic_signature = _matchup_signature(topic)
     if topic_signature:
         matching = [
@@ -372,7 +467,15 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem]) -> Optional[schema.
         ]
         if matching:
             return max(matching, key=lambda item: item.score)
-    ranked = sorted(items, key=lambda item: (len(_topic_tokens(topic) & _tokenize(f"{item.title} {item.question}")), item.score), reverse=True)
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            _month_match_score(topic, f"{item.title} {item.question}"),
+            len(_topic_tokens(topic) & _tokenize(f"{item.title} {item.question}")),
+            item.score,
+        ),
+        reverse=True,
+    )
     return ranked[0]
 
 

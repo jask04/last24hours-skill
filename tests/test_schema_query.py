@@ -92,6 +92,9 @@ class SchemaQueryTests(unittest.TestCase):
                 movement_24h=2.0,
             )
         ]
+        report.planning_notes = ["deterministic-plan", "quick-no-entity-resolution"]
+        report.planned_queries = ["NYC rain tomorrow", "NYC rain forecast"]
+        report.evidence_fusion_stats = {"candidate_count": 3, "driver_count": 1, "cluster_count": 1}
 
         restored = schema.Report.from_dict(report.to_dict())
 
@@ -102,6 +105,8 @@ class SchemaQueryTests(unittest.TestCase):
         self.assertEqual(restored.kalshi[0].market_type, "macro_binary")
         self.assertEqual(restored.forecasts[0].anchor_source, "kalshi")
         self.assertEqual(restored.market_watchlist[0].market_type, "macro_binary")
+        self.assertEqual(restored.planned_queries[0], "NYC rain tomorrow")
+        self.assertEqual(restored.evidence_fusion_stats["driver_count"], 1)
 
     def test_scrapecreators_disable_flag_preserves_free_paths(self):
         config = {
