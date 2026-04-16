@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.lib import evidence_fusion, forecast, forecast_plan, query_type, schema
+from scripts.lib import evidence_fusion, forecast, forecast_plan, query_type, render, schema
 
 
 def _report(topic: str) -> schema.Report:
@@ -206,6 +206,61 @@ class PlannerFusionTests(unittest.TestCase):
 
         self.assertIsNone(forecasts[0].polymarket_market_id)
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
+
+    def test_compact_render_suppresses_unused_prediction_markets(self):
+        report = _report("Will the Fed cut rates by June")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Fed rate cut by April 2026 meeting?",
+                question="Will the Fed cut rates by the April 2026 meeting?",
+                url="https://polymarket.com/event/fed-rate-cut-april",
+                outcome_prices=[("Yes", 0.01), ("No", 0.99)],
+                market_type="macro_binary",
+                score=99,
+                relevance=0.99,
+            )
+        ]
+        report.forecasts = [
+            schema.ForecastItem(
+                title=report.topic,
+                anchor_source="model_implied",
+                market_view="No clean Polymarket or Kalshi market found.",
+            )
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("No Polymarket markets shown because none cleared forecast-anchor matching", output)
+        self.assertNotIn("Will the Fed cut rates by the April 2026 meeting?", output)
+
+    def test_compact_render_keeps_used_prediction_market(self):
+        report = _report("Will the Fed cut rates by June")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Fed rate cut by June 2026 meeting?",
+                question="Will the Fed cut rates by the June 2026 meeting?",
+                url="https://polymarket.com/event/fed-rate-cut-june",
+                outcome_prices=[("Yes", 0.35), ("No", 0.65)],
+                market_type="macro_binary",
+                score=90,
+                relevance=0.90,
+            )
+        ]
+        report.forecasts = [
+            schema.ForecastItem(
+                title=report.topic,
+                anchor_source="polymarket",
+                polymarket_market_id="PM1",
+                market_view="Polymarket 65%",
+            )
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("Will the Fed cut rates by the June 2026 meeting?", output)
+        self.assertNotIn("No Polymarket markets shown because none cleared", output)
 
 
 if __name__ == "__main__":

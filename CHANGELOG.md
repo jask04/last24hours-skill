@@ -63,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
+- Compact prediction output now suppresses raw Polymarket/Kalshi rows that were available but rejected by forecast-anchor matching
 - X matchup query extraction now preserves full team names such as `New York Knicks` and `Golden State Warriors`
 - Windows runs no longer show misleading `chmod 600` guidance for `.env` permission warnings
 - NBA slate runs no longer leak cross-league city-name collisions such as MLB markets into NBA boards

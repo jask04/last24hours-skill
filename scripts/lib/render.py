@@ -1055,6 +1055,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
             lines.append("")
 
     used_poly_ids, used_kalshi_ids = _used_market_ids(report)
+    query_kind = qt.detect_query_type(report.topic)
+    suppress_unused_poly = query_kind == "prediction" and bool(report.forecasts) and not used_poly_ids
+    suppress_unused_kalshi = query_kind == "prediction" and bool(report.forecasts) and not used_kalshi_ids
 
     # Polymarket items
     if report.polymarket_error:
@@ -1073,15 +1076,18 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                 market_items = used_items + extra_items[:max(0, limit - len(used_items))]
             else:
                 market_items = used_items
-        elif qt.detect_query_type(report.topic) == "market_watchlist":
+        elif query_kind == "market_watchlist" or suppress_unused_poly:
             market_items = []
         if _is_nba_slate_topic(report.topic):
             market_items = [item for item in market_items if _is_nba_market_item(item)]
         if not market_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Polymarket markets found after league filtering.*")
             lines.append("")
-        elif not market_items and qt.detect_query_type(report.topic) == "market_watchlist":
+        elif not market_items and query_kind == "market_watchlist":
             lines.append("*No ranked Polymarket watchlist candidates shown beyond the summary above.*")
+            lines.append("")
+        elif not market_items and suppress_unused_poly:
+            lines.append("*No Polymarket markets shown because none cleared forecast-anchor matching for this prediction.*")
             lines.append("")
         for item in market_items[:limit]:
             eng_str = ""
@@ -1144,15 +1150,18 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
                 kalshi_items = used_items + extra_items[:max(0, limit - len(used_items))]
             else:
                 kalshi_items = used_items
-        elif qt.detect_query_type(report.topic) == "market_watchlist":
+        elif query_kind == "market_watchlist" or suppress_unused_kalshi:
             kalshi_items = []
         if _is_nba_slate_topic(report.topic):
             kalshi_items = [item for item in kalshi_items if _is_nba_market_item(item)]
         if not kalshi_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Kalshi markets found after league filtering.*")
             lines.append("")
-        elif not kalshi_items and qt.detect_query_type(report.topic) == "market_watchlist":
+        elif not kalshi_items and query_kind == "market_watchlist":
             lines.append("*No ranked Kalshi watchlist candidates shown beyond the summary above.*")
+            lines.append("")
+        elif not kalshi_items and suppress_unused_kalshi:
+            lines.append("*No Kalshi markets shown because none cleared forecast-anchor matching for this prediction.*")
             lines.append("")
         for item in kalshi_items[:limit]:
             eng_str = ""
