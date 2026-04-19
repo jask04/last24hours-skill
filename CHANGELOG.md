@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-04-19
+
+### Fixed
+- Paper resolver now treats transient exchange/network exceptions as retryable and leaves affected market picks `open` instead of demoting them to `unknown`
+
 ## [1.0.3] - 2026-04-19
 
 ### Added

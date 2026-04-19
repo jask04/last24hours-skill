@@ -392,8 +392,9 @@ def resolve_open_picks(limit: int = 200) -> List[Dict[str, Any]]:
         try:
             results.append(_resolve_pick(pick))
         except Exception as exc:
-            store.update_paper_pick_resolution(pick["id"], status="unknown", resolution_source=f"error:{type(exc).__name__}")
-            results.append({"pick_id": pick["id"], "status": "unknown", "error": str(exc)[:200]})
+            source = f"retryable_error:{type(exc).__name__}"
+            store.update_paper_pick_resolution(pick["id"], status="open", resolution_source=source)
+            results.append({"pick_id": pick["id"], "status": "open", "resolution_source": source, "error": str(exc)[:200]})
     return results
 
 

@@ -305,6 +305,30 @@ class ResolveOpenPickTests(unittest.TestCase):
         self.assertEqual(updated["resolution_value"], 1.0)
         self.assertAlmostEqual(updated["brier_score"], 0.0625)
 
+    def test_resolve_network_error_leaves_pick_open_for_retry(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        pick_id = paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "tomorrows nba games",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "venue_market_key": "nba-tor-cle-2026-04-20|Raptors vs. Cavaliers|Cavaliers",
+            "title": "Raptors vs. Cavaliers",
+            "question": "Raptors vs. Cavaliers",
+            "outcome_label": "Cavaliers",
+            "model_probability": 0.75,
+            "status": "open",
+        })
+
+        with mock.patch("scripts.paper.http.request", side_effect=RuntimeError("transient read failure")):
+            result = paper.resolve_open_picks()
+
+        updated = paper.store.get_paper_pick(pick_id)
+        self.assertEqual(result[0]["status"], "open")
+        self.assertEqual(updated["status"], "open")
+        self.assertEqual(updated["resolution_source"], "retryable_error:RuntimeError")
+
 
 if __name__ == "__main__":
     unittest.main()
