@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import quote, urlparse
@@ -34,6 +34,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import store
 from lib import http
+from lib import sports_schedule, weather
 
 
 def _now_slug() -> str:
@@ -80,6 +81,24 @@ def _domain(topic: str) -> str:
     if tokens & {"ai", "coding", "model", "models"}:
         return "tech"
     return "broad"
+
+
+def _parse_iso_date(value: Any) -> Optional[datetime.date]:
+    if not value:
+        return None
+    text = str(value)[:10]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _target_date_for_topic(topic: str, created_at: Optional[str] = None) -> datetime.date:
+    base = _parse_iso_date(created_at) or datetime.now().astimezone().date()
+    lowered = (topic or "").lower()
+    if "tomorrow" in lowered or "tmrw" in lowered:
+        return base + timedelta(days=1)
+    return base
 
 
 def _slug_from_url(url: str) -> str:
@@ -166,13 +185,14 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             end_date = (poly_item or kalshi_item or {}).get("end_date")
         else:
             venue = "weather_api" if anchor == "weather_api" else "model_implied"
-            key = f"{venue}|{topic}|{forecast.get('title', '')}|{report.get('generated_at', '')[:10]}"
+            target_date = _target_date_for_topic(topic, report.get("generated_at"))
+            key = f"{venue}|{topic}|{forecast.get('title', '')}|{target_date.isoformat()}"
             url = ""
             question = forecast.get("title", "")
             market_type = "weather" if anchor == "weather_api" else "model_implied"
             market_probability = probability
             bid = ask = spread = None
-            end_date = None
+            end_date = target_date.isoformat() if anchor == "weather_api" else None
         if not key:
             continue
         picks.append({
@@ -194,7 +214,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             "anchor_source": anchor,
             "confidence": forecast.get("confidence_level", "low"),
             "end_date": end_date,
-            "status": "open" if venue in {"kalshi", "polymarket"} else "unknown",
+            "status": "open" if venue in {"kalshi", "polymarket", "weather_api"} else "unknown",
             "resolution_source": "",
             "evidence_json": _evidence_payload(report, forecast),
             "notes_json": json.dumps({"domain": _domain(topic), "paper_only": True}, sort_keys=True),
@@ -360,6 +380,146 @@ def _resolve_polymarket_payload(pick: Dict[str, Any], payload: Dict[str, Any]) -
     return "unknown", None, "polymarket"
 
 
+def _normalize_team_text(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9\s]", " ", str(value or "").lower())
+    text = re.sub(r"\s+", " ", text).strip()
+    aliases = {
+        "hawks": "atlanta hawks",
+        "knicks": "new york knicks",
+        "raptors": "toronto raptors",
+        "cavaliers": "cleveland cavaliers",
+        "cavs": "cleveland cavaliers",
+        "timberwolves": "minnesota timberwolves",
+        "wolves": "minnesota timberwolves",
+        "nuggets": "denver nuggets",
+    }
+    return aliases.get(text, text)
+
+
+def _team_matches(label: str, candidate: str) -> bool:
+    wanted = _normalize_team_text(label)
+    actual = _normalize_team_text(candidate)
+    if not wanted or not actual:
+        return False
+    if wanted == actual or wanted in actual or actual in wanted:
+        return True
+    wanted_tokens = wanted.split()
+    actual_tokens = set(actual.split())
+    return bool(wanted_tokens and wanted_tokens[-1] in actual_tokens)
+
+
+def _nba_pick_date(pick: Dict[str, Any]) -> Optional[datetime.date]:
+    end_date = _parse_iso_date(pick.get("end_date"))
+    key = str(pick.get("venue_market_key") or "")
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})", key)
+    if match:
+        return datetime.strptime("-".join(match.groups()), "%Y-%m-%d").date()
+    return end_date
+
+
+def _resolve_nba_pick(pick: Dict[str, Any]) -> Optional[tuple[str, Optional[float], str]]:
+    if _domain(str(pick.get("topic") or pick.get("title") or "")) != "nba":
+        return None
+    game_date = _nba_pick_date(pick)
+    if not game_date:
+        return None
+    if game_date > datetime.now().astimezone().date():
+        return "open", None, "espn_nba"
+
+    payload = http.get(
+        sports_schedule.ESPN_SCOREBOARD_URL,
+        params={"dates": game_date.strftime("%Y%m%d")},
+        timeout=15,
+        retries=2,
+    )
+    wanted_title = str(pick.get("title") or pick.get("question") or "")
+    wanted_outcome = str(pick.get("outcome_label") or "")
+    for event in payload.get("events", []):
+        event_name = str(event.get("name") or event.get("shortName") or "")
+        competitors = ((event.get("competitions") or [{}])[0].get("competitors") or [])
+        labels = []
+        winner_label = ""
+        for competitor in competitors:
+            team = competitor.get("team") or {}
+            names = [
+                team.get("displayName"),
+                team.get("shortDisplayName"),
+                team.get("name"),
+                team.get("abbreviation"),
+            ]
+            labels.extend(str(name) for name in names if name)
+            if competitor.get("winner") is True:
+                winner_label = next((str(name) for name in names if name), "")
+        if wanted_title and not any(_team_matches(label, wanted_title) for label in labels):
+            continue
+        status_type = (((event.get("competitions") or [{}])[0].get("status") or {}).get("type") or {})
+        completed = status_type.get("completed") is True or str(status_type.get("name") or "").upper() in {"STATUS_FINAL", "STATUS_FINAL_OT"}
+        if not completed:
+            return "open", None, "espn_nba"
+        if not winner_label:
+            return "unknown", None, "espn_nba"
+        return "resolved", 1.0 if _team_matches(wanted_outcome, winner_label) else 0.0, "espn_nba"
+    return "open" if game_date >= datetime.now().astimezone().date() else "unknown", None, "espn_nba"
+
+
+def _weather_target_date(pick: Dict[str, Any]) -> datetime.date:
+    return (
+        _parse_iso_date(pick.get("end_date"))
+        or _parse_iso_date(str(pick.get("venue_market_key") or "").rsplit("|", 1)[-1])
+        or _target_date_for_topic(str(pick.get("topic") or ""), pick.get("created_at"))
+    )
+
+
+def _resolve_weather_pick(pick: Dict[str, Any]) -> tuple[str, Optional[float], str]:
+    target = _weather_target_date(pick)
+    today = datetime.now().astimezone().date()
+    if target >= today:
+        return "open", None, "nws_observations"
+
+    location = weather.resolve_location(str(pick.get("topic") or pick.get("title") or ""))
+    if not location:
+        return "unknown", None, "nws_observations"
+    _, lat, lon = location
+    point = http.get(f"{weather.NWS_BASE}/points/{lat:.4f},{lon:.4f}", headers=weather._headers(), timeout=10, retries=2)
+    stations_url = (point.get("properties") or {}).get("observationStations")
+    if not stations_url:
+        return "unknown", None, "nws_observations"
+    stations = http.get(stations_url, headers=weather._headers(), timeout=15, retries=2)
+    features = stations.get("features") or []
+    start = f"{target.isoformat()}T00:00:00Z"
+    end = f"{(target + timedelta(days=1)).isoformat()}T00:00:00Z"
+    saw_observation = False
+    for feature in features[:5]:
+        station_url = (feature.get("properties") or {}).get("@id") or feature.get("id")
+        if not station_url:
+            continue
+        try:
+            observations = http.get(
+                f"{station_url}/observations",
+                headers=weather._headers(),
+                params={"start": start, "end": end},
+                timeout=15,
+                retries=2,
+            )
+        except Exception:
+            continue
+        for obs in observations.get("features", []):
+            props = obs.get("properties") or {}
+            saw_observation = True
+            precip = ((props.get("precipitationLastHour") or {}).get("value"))
+            try:
+                if precip is not None and float(precip) > 0:
+                    return "resolved", 1.0, "nws_observations"
+            except (TypeError, ValueError):
+                pass
+            description = str(props.get("textDescription") or "").lower()
+            if any(term in description for term in ("rain", "shower", "drizzle")):
+                return "resolved", 1.0, "nws_observations"
+    if saw_observation:
+        return "resolved", 0.0, "nws_observations"
+    return "unknown", None, "nws_observations"
+
+
 def _resolve_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
     venue = str(pick.get("venue") or "").lower()
     if venue == "kalshi":
@@ -367,9 +527,15 @@ def _resolve_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
         payload = http.request("GET", f"https://api.elections.kalshi.com/trade-api/v2/markets/{quote(str(ticker))}", timeout=20, retries=1)
         status, value, source = _resolve_kalshi_payload(pick, payload)
     elif venue == "polymarket":
-        slug = str(pick.get("venue_market_key") or "").split("|", 1)[0]
-        payload = http.request("GET", f"https://gamma-api.polymarket.com/events?slug={quote(slug)}", timeout=20, retries=1)
-        status, value, source = _resolve_polymarket_payload(pick, payload)
+        nba_resolution = _resolve_nba_pick(pick)
+        if nba_resolution and nba_resolution[0] != "unknown":
+            status, value, source = nba_resolution
+        else:
+            slug = str(pick.get("venue_market_key") or "").split("|", 1)[0]
+            payload = http.request("GET", f"https://gamma-api.polymarket.com/events?slug={quote(slug)}", timeout=20, retries=1)
+            status, value, source = _resolve_polymarket_payload(pick, payload)
+    elif venue == "weather_api":
+        status, value, source = _resolve_weather_pick(pick)
     else:
         return {"pick_id": pick["id"], "status": "unknown", "resolution_source": "manual_required"}
     probability = _prob(pick.get("model_probability"))

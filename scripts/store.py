@@ -624,6 +624,7 @@ def list_unresolved_paper_picks(limit: int = 200) -> List[Dict[str, Any]]:
         rows = conn.execute(
             """SELECT * FROM paper_picks
                WHERE status = 'open'
+                  OR (status = 'unknown' AND venue = 'weather_api')
                ORDER BY created_at ASC
                LIMIT ?""",
             (limit,),

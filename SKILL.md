@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.4"
+version: "1.0.5"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.4: Forecast From the Last 24 Hours
+# last24hours v1.0.5: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -106,7 +106,7 @@ Treat these as `MARKET_WATCHLIST` prompts:
 
 Keep v1 watchlist scans topic-scoped when possible. Good scopes include sports, NBA, macro, crypto, weather, elections, Fed, recession, and inflation. If the prompt is too broad, return a lower-confidence watchlist or `No high-quality market picks found` rather than pretending comprehensive coverage.
 
-Paper forecast tracking is for calibration only. `scripts/paper.py` may record hypothetical forecasts, resolve them later, score calibration, and suggest conservative system improvements for human review. It must not place trades, size positions, recommend stakes, or mutate forecast heuristics automatically.
+Paper forecast tracking is for calibration only. `scripts/paper.py` may record hypothetical forecasts, resolve them later, score calibration, and suggest conservative system improvements for human review. It can resolve NBA paper picks from ESPN public final scores and NWS-led weather picks from observed station precipitation after the forecast date has passed. It must not place trades, size positions, recommend stakes, or mutate forecast heuristics automatically.
 
 ## Parse Intent
 

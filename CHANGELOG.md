@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-04-19
+
+### Added
+- Deterministic NBA paper-pick resolution through ESPN public scoreboard final results
+- Deterministic NWS weather paper-pick resolution through observed station precipitation for completed forecast dates
+- Regression tests for NBA winner/loser/open-game resolution and observed rain/no-rain/future-date weather resolution
+
 ## [1.0.4] - 2026-04-19
 
 ### Fixed

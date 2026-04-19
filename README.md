@@ -1,4 +1,4 @@
-# /last24hours v1.0.4
+# /last24hours v1.0.5
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -189,7 +189,7 @@ Usage guidelines:
 
 ## Paper Forecast Ledger
 
-The paper ledger is an offline calibration loop for hypothetical picks. It runs a fixed portfolio, stores forecast probabilities and market identities in `~/.local/share/last24hours/paper/` plus the local SQLite store, resolves old picks when public Kalshi or Polymarket outcomes are available, and summarizes calibration drift.
+The paper ledger is an offline calibration loop for hypothetical picks. It runs a fixed portfolio, stores forecast probabilities and market identities in `~/.local/share/last24hours/paper/` plus the local SQLite store, resolves old picks when public Kalshi or Polymarket outcomes are available, and summarizes calibration drift. NBA game picks can resolve from ESPN public final scores, and NWS-led weather picks can resolve from observed station precipitation after the forecast date has passed.
 
 ```bash
 python3 scripts/paper.py daily --portfolio fixtures/paper_portfolio.json --quick

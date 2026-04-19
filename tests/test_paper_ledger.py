@@ -93,6 +93,30 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(picks[0]["model_probability"], 0.46)
         self.assertEqual(picks[0]["market_probability"], 0.44)
 
+    def test_weather_forecast_pick_is_open_and_stores_target_date(self):
+        report = {
+            "topic": "NYC rain tomorrow",
+            "query_type": "prediction",
+            "generated_at": "2026-04-19T08:00:00",
+            "forecasts": [
+                {
+                    "title": "NYC rain tomorrow",
+                    "forecast_probability": 0.25,
+                    "anchor_source": "weather_api",
+                    "favorite_label": "Yes",
+                    "confidence_level": "moderate-low",
+                }
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(picks[0]["venue"], "weather_api")
+        self.assertEqual(picks[0]["status"], "open")
+        self.assertEqual(picks[0]["end_date"], "2026-04-20")
+        self.assertTrue(picks[0]["venue_market_key"].endswith("|2026-04-20"))
+
     def test_watchlist_json_extracts_only_top_pick(self):
         report = {
             "topic": "AI coding tools markets to watch today",
@@ -187,6 +211,100 @@ class ResolverTests(unittest.TestCase):
         payload = {"events": [{"closed": True, "markets": [{"question": "Different market"}]}]}
 
         self.assertEqual(paper._resolve_polymarket_payload(pick, payload), ("unknown", None, "polymarket"))
+
+    def test_nba_resolver_handles_final_winner(self):
+        pick = {
+            "topic": "tomorrows nba games",
+            "title": "Raptors vs. Cavaliers",
+            "outcome_label": "Cavaliers",
+            "venue_market_key": "nba-tor-cle-2000-01-01|Raptors vs. Cavaliers|Cavaliers",
+            "end_date": "2000-01-01",
+        }
+        payload = {
+            "events": [{
+                "name": "Toronto Raptors at Cleveland Cavaliers",
+                "competitions": [{
+                    "status": {"type": {"name": "STATUS_FINAL", "completed": True}},
+                    "competitors": [
+                        {"team": {"displayName": "Toronto Raptors", "shortDisplayName": "Raptors"}},
+                        {"winner": True, "team": {"displayName": "Cleveland Cavaliers", "shortDisplayName": "Cavaliers"}},
+                    ],
+                }],
+            }]
+        }
+
+        with mock.patch("scripts.paper.http.get", return_value=payload):
+            self.assertEqual(paper._resolve_nba_pick(pick), ("resolved", 1.0, "espn_nba"))
+
+    def test_nba_resolver_handles_final_loser(self):
+        pick = {
+            "topic": "tomorrows nba games",
+            "title": "Raptors vs. Cavaliers",
+            "outcome_label": "Raptors",
+            "venue_market_key": "nba-tor-cle-2000-01-01|Raptors vs. Cavaliers|Raptors",
+            "end_date": "2000-01-01",
+        }
+        payload = {
+            "events": [{
+                "name": "Toronto Raptors at Cleveland Cavaliers",
+                "competitions": [{
+                    "status": {"type": {"name": "STATUS_FINAL", "completed": True}},
+                    "competitors": [
+                        {"team": {"displayName": "Toronto Raptors", "shortDisplayName": "Raptors"}},
+                        {"winner": True, "team": {"displayName": "Cleveland Cavaliers", "shortDisplayName": "Cavaliers"}},
+                    ],
+                }],
+            }]
+        }
+
+        with mock.patch("scripts.paper.http.get", return_value=payload):
+            self.assertEqual(paper._resolve_nba_pick(pick), ("resolved", 0.0, "espn_nba"))
+
+    def test_nba_resolver_keeps_future_game_open(self):
+        pick = {
+            "topic": "tomorrows nba games",
+            "title": "Raptors vs. Cavaliers",
+            "outcome_label": "Cavaliers",
+            "venue_market_key": "nba-tor-cle-2999-01-01|Raptors vs. Cavaliers|Cavaliers",
+            "end_date": "2999-01-01",
+        }
+
+        with mock.patch("scripts.paper.http.get") as get:
+            self.assertEqual(paper._resolve_nba_pick(pick), ("open", None, "espn_nba"))
+        get.assert_not_called()
+
+    def test_weather_resolver_handles_observed_rain(self):
+        pick = {"topic": "NYC rain tomorrow", "venue": "weather_api", "end_date": "2000-01-01"}
+        point = {"properties": {"observationStations": "https://api.weather.gov/gridpoints/OKX/stations"}}
+        stations = {"features": [{"id": "https://api.weather.gov/stations/KNYC"}]}
+        observations = {
+            "features": [
+                {"properties": {"precipitationLastHour": {"value": 0.8}, "textDescription": "Light Rain"}}
+            ]
+        }
+
+        with mock.patch("scripts.paper.http.get", side_effect=[point, stations, observations]):
+            self.assertEqual(paper._resolve_weather_pick(pick), ("resolved", 1.0, "nws_observations"))
+
+    def test_weather_resolver_handles_observed_no_rain(self):
+        pick = {"topic": "NYC rain tomorrow", "venue": "weather_api", "end_date": "2000-01-01"}
+        point = {"properties": {"observationStations": "https://api.weather.gov/gridpoints/OKX/stations"}}
+        stations = {"features": [{"id": "https://api.weather.gov/stations/KNYC"}]}
+        observations = {
+            "features": [
+                {"properties": {"precipitationLastHour": {"value": 0}, "textDescription": "Fair"}}
+            ]
+        }
+
+        with mock.patch("scripts.paper.http.get", side_effect=[point, stations, observations]):
+            self.assertEqual(paper._resolve_weather_pick(pick), ("resolved", 0.0, "nws_observations"))
+
+    def test_weather_resolver_keeps_future_date_open(self):
+        pick = {"topic": "NYC rain tomorrow", "venue": "weather_api", "end_date": "2999-01-01"}
+
+        with mock.patch("scripts.paper.http.get") as get:
+            self.assertEqual(paper._resolve_weather_pick(pick), ("open", None, "nws_observations"))
+        get.assert_not_called()
 
 
 class CalibrationTests(unittest.TestCase):
@@ -309,14 +427,14 @@ class ResolveOpenPickTests(unittest.TestCase):
         run_id = paper.store.record_paper_run("paper_portfolio")
         pick_id = paper.store.add_paper_pick({
             "paper_run_id": run_id,
-            "topic": "tomorrows nba games",
+            "topic": "Bitcoin above 100k this week",
             "query_type": "prediction",
             "pick_type": "forecast",
-            "venue": "polymarket",
-            "venue_market_key": "nba-tor-cle-2026-04-20|Raptors vs. Cavaliers|Cavaliers",
-            "title": "Raptors vs. Cavaliers",
-            "question": "Raptors vs. Cavaliers",
-            "outcome_label": "Cavaliers",
+            "venue": "kalshi",
+            "venue_market_key": "KXBTC-100K",
+            "title": "BTC above 100k",
+            "question": "BTC above 100k?",
+            "outcome_label": "Yes",
             "model_probability": 0.75,
             "status": "open",
         })
