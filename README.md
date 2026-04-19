@@ -1,4 +1,4 @@
-# /last24hours v1.0.2
+# /last24hours v1.0.3
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -7,6 +7,8 @@ Codex chat is the primary target UX. The compact output is designed to open with
 Forecasts are now market-anchored by default. When Polymarket and Kalshi both exist for the same outcome, the skill blends them with liquidity/quality weighting and widens uncertainty when the spread is meaningful.
 
 Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
+
+Paper forecast tracking is available for calibration work. The paper ledger records hypothetical daily forecasts, resolves them later when public market outcomes are available, scores calibration, and prints suggested system improvements for review. It does not place trades, size positions, recommend stakes, or automatically change forecast weights.
 
 For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers injuries, lineups, rest, playoff incentives, and meaningful line movement over betting-bot chatter, ticket resale posts, or generic hype.
 
@@ -185,6 +187,27 @@ Usage guidelines:
 - Broad prompts such as `markets to watch` degrade to a lower-confidence scan and may return no picks if market matches are weak.
 - Watchlist rankings are informational market-monitoring outputs, not trade execution or allocation advice.
 
+## Paper Forecast Ledger
+
+The paper ledger is an offline calibration loop for hypothetical picks. It runs a fixed portfolio, stores forecast probabilities and market identities in `~/.local/share/last24hours/paper/` plus the local SQLite store, resolves old picks when public Kalshi or Polymarket outcomes are available, and summarizes calibration drift.
+
+```bash
+python3 scripts/paper.py daily --portfolio fixtures/paper_portfolio.json --quick
+python3 scripts/paper.py resolve
+python3 scripts/paper.py report --days 30
+python3 scripts/paper.py suggest --days 90
+python3 scripts/paper.py install-launchd --time 08:00 --dry-run
+```
+
+Manual resolution is available for outcomes that do not have a deterministic public resolver:
+
+```bash
+python3 scripts/paper.py resolve --pick-id ID --outcome 1
+python3 scripts/paper.py resolve --pick-id ID --outcome 0
+```
+
+The daily macOS runner writes `~/Library/LaunchAgents/com.jask.last24hours.paper-daily.plist` and prints the `launchctl bootstrap` command. It does not load the LaunchAgent unless `--load` is passed.
+
 ## Local Runs
 
 ```bash
@@ -356,7 +379,7 @@ pip install yt-dlp
 
 ## Security
 
-The skill reads public market and social data. It does not place trades, access private exchange data, or make bet recommendations.
+The skill reads public market and social data. It does not place trades, access private exchange data, make bet recommendations, size stakes, or execute orders. Paper picks are hypothetical calibration records only.
 
 Kalshi public market data is retrieved from:
 - `https://api.elections.kalshi.com/trade-api/v2`

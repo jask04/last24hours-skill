@@ -1,0 +1,37 @@
+[
+  {
+    "topic": "tomorrows nba games",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_type": "forecast",
+    "notes": "Daily NBA slate calibration sample; should prefer direct game-outcome markets."
+  },
+  {
+    "topic": "Bitcoin above 100k this week",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_type": "forecast",
+    "notes": "Crypto threshold calibration sample; incompatible lower-threshold markets should not anchor."
+  },
+  {
+    "topic": "Fed rate cut by June",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_type": "forecast",
+    "notes": "Macro policy calibration sample; should avoid adjacent-month and non-Fed markets."
+  },
+  {
+    "topic": "NYC rain tomorrow",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_type": "forecast",
+    "notes": "Weather calibration sample; NWS-led forecasts may require manual/public resolution."
+  },
+  {
+    "topic": "AI coding tools markets to watch today",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_type": "watchlist",
+    "notes": "Tech/product market-watchlist sample; stores the top ranked paper pick."
+  }
+]

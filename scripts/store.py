@@ -155,7 +155,58 @@ _UPDATABLE_FINDING_COLUMNS = frozenset({
 
 # Future migrations keyed by version number
 MIGRATIONS: Dict[int, str] = {
-    # 2: "ALTER TABLE findings ADD COLUMN tags TEXT DEFAULT '[]';",
+    2: """
+CREATE TABLE IF NOT EXISTS paper_runs (
+    id INTEGER PRIMARY KEY,
+    run_date TEXT NOT NULL DEFAULT (datetime('now')),
+    portfolio_name TEXT,
+    status TEXT DEFAULT 'running',
+    topics_attempted INTEGER DEFAULT 0,
+    picks_created INTEGER DEFAULT 0,
+    picks_resolved INTEGER DEFAULT 0,
+    report_path TEXT,
+    error_message TEXT,
+    duration_seconds REAL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS paper_picks (
+    id INTEGER PRIMARY KEY,
+    paper_run_id INTEGER REFERENCES paper_runs(id),
+    topic TEXT NOT NULL,
+    query_type TEXT,
+    pick_type TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    venue TEXT,
+    venue_market_key TEXT,
+    market_url TEXT,
+    title TEXT,
+    question TEXT,
+    market_type TEXT,
+    outcome_label TEXT,
+    model_probability REAL,
+    market_probability REAL,
+    best_bid REAL,
+    best_ask REAL,
+    spread REAL,
+    anchor_source TEXT,
+    confidence TEXT,
+    end_date TEXT,
+    status TEXT DEFAULT 'open',
+    resolved_at TEXT,
+    resolution_value REAL,
+    resolution_source TEXT,
+    brier_score REAL,
+    log_loss REAL,
+    closing_line_value REAL,
+    evidence_json TEXT,
+    notes_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_picks_status ON paper_picks(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_paper_picks_topic ON paper_picks(topic, created_at);
+CREATE INDEX IF NOT EXISTS idx_paper_picks_venue ON paper_picks(venue, venue_market_key);
+""",
 }
 
 
@@ -480,6 +531,189 @@ def delete_finding(finding_id: int):
 def dismiss_finding(finding_id: int):
     """Mark a finding as dismissed."""
     update_finding(finding_id, dismissed=1)
+
+
+# --- Paper forecast ledger ---
+
+
+def record_paper_run(
+    portfolio_name: str,
+    status: str = "running",
+    topics_attempted: int = 0,
+    picks_created: int = 0,
+    picks_resolved: int = 0,
+    report_path: str = "",
+    error_message: str = "",
+    duration_seconds: float = 0,
+) -> int:
+    """Record a paper ledger run and return its ID."""
+    init_db()
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            """INSERT INTO paper_runs
+               (portfolio_name, status, topics_attempted, picks_created, picks_resolved,
+                report_path, error_message, duration_seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                portfolio_name,
+                status,
+                topics_attempted,
+                picks_created,
+                picks_resolved,
+                report_path,
+                error_message,
+                duration_seconds,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def update_paper_run(run_id: int, **kwargs):
+    """Update a paper run's fields."""
+    allowed = {
+        "portfolio_name", "status", "topics_attempted", "picks_created",
+        "picks_resolved", "report_path", "error_message", "duration_seconds",
+    }
+    invalid = sorted(set(kwargs) - allowed)
+    if invalid:
+        raise ValueError(f"Invalid paper run update fields: {', '.join(invalid)}")
+    if not kwargs:
+        return
+    conn = _connect()
+    try:
+        sets = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [run_id]
+        conn.execute(f"UPDATE paper_runs SET {sets} WHERE id = ?", values)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_paper_pick(pick: Dict[str, Any]) -> int:
+    """Insert a paper pick. Repeated daily picks are intentionally preserved."""
+    init_db()
+    fields = [
+        "paper_run_id", "topic", "query_type", "pick_type", "venue",
+        "venue_market_key", "market_url", "title", "question", "market_type",
+        "outcome_label", "model_probability", "market_probability", "best_bid",
+        "best_ask", "spread", "anchor_source", "confidence", "end_date",
+        "status", "resolution_source", "evidence_json", "notes_json",
+    ]
+    values = [pick.get(field) for field in fields]
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            f"""INSERT INTO paper_picks ({', '.join(fields)})
+                VALUES ({', '.join('?' for _ in fields)})""",
+            values,
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def list_unresolved_paper_picks(limit: int = 200) -> List[Dict[str, Any]]:
+    init_db()
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status = 'open'
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def update_paper_pick_resolution(
+    pick_id: int,
+    *,
+    status: str,
+    resolution_value: Optional[float] = None,
+    resolution_source: str = "",
+    brier_score: Optional[float] = None,
+    log_loss: Optional[float] = None,
+    closing_line_value: Optional[float] = None,
+):
+    conn = _connect()
+    try:
+        conn.execute(
+            """UPDATE paper_picks SET
+                   status = ?,
+                   resolved_at = CASE WHEN ? IN ('resolved', 'canceled') THEN datetime('now') ELSE resolved_at END,
+                   resolution_value = ?,
+                   resolution_source = ?,
+                   brier_score = ?,
+                   log_loss = ?,
+                   closing_line_value = ?
+               WHERE id = ?""",
+            (
+                status,
+                status,
+                resolution_value,
+                resolution_source,
+                brier_score,
+                log_loss,
+                closing_line_value,
+                pick_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_paper_pick(pick_id: int) -> Optional[Dict[str, Any]]:
+    init_db()
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT * FROM paper_picks WHERE id = ?", (pick_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_recent_paper_picks(days: int = 30, limit: int = 200) -> List[Dict[str, Any]]:
+    init_db()
+    conn = _connect()
+    try:
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE created_at >= ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (since, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def list_resolved_paper_picks(days: int = 90) -> List[Dict[str, Any]]:
+    init_db()
+    conn = _connect()
+    try:
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status = 'resolved'
+                 AND resolution_value IS NOT NULL
+                 AND created_at >= ?
+               ORDER BY created_at DESC""",
+            (since,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
 
 
 # --- Cost Tracking ---

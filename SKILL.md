@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.2"
+version: "1.0.3"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.2: Forecast From the Last 24 Hours
+# last24hours v1.0.3: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -105,6 +105,8 @@ Treat these as `MARKET_WATCHLIST` prompts:
 - `interesting Kalshi markets`
 
 Keep v1 watchlist scans topic-scoped when possible. Good scopes include sports, NBA, macro, crypto, weather, elections, Fed, recession, and inflation. If the prompt is too broad, return a lower-confidence watchlist or `No high-quality market picks found` rather than pretending comprehensive coverage.
+
+Paper forecast tracking is for calibration only. `scripts/paper.py` may record hypothetical forecasts, resolve them later, score calibration, and suggest conservative system improvements for human review. It must not place trades, size positions, recommend stakes, or mutate forecast heuristics automatically.
 
 ## Parse Intent
 
@@ -402,6 +404,7 @@ What this skill does:
 - uses National Weather Service public endpoints at `api.weather.gov` without auth for supported U.S. weather aliases
 - optionally uses user-provided X and Bluesky credentials where configured
 - saves raw briefings to `~/Documents/Last24Hours/`
+- can store hypothetical paper forecast calibration records under `~/.local/share/last24hours/`
 
 Recommended validation after edits:
 - `python scripts/last24hours.py "tomorrows nba games" --quick --emit=compact`
@@ -413,12 +416,14 @@ Recommended validation after edits:
 
 What this skill does not do:
 - place trades
+- size positions or recommend stakes
 - post on any platform
 - access private exchange/account data
 - recommend bet size or execution
 
 Bundled scripts:
 - `scripts/last24hours.py`
+- `scripts/paper.py`
 - `scripts/lib/`
 
 Based on:

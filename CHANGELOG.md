@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-04-19
+
+### Added
+- Paper forecast ledger CLI at `scripts/paper.py` for hypothetical daily forecast tracking, later resolution, calibration reports, and conservative improvement suggestions
+- Fixed paper portfolio fixture covering NBA slate, BTC threshold, Fed-rate, NYC rain, and AI coding-tools market-watchlist prompts
+- SQLite paper ledger tables for daily runs and repeated paper picks without deduping repeated forecasts on the same market
+- Best-effort Kalshi and Polymarket public resolution helpers plus manual resolution via `scripts/paper.py resolve --pick-id ID --outcome 1|0`
+- macOS LaunchAgent installer for a daily 8:00 AM local paper runner with logs under `~/.local/share/last24hours/logs/`
+- Regression tests for paper storage, extraction, resolution, calibration metrics, suggestion thresholds, and launchd plist generation
+
+### Changed
+- Version metadata is synchronized across the skill spec, README, Claude plugin manifest, Gemini extension manifest, and runtime source-status banner for the 1.0.3 patch batch
+- Documentation now frames paper picks as hypothetical calibration records, not betting advice, trade execution, stake sizing, or automatic forecast-weight mutation
+
 ## [1.0.2] - 2026-04-19
 
 ### Added
