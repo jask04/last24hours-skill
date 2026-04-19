@@ -36,6 +36,14 @@ class _EvidenceCandidate:
     signal_hits: int
 
 
+@dataclass(frozen=True)
+class _ThresholdSpec:
+    entity: Optional[str]
+    direction: Optional[str]
+    threshold: Optional[float]
+    window: Optional[str]
+
+
 def _tokenize(text: str) -> set[str]:
     return eq.tokenize(text)
 
@@ -113,6 +121,142 @@ _MONTH_TOKENS = {
     "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept",
     "september", "oct", "october", "nov", "november", "dec", "december",
 }
+
+_CRYPTO_ENTITY_ALIASES = {
+    "bitcoin": {"bitcoin", "btc", "xbt"},
+    "ethereum": {"ethereum", "ether", "eth"},
+    "solana": {"solana", "sol"},
+    "dogecoin": {"dogecoin", "doge"},
+}
+
+
+def _threshold_entity(text: str) -> Optional[str]:
+    tokens = _tokenize(text)
+    for entity, aliases in _CRYPTO_ENTITY_ALIASES.items():
+        if tokens & aliases:
+            return entity
+    return None
+
+
+def _threshold_direction(text: str) -> Optional[str]:
+    lowered = (text or "").lower()
+    if re.search(r"\b(range|between)\b", lowered):
+        return "range"
+    if re.search(r"\b(above|over|exceed|exceeds|exceeding|greater than|at least|reach|reaches|hit|hits)\b", lowered):
+        return "above"
+    if re.search(r"\b(below|under|less than|at most)\b", lowered):
+        return "below"
+    return None
+
+
+def _parse_threshold_number(raw: str, suffix: str = "") -> Optional[float]:
+    cleaned = raw.replace(",", "").strip()
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+    suffix = suffix.lower()
+    if suffix == "k":
+        value *= 1_000
+    elif suffix == "m":
+        value *= 1_000_000
+    return value
+
+
+def _threshold_numbers(text: str) -> list[float]:
+    lowered = (text or "").lower()
+    values: list[float] = []
+    patterns = [
+        r"\$?\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*([km])?\b",
+        r"\b(\d+(?:\.\d+)?)\s*([km])\b",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, lowered):
+            value = _parse_threshold_number(match.group(1), match.group(2) or "")
+            if value is None:
+                continue
+            # Ignore years and tiny incidental numbers unless explicitly scaled.
+            if not match.group(2) and 1900 <= value <= 2100:
+                continue
+            if value < 10:
+                continue
+            if value not in values:
+                values.append(value)
+    return values
+
+
+def _threshold_window(text: str) -> Optional[str]:
+    lowered = (text or "").lower()
+    if "this week" in lowered or "by end of week" in lowered:
+        return "this_week"
+    if "this month" in lowered or "end of month" in lowered:
+        return "this_month"
+    if "this year" in lowered or "end of year" in lowered:
+        return "this_year"
+    match = re.search(
+        r"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+        r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+        r"\s+(\d{1,2})\b",
+        lowered,
+    )
+    if match:
+        month = match.group(1)[:3]
+        return f"{month}-{int(match.group(2)):02d}"
+    return None
+
+
+def _threshold_spec(text: str) -> _ThresholdSpec:
+    numbers = _threshold_numbers(text)
+    return _ThresholdSpec(
+        entity=_threshold_entity(text),
+        direction=_threshold_direction(text),
+        threshold=max(numbers) if numbers else None,
+        window=_threshold_window(text),
+    )
+
+
+def _threshold_market_compatible(topic: str, item) -> bool:
+    """Reject forecast anchors that represent a different numeric contract.
+
+    This is intentionally conservative. Watchlists can still surface adjacent
+    threshold markets, but forecast anchoring should not blend or lead with a
+    market that answers a different threshold question.
+    """
+    topic_spec = _threshold_spec(topic)
+    if topic_spec.threshold is None and topic_spec.direction is None:
+        return True
+
+    market_text = " ".join(
+        part for part in (
+            getattr(item, "title", ""),
+            getattr(item, "question", ""),
+            getattr(item, "ticker", ""),
+            getattr(item, "event_ticker", ""),
+            getattr(item, "series_ticker", ""),
+        ) if part
+    )
+    market_spec = _threshold_spec(market_text)
+    market_type = getattr(item, "market_type", "unknown")
+    looks_threshold_like = market_type == "threshold" or market_spec.threshold is not None or market_spec.direction in {"above", "below", "range"}
+
+    if topic_spec.threshold is not None and looks_threshold_like and market_spec.threshold is None:
+        return False
+    if topic_spec.entity and market_spec.entity and topic_spec.entity != market_spec.entity:
+        return False
+    if topic_spec.direction and market_spec.direction and topic_spec.direction != market_spec.direction:
+        return False
+    if topic_spec.threshold is not None and market_spec.threshold is not None:
+        tolerance = max(500.0, topic_spec.threshold * 0.05)
+        if abs(topic_spec.threshold - market_spec.threshold) > tolerance:
+            return False
+    if topic_spec.window and market_spec.window:
+        if topic_spec.window != market_spec.window and topic_spec.window not in {"this_week", "this_month", "this_year"}:
+            return False
+        if topic_spec.window == "this_week" and market_spec.window == "this_year":
+            return False
+        if topic_spec.window == "this_month" and market_spec.window == "this_year":
+            return False
+    return True
 
 
 def _month_match_score(topic: str, market_text: str) -> int:
@@ -428,6 +572,9 @@ def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[in
 def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional[schema.PolymarketItem]:
     if not items:
         return None
+    items = [item for item in items if _threshold_market_compatible(topic, item)]
+    if not items:
+        return None
     if _is_sports_query(topic):
         items = [item for item in items if _is_direct_game_market(item)]
         if not items:
@@ -445,6 +592,9 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional
 
 
 def _best_kalshi(topic: str, items: list[schema.KalshiItem]) -> Optional[schema.KalshiItem]:
+    if not items:
+        return None
+    items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
     if _is_sports_query(topic):
@@ -483,10 +633,16 @@ def _matching_kalshi_for_polymarket(
     poly_item: schema.PolymarketItem,
     kalshi_items: list[schema.KalshiItem],
 ) -> Optional[schema.KalshiItem]:
+    kalshi_items = [item for item in kalshi_items if _threshold_market_compatible(f"{poly_item.title} {poly_item.question}", item)]
     signature = _matchup_signature(poly_item.title or poly_item.question)
     if signature:
         for item in kalshi_items:
             if _is_direct_game_market(item) and _matchup_signature(item.title or item.question) == signature:
+                return item
+    poly_spec = _threshold_spec(f"{poly_item.title} {poly_item.question}")
+    if poly_spec.threshold is not None or poly_spec.direction is not None:
+        for item in kalshi_items:
+            if _threshold_market_compatible(f"{poly_item.title} {poly_item.question}", item):
                 return item
     return None
 
@@ -610,6 +766,11 @@ def _generic_catalysts(report: schema.Report, favorite_label: str) -> tuple[list
         return (
             ["More severe radar/model runs", "New watches or warnings"],
             ["A weaker storm track", "Drying trend in updated weather models"],
+        )
+    if any(term in topic for term in ("bitcoin", "btc", "ethereum", "eth", "crypto", "coin", "token")):
+        return (
+            ["Stronger spot price momentum", "ETF flows or liquidity improving alongside market repricing"],
+            ["Spot price rejection near resistance", "Risk-off macro move or sharp prediction-market repricing"],
         )
     if any(term in topic for term in ("election", "poll", "approval", "rate cut", "inflation", "cpi", "fed", "recession", "gdp", "jobs")):
         return (

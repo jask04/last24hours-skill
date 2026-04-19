@@ -6,7 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-19
+
 ### Added
+- Regression coverage for crypto threshold forecast anchoring, incompatible Polymarket/Kalshi blends, compatible threshold anchors, and crypto catalyst wording
 - `LAST24HOURS_DISABLE_SCRAPECREATORS` and `--no-scrapecreators` controls to skip ScrapeCreators-backed credit paths while keeping the key stored
 - Kalshi market discovery, normalization, scoring, rendering, and report serialization
 - Forecast-first response contract across the skill, README, and extension metadata
@@ -30,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Cross-source evidence fusion for forecast explanations and market-watchlist catalysts, including light clustering and per-author caps
 
 ### Changed
+- Version metadata is synchronized across the skill spec, README, Claude plugin manifest, Gemini extension manifest, and runtime source-status banner for the 1.0.1 patch batch
 - YouTube detection now accepts `yt-dlp` installed as a Python module, not just a `yt-dlp` executable on `PATH`
 - Prediction mode now defaults for forecastable topics including sports, weather, elections, macro, and event outcomes
 - Prediction queries now prioritize Kalshi, Polymarket, X, Reddit, and relevant web above supporting social/video sources
@@ -62,6 +66,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Forecast and watchlist explanation selection now uses fused high-signal evidence while keeping Polymarket, Kalshi, and NWS as the probability anchors
 
 ### Fixed
+- Forecast anchoring now rejects numeric threshold contracts that answer a different outcome, such as treating `Bitcoin above 100k this week` as incompatible with lower BTC threshold or price-range markets
+- Polymarket/Kalshi blending now requires threshold-compatible contracts instead of blending adjacent crypto thresholds or ranges
+- Crypto and asset forecasts now use price, liquidity, ETF-flow, macro, and repricing catalysts instead of sports-only lineup, injury, rest, or tipoff language
 - Broad sports-slate runs now filter weak or irrelevant market matches more aggressively
 - Compact prediction output now suppresses raw Polymarket/Kalshi rows that were available but rejected by forecast-anchor matching
 - X matchup query extraction now preserves full team names such as `New York Knicks` and `Golden State Warriors`
