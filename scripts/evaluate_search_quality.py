@@ -30,13 +30,7 @@ from lib import env as envlib
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_TOPICS: List[Tuple[str, str]] = [
-    ("nano banana pro prompting", "product"),
-    ("codex vs claude code", "comparison"),
-    ("anthropic odds", "prediction"),
-    ("kanye west", "breaking_news"),
-    ("remotion animations for Claude Code", "how_to"),
-]
+EVAL_TOPICS_FILE = REPO_ROOT / "fixtures" / "eval_topics.json"
 DEFAULT_SEARCH = "reddit,x,youtube,hn,polymarket"
 SOURCE_KEYS = [
     "reddit",
@@ -48,6 +42,7 @@ SOURCE_KEYS = [
     "bluesky",
     "truthsocial",
     "polymarket",
+    "kalshi",
     "websearch",
 ]
 DEFAULT_JUDGE_MODEL = "gemini-3-pro-preview"
@@ -56,6 +51,18 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model
 
 def slugify(topic: str) -> str:
     return "".join(c.lower() if c.isalnum() else "-" for c in topic).strip("-")
+
+
+def load_eval_topics(path: Path = EVAL_TOPICS_FILE) -> List[Tuple[str, str]]:
+    """Load default evaluation topics from a fixture file."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    topics: List[Tuple[str, str]] = []
+    for entry in payload:
+        topic = str(entry.get("topic") or "").strip()
+        query_type = str(entry.get("query_type") or "custom").strip() or "custom"
+        if topic:
+            topics.append((topic, query_type))
+    return topics
 
 
 def path_without_node(path_value: str) -> str:
@@ -106,7 +113,7 @@ def stable_item_key(source: str, item: Dict[str, Any]) -> str:
 def item_text(source: str, item: Dict[str, Any]) -> str:
     if source in {"x", "bluesky", "truthsocial"}:
         return str(item.get("text") or "").strip()
-    if source == "polymarket":
+    if source in {"polymarket", "kalshi"}:
         return str(item.get("question") or item.get("title") or "").strip()
     return str(item.get("title") or "").strip()
 
@@ -524,7 +531,7 @@ def write_markdown_summary(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate last24hours search quality locally")
-    parser.add_argument("--baseline-rev", default="origin/main", help="Git revision for the baseline run")
+    parser.add_argument("--baseline-rev", default="origin/master", help="Git revision for the baseline run")
     parser.add_argument("--candidate-rev", default=None, help="Optional git revision for the candidate run")
     parser.add_argument("--no-default-topics", action="store_true", help="Do not include the built-in 5-topic suite")
     parser.add_argument("--topic", action="append", default=[], help="Extra topic to evaluate (repeatable)")
@@ -545,7 +552,7 @@ def main() -> int:
     output_dir = Path(args.output_dir) if args.output_dir else REPO_ROOT / "docs" / "test-results" / f"search-quality-{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    topics = [] if args.no_default_topics else list(DEFAULT_TOPICS)
+    topics = [] if args.no_default_topics else load_eval_topics()
     topics.extend((topic, "custom") for topic in args.topic)
     if not topics:
         raise SystemExit("No topics configured. Use the default suite or pass --topic.")

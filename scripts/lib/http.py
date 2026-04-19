@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
 
@@ -18,9 +19,14 @@ def log(msg: str):
         sys.stderr.write(f"[DEBUG] {msg}\n")
         sys.stderr.flush()
 MAX_RETRIES = 5
+MAX_429_RETRIES = 2
 RETRY_DELAY = 2.0
 USER_AGENT = "last24hours-skill/2.1 (Assistant Skill)"
 _BROKEN_PROXY_VALUES = {"http://127.0.0.1:9", "http://localhost:9"}
+_SECRET_QUERY_KEYS = {
+    "api_key", "apikey", "key", "token", "access_token", "auth_token",
+    "authorization", "password", "secret", "client_secret", "ct0",
+}
 
 
 class HTTPError(Exception):
@@ -36,8 +42,10 @@ def request(
     url: str,
     headers: Optional[Dict[str, str]] = None,
     json_data: Optional[Dict[str, Any]] = None,
+    params: Optional[Dict[str, Any]] = None,
     timeout: int = DEFAULT_TIMEOUT,
     retries: int = MAX_RETRIES,
+    max_429_retries: int = MAX_429_RETRIES,
     raw: bool = False,
 ) -> Dict[str, Any]:
     """Make an HTTP request and return JSON response.
@@ -47,8 +55,10 @@ def request(
         url: Request URL
         headers: Optional headers dict
         json_data: Optional JSON body (for POST)
+        params: Optional query-string parameters
         timeout: Request timeout in seconds
         retries: Number of retries on failure
+        max_429_retries: Maximum total attempts for HTTP 429 responses
 
     Returns:
         Parsed JSON response (or raw text if raw=True)
@@ -58,6 +68,7 @@ def request(
     """
     headers = headers or {}
     headers.setdefault("User-Agent", USER_AGENT)
+    url = _append_params(url, params)
 
     data = None
     if json_data is not None:
@@ -66,7 +77,7 @@ def request(
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
 
-    log(f"{method} {url}")
+    log(f"{method} {_safe_url_for_log(url)}")
 
     last_error = None
     for attempt in range(retries):
@@ -92,6 +103,9 @@ def request(
 
             # Don't retry client errors (4xx) except rate limits
             if 400 <= e.code < 500 and e.code != 429:
+                raise last_error
+
+            if e.code == 429 and attempt + 1 >= max_429_retries:
                 raise last_error
 
             if attempt < retries - 1:
@@ -143,6 +157,28 @@ def _get_url_opener():
     return urllib.request.build_opener()
 
 
+def _append_params(url: str, params: Optional[Dict[str, Any]]) -> str:
+    if not params:
+        return url
+    clean_params = {key: value for key, value in params.items() if value is not None}
+    if not clean_params:
+        return url
+    separator = "&" if urllib.parse.urlsplit(url).query else "?"
+    return f"{url}{separator}{urllib.parse.urlencode(clean_params, doseq=True)}"
+
+
+def _safe_url_for_log(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if not parsed.query:
+        return url
+    pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    redacted = [
+        (key, "[REDACTED]" if key.lower() in _SECRET_QUERY_KEYS else value)
+        for key, value in pairs
+    ]
+    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(redacted, doseq=True)))
+
+
 def get(url: str, headers: Optional[Dict[str, str]] = None, **kwargs) -> Dict[str, Any]:
     """Make a GET request."""
     return request("GET", url, headers=headers, **kwargs)
@@ -156,6 +192,14 @@ def post(url: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] 
 def post_raw(url: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] = None, **kwargs) -> str:
     """Make a POST request with JSON body and return raw text."""
     return request("POST", url, headers=headers, json_data=json_data, raw=True, **kwargs)
+
+
+def scrapecreators_headers(token: str) -> Dict[str, str]:
+    """Build ScrapeCreators request headers."""
+    return {
+        "x-api-key": token,
+        "Content-Type": "application/json",
+    }
 
 
 def get_reddit_json(path: str, timeout: int = DEFAULT_TIMEOUT, retries: int = MAX_RETRIES) -> Dict[str, Any]:

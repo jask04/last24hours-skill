@@ -127,6 +127,32 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('briefing_format', 'concise'
 INSERT OR IGNORE INTO settings (key, value) VALUES ('default_schedule', '0 8 * * *');
 """
 
+_UPDATABLE_RUN_COLUMNS = frozenset({
+    "source_mode",
+    "prompt_tokens",
+    "completion_tokens",
+    "token_cost",
+    "duration_seconds",
+    "status",
+    "error_message",
+    "findings_new",
+    "findings_updated",
+})
+
+_UPDATABLE_FINDING_COLUMNS = frozenset({
+    "source",
+    "source_url",
+    "source_title",
+    "author",
+    "content",
+    "summary",
+    "engagement_score",
+    "relevance_score",
+    "last_seen",
+    "sighting_count",
+    "dismissed",
+})
+
 # Future migrations keyed by version number
 MIGRATIONS: Dict[int, str] = {
     # 2: "ALTER TABLE findings ADD COLUMN tags TEXT DEFAULT '[]';",
@@ -295,6 +321,9 @@ def update_run(run_id: int, **kwargs):
     """Update a research run's fields."""
     conn = _connect()
     try:
+        invalid_columns = sorted(set(kwargs) - _UPDATABLE_RUN_COLUMNS)
+        if invalid_columns:
+            raise ValueError(f"Invalid run update fields: {', '.join(invalid_columns)}")
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         values = list(kwargs.values()) + [run_id]
         conn.execute(f"UPDATE research_runs SET {sets} WHERE id = ?", values)
@@ -427,6 +456,9 @@ def update_finding(finding_id: int, **kwargs):
     """Update a finding's fields."""
     conn = _connect()
     try:
+        invalid_columns = sorted(set(kwargs) - _UPDATABLE_FINDING_COLUMNS)
+        if invalid_columns:
+            raise ValueError(f"Invalid finding update fields: {', '.join(invalid_columns)}")
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         values = list(kwargs.values()) + [finding_id]
         conn.execute(f"UPDATE findings SET {sets} WHERE id = ?", values)

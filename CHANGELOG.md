@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-04-19
+
+### Added
+- Last24hours-specific offline eval fixtures for NBA slate, BTC threshold, macro rates, NYC rain, and AI coding-tools market-watchlist prompts
+- Version consistency tests covering the skill spec, README, Claude plugin manifest, Gemini extension manifest, and runtime source-status banner
+- Targeted regression tests for eval fixture loading, HTTP query params and 429 retry caps, store update hardening, and Bluesky token cache refresh
+
+### Changed
+- `scripts/evaluate_search_quality.py` now loads default topics from `fixtures/eval_topics.json` and uses `origin/master` as the default baseline
+- HTTP helpers now support stdlib query-param encoding, secret query-value redaction in debug logs, capped 429 attempts, and shared ScrapeCreators headers
+- Bluesky authenticated fallback now refreshes cached session tokens after 90 minutes instead of reusing stale tokens
+
+### Fixed
+- Watchlist store update helpers now reject unknown dynamic SQL update fields before building update statements
+
 ## [1.0.1] - 2026-04-19
 
 ### Added

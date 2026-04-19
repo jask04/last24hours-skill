@@ -1,0 +1,32 @@
+[
+  {
+    "topic": "tomorrows nba games",
+    "query_type": "prediction",
+    "rationale": "Broad NBA slate expansion should fan out into matchup-specific forecast and market searches.",
+    "acceptance_notes": "Output should preserve NBA matchup names and avoid anchoring slate forecasts on player props, futures, or unrelated leagues."
+  },
+  {
+    "topic": "Bitcoin above 100k this week",
+    "query_type": "prediction",
+    "rationale": "Crypto threshold forecast should only anchor to compatible BTC threshold markets.",
+    "acceptance_notes": "Output should reject lower-threshold or price-range BTC contracts and fall back clearly when no clean $100k market exists."
+  },
+  {
+    "topic": "Fed rate cut by June",
+    "query_type": "prediction",
+    "rationale": "Macro forecast should prefer date-compatible Fed markets and high-signal policy/data evidence.",
+    "acceptance_notes": "Output should not anchor on ECB markets or adjacent-month Fed contracts."
+  },
+  {
+    "topic": "NYC rain tomorrow",
+    "query_type": "prediction",
+    "rationale": "Weather forecast should use official NWS data when no clean prediction market exists.",
+    "acceptance_notes": "Output should be NWS-led for supported New York City rain prompts and suppress weak social chatter."
+  },
+  {
+    "topic": "AI coding tools markets to watch today",
+    "query_type": "market_watchlist",
+    "rationale": "Market-watchlist mode should rank topic-scoped Polymarket/Kalshi candidates instead of forcing a single forecast.",
+    "acceptance_notes": "Output should render market picks with venue, signal quality, catalysts, and risk notes."
+  }
+]
