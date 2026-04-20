@@ -54,6 +54,16 @@ class MarketTypeTests(unittest.TestCase):
             "threshold",
         )
 
+    def test_crypto_up_or_down_classifies_as_crypto_daily(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Bitcoin Up or Down - April 20, 12AM ET",
+                "Bitcoin Up or Down - April 20, 12AM ET",
+                "https://polymarket.com/event/bitcoin-up-or-down-april-20-2026-12am-et",
+            ),
+            "crypto_daily",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

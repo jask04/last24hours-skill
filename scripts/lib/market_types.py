@@ -12,6 +12,7 @@ MarketType = Literal[
     "player_prop",
     "team_prop",
     "futures",
+    "crypto_daily",
     "threshold",
     "macro_binary",
     "weather_binary",
@@ -94,6 +95,7 @@ _WEATHER_MARKERS = {
     "hurricane",
     "tornado",
 }
+_CRYPTO_MARKERS = {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto"}
 
 
 def _tokens(text: str) -> set[str]:
@@ -134,6 +136,8 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
 
     if any(marker in text_lower for marker in _THRESHOLD_MARKERS):
         return "threshold"
+    if "up or down" in text_lower and (tokens & _CRYPTO_MARKERS):
+        return "crypto_daily"
     if tokens & _WEATHER_MARKERS:
         return "weather_binary"
     if tokens & _MACRO_MARKERS:

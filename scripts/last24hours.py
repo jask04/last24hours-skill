@@ -2246,6 +2246,7 @@ def main():
     if query_type in {"prediction", "market_watchlist"}:
         search_topics = plan.search_topics
     if closing_soon_mode:
+        search_topics = closing_soon.closing_search_topics(args.topic, live_games)
         if "closing_soon" not in plan.notes:
             plan.notes.append("closing_soon")
         if live_games:
@@ -2430,7 +2431,7 @@ def main():
     report.planning_notes = list(plan.notes)
     if expanded_schedule_date:
         report.planning_notes.append(f"nba-slate-date:{expanded_schedule_date[:4]}-{expanded_schedule_date[4:6]}-{expanded_schedule_date[6:]}")
-    report.planned_queries = plan.search_topics
+    report.planned_queries = search_topics if closing_soon_mode and search_topics else plan.search_topics
     report.forecasts = forecast.synthesize_forecasts(report)
     if query_type == "market_watchlist":
         report.market_watchlist = market_watchlist.synthesize_market_watchlist(report)
@@ -2462,6 +2463,9 @@ def main():
 
     # Build source info for status footer
     source_info = plan.to_source_info()
+    if closing_soon_mode and report.planned_queries:
+        source_info["planned_queries"] = report.planned_queries
+        source_info["planned_query_count"] = len(report.planned_queries)
     if report.evidence_fusion_stats:
         source_info["evidence_fusion_stats"] = report.evidence_fusion_stats
     if isinstance(raw_openai, dict):

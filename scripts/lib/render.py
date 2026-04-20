@@ -335,6 +335,7 @@ def _format_market_type(market_type: str) -> str:
         "player_prop": "Player prop",
         "team_prop": "Team prop",
         "futures": "Futures",
+        "crypto_daily": "Crypto daily",
         "threshold": "Threshold",
         "macro_binary": "Macro binary",
         "weather_binary": "Weather binary",
@@ -371,7 +372,12 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     lines.append("")
     if not report.market_watchlist:
         lines.append("No high-quality market picks found.")
-        lines.append("Filters: needed topic-relevant Polymarket/Kalshi candidates with enough market depth, movement, catalyst evidence, or cross-market signal.")
+        if any(note.startswith("live-games:") for note in getattr(report, "planning_notes", [])):
+            lines.append("Live-sports filter: ESPN found live or starting-soon games, but no direct matching Polymarket game-outcome market cleared the scanner.")
+        elif "closing_soon" in getattr(report, "planning_notes", []):
+            lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
+        else:
+            lines.append("Filters: needed topic-relevant Polymarket/Kalshi candidates with enough market depth, movement, catalyst evidence, or cross-market signal.")
         lines.append("If the prompt is broad, narrow it by domain, league, asset, or macro theme for a cleaner scan.")
         lines.append("")
         return lines

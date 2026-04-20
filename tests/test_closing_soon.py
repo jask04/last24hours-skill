@@ -89,6 +89,7 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertEqual(items[0]["end_datetime"], "2026-04-20T06:00:00Z")
         self.assertEqual(items[0]["minutes_to_close"], 120.0)
         self.assertEqual(items[0]["closing_soon_reason"], "closing_soon")
+        self.assertEqual(items[0]["market_type"], "crypto_daily")
 
     def test_scanner_excludes_expired_closed_no_liquidity_and_effectively_settled(self):
         now = datetime(2026, 4, 20, 4, 0, tzinfo=timezone.utc)
