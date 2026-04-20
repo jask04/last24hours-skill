@@ -50,6 +50,7 @@ def is_nba_slate_query(topic: str) -> bool:
         "games today", "games tonight", "games tomorrow", "tomorrows nba games",
         "tomorrow's nba games", "todays nba games", "today's nba games",
         "nba slate", "tomorrow nba", "tonight nba", "today nba",
+        "nba matchups", "nba matchups tomorrow", "matchups tomorrow",
     ))
 
 

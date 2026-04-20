@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.lib import evidence_fusion, forecast, forecast_plan, query_type, render, schema
+from scripts.lib import evidence_fusion, forecast, forecast_plan, query_type, render, schema, sports_schedule
 
 
 def _report(topic: str) -> schema.Report:
@@ -47,6 +47,9 @@ class PlannerFusionTests(unittest.TestCase):
 
         self.assertIn("Los Angeles Lakers at Golden State Warriors", plan.search_topics)
         self.assertIn("Boston Celtics at New York Knicks", plan.search_topics)
+
+    def test_nba_matchups_tomorrow_counts_as_slate_query(self):
+        self.assertTrue(sports_schedule.is_nba_slate_query("Last24hours NBA matchups tomorrow"))
 
     def test_fusion_prefers_injury_signal_over_ticket_chatter(self):
         report = _report("Lakers at Warriors tomorrow")
@@ -132,6 +135,66 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertEqual(len(forecasts), 1)
         self.assertAlmostEqual(forecasts[0].forecast_probability, 0.72)
         self.assertEqual(forecasts[0].anchor_source, "polymarket")
+
+    def test_sports_forecast_rejects_wrong_date_market(self):
+        report = _report("Trail Blazers vs Spurs April 21 2026 Game 2")
+        report.generated_at = "2026-04-20T12:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-19",
+                outcome_prices=[("Spurs", 0.86), ("Trail Blazers", 0.14)],
+                engagement=schema.Engagement(volume=1_000_000, liquidity=300_000),
+                market_type="game_outcome",
+                end_date="2026-04-19",
+                score=99,
+                relevance=0.99,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-21",
+                outcome_prices=[("Spurs", 0.78), ("Trail Blazers", 0.22)],
+                engagement=schema.Engagement(volume=100_000, liquidity=50_000),
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                score=70,
+                relevance=0.70,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(forecasts[0].polymarket_market_id, "PM2")
+        self.assertAlmostEqual(forecasts[0].forecast_probability, 0.78)
+
+    def test_sports_forecast_falls_back_when_only_wrong_date_market_exists(self):
+        report = _report("Trail Blazers vs Spurs April 21 2026 Game 2")
+        report.generated_at = "2026-04-20T12:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-19",
+                outcome_prices=[("Spurs", 0.86), ("Trail Blazers", 0.14)],
+                engagement=schema.Engagement(volume=1_000_000, liquidity=300_000),
+                market_type="game_outcome",
+                end_date="2026-04-19",
+                score=99,
+                relevance=0.99,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIsNone(forecasts[0].polymarket_market_id)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
+        self.assertIn("date-compatible", forecasts[0].degraded_warning)
+        self.assertNotIn("threshold-compatible", forecasts[0].degraded_warning)
 
     def test_date_specific_macro_forecast_prefers_matching_month_market(self):
         report = _report("Will the Fed cut rates by June")

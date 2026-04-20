@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-04-20
+
+### Fixed
+- NBA slate detection now treats `NBA matchups tomorrow` as a slate query instead of falling back to a generic forecast
+- Sports forecast anchoring now rejects stale same-team markets when the requested game date clearly conflicts with the market date
+
 ## [1.0.8] - 2026-04-19
 
 ### Added

@@ -3,6 +3,7 @@
 import math
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
 from . import evidence_fusion, evidence_quality as eq, market_types, query_type as qt, schema
@@ -141,6 +142,21 @@ _MONTH_TOKENS = {
     "september", "oct", "october", "nov", "november", "dec", "december",
 }
 
+_MONTH_NUMBERS = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
+
 _CRYPTO_ENTITY_ALIASES = {
     "bitcoin": {"bitcoin", "btc", "xbt"},
     "ethereum": {"ethereum", "ether", "eth"},
@@ -232,6 +248,81 @@ def _threshold_spec(text: str) -> _ThresholdSpec:
         threshold=max(numbers) if numbers else None,
         window=_threshold_window(text),
     )
+
+
+def _date_refs(text: str, default_year: Optional[int] = None) -> set[str]:
+    refs: set[str] = set()
+    lowered = (text or "").lower()
+    for match in re.finditer(r"\b(20\d{2})-(\d{2})-(\d{2})\b", lowered):
+        refs.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+    month_pattern = "|".join(sorted(_MONTH_NUMBERS, key=len, reverse=True))
+    pattern = rf"\b({month_pattern})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(20\d{{2}}))?\b"
+    for match in re.finditer(pattern, lowered):
+        month = _MONTH_NUMBERS[match.group(1).rstrip(".")]
+        day = int(match.group(2))
+        if not 1 <= day <= 31:
+            continue
+        if match.group(3):
+            refs.add(f"{int(match.group(3)):04d}-{month:02d}-{day:02d}")
+        elif default_year:
+            refs.add(f"{default_year:04d}-{month:02d}-{day:02d}")
+        else:
+            refs.add(f"{month:02d}-{day:02d}")
+    return refs
+
+
+def _report_base_date(report: schema.Report) -> Optional[datetime.date]:
+    for value in (report.generated_at, report.range_to, report.range_from):
+        if not value:
+            continue
+        try:
+            return datetime.fromisoformat(str(value)[:10]).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _sports_target_date(report: schema.Report) -> Optional[str]:
+    for note in report.planning_notes:
+        match = re.search(r"\bnba-slate-date:(20\d{2}-\d{2}-\d{2})\b", str(note))
+        if match:
+            return match.group(1)
+    base = _report_base_date(report)
+    refs = _date_refs(report.topic, default_year=base.year if base else None)
+    full_refs = sorted(ref for ref in refs if re.match(r"^20\d{2}-\d{2}-\d{2}$", ref))
+    if full_refs:
+        return full_refs[0]
+    topic_lower = report.topic.lower()
+    if base and ("tomorrow" in topic_lower or "tomorrows" in topic_lower):
+        return (base + timedelta(days=1)).isoformat()
+    if base and ("today" in topic_lower or "tonight" in topic_lower):
+        return base.isoformat()
+    return None
+
+
+def _sports_market_date_compatible(item, target_date: Optional[str]) -> bool:
+    if not target_date:
+        return True
+    market_text = " ".join(
+        str(part) for part in (
+            getattr(item, "title", ""),
+            getattr(item, "question", ""),
+            getattr(item, "url", ""),
+            getattr(item, "ticker", ""),
+            getattr(item, "event_ticker", ""),
+            getattr(item, "date", ""),
+            getattr(item, "end_date", ""),
+        ) if part
+    )
+    refs = _date_refs(market_text)
+    if not refs:
+        return True
+    try:
+        target = datetime.fromisoformat(target_date).date()
+        allowed = {target.isoformat(), (target + timedelta(days=1)).isoformat(), target.strftime("%m-%d")}
+    except ValueError:
+        allowed = {target_date, target_date[5:]}
+    return bool(refs & allowed)
 
 
 def _threshold_market_compatible(topic: str, item) -> bool:
@@ -588,14 +679,17 @@ def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[in
     return signature_match, _month_match_score(topic, market_text), overlap, item.relevance
 
 
-def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional[schema.PolymarketItem]:
+def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_target_date: Optional[str] = None) -> Optional[schema.PolymarketItem]:
     if not items:
         return None
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
     if _is_sports_query(topic):
-        items = [item for item in items if _is_direct_game_market(item)]
+        items = [
+            item for item in items
+            if _is_direct_game_market(item) and _sports_market_date_compatible(item, sports_target_date)
+        ]
         if not items:
             return None
     if _is_macro_query(topic):
@@ -610,14 +704,17 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem]) -> Optional
     return ranked[0]
 
 
-def _best_kalshi(topic: str, items: list[schema.KalshiItem]) -> Optional[schema.KalshiItem]:
+def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date: Optional[str] = None) -> Optional[schema.KalshiItem]:
     if not items:
         return None
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
     if _is_sports_query(topic):
-        items = [item for item in items if _is_direct_game_market(item)]
+        items = [
+            item for item in items
+            if _is_direct_game_market(item) and _sports_market_date_compatible(item, sports_target_date)
+        ]
         if not items:
             return None
     if _is_macro_query(topic):
@@ -651,12 +748,17 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem]) -> Optional[schema.
 def _matching_kalshi_for_polymarket(
     poly_item: schema.PolymarketItem,
     kalshi_items: list[schema.KalshiItem],
+    sports_target_date: Optional[str] = None,
 ) -> Optional[schema.KalshiItem]:
     kalshi_items = [item for item in kalshi_items if _threshold_market_compatible(f"{poly_item.title} {poly_item.question}", item)]
     signature = _matchup_signature(poly_item.title or poly_item.question)
     if signature:
         for item in kalshi_items:
-            if _is_direct_game_market(item) and _matchup_signature(item.title or item.question) == signature:
+            if (
+                _is_direct_game_market(item)
+                and _sports_market_date_compatible(item, sports_target_date)
+                and _matchup_signature(item.title or item.question) == signature
+            ):
                 return item
     poly_spec = _threshold_spec(f"{poly_item.title} {poly_item.question}")
     if poly_spec.threshold is not None or poly_spec.direction is not None:
@@ -847,6 +949,11 @@ def _generic_fallback_why_line(report: schema.Report) -> str:
 
 def _degraded_forecast_warning(report: schema.Report) -> str:
     topic = report.topic
+    if _is_sports_query(topic):
+        return (
+            "DEGRADED RUN WARNING: no date-compatible Polymarket/Kalshi game market "
+            "cleared anchoring, so this is a lower-confidence model-implied forecast."
+        )
     topic_spec = _threshold_spec(topic)
     if topic_spec.threshold is not None:
         return (
@@ -1052,25 +1159,31 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
         return []
 
     forecasts: list[schema.ForecastItem] = []
-    is_nba_slate = "nba" in report.topic.lower() and "games" in report.topic.lower()
+    topic_lower = report.topic.lower()
+    is_nba_slate = "nba" in topic_lower and any(term in topic_lower for term in ("games", "matchups", "slate"))
+    sports_target_date = _sports_target_date(report) if _is_sports_query(report.topic) else None
 
     if is_nba_slate and report.polymarket:
         seen = set()
         for poly_item in report.polymarket:
-            if not _is_nba_market_item(poly_item) or not _is_direct_game_market(poly_item):
+            if (
+                not _is_nba_market_item(poly_item)
+                or not _is_direct_game_market(poly_item)
+                or not _sports_market_date_compatible(poly_item, sports_target_date)
+            ):
                 continue
             signature = _matchup_signature(poly_item.title or poly_item.question)
             if not signature or signature in seen:
                 continue
             seen.add(signature)
-            kalshi_item = _matching_kalshi_for_polymarket(poly_item, report.kalshi)
+            kalshi_item = _matching_kalshi_for_polymarket(poly_item, report.kalshi, sports_target_date)
             forecasts.append(_build_forecast_item(poly_item.title or poly_item.question, poly_item, kalshi_item, report))
         return forecasts
 
-    top_poly = _best_polymarket(report.topic, report.polymarket)
-    top_kalshi = _best_kalshi(report.topic, report.kalshi)
+    top_poly = _best_polymarket(report.topic, report.polymarket, sports_target_date)
+    top_kalshi = _best_kalshi(report.topic, report.kalshi, sports_target_date)
     if top_poly and top_kalshi and _matchup_signature(top_poly.title or top_poly.question):
-        matched_kalshi = _matching_kalshi_for_polymarket(top_poly, report.kalshi)
+        matched_kalshi = _matching_kalshi_for_polymarket(top_poly, report.kalshi, sports_target_date)
         if matched_kalshi:
             top_kalshi = matched_kalshi
 

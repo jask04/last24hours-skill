@@ -2286,6 +2286,8 @@ def main():
     report.weather = deduped_weather
     report.web = deduped_web
     report.planning_notes = list(plan.notes)
+    if expanded_schedule_date:
+        report.planning_notes.append(f"nba-slate-date:{expanded_schedule_date[:4]}-{expanded_schedule_date[4:6]}-{expanded_schedule_date[6:]}")
     report.planned_queries = plan.search_topics
     report.forecasts = forecast.synthesize_forecasts(report)
     if query_type == "market_watchlist":

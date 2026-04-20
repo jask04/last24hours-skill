@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.8"
+version: "1.0.9"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.8: Forecast From the Last 24 Hours
+# last24hours v1.0.9: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -206,6 +206,7 @@ The script now returns forecast inputs, including:
 For market-watchlist prompts, the script returns ranked market-watchlist inputs and opens with `Market Picks To Watch` instead of `Forecast`.
 
 For broad NBA slate prompts such as `tomorrows nba games`, the script expands the slate into matchup-specific searches before ranking markets and social evidence.
+For date-specific sports prompts, only anchor to markets whose visible date matches the requested game date or a plausible next-day UTC close date.
 
 ## Forecasting Rules
 

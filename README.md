@@ -1,4 +1,4 @@
-# /last24hours v1.0.8
+# /last24hours v1.0.9
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -31,6 +31,8 @@ Polymarket and Kalshi are the primary market anchors. X, Reddit, Hacker News, an
 National Weather Service forecasts are the official anchor for supported U.S. weather prompts when a clean Polymarket/Kalshi market is not available.
 
 For broad NBA slate prompts such as `tomorrows nba games`, the compact output now opens with a per-game slate forecast board before the raw evidence sections.
+
+For date-specific sports prompts, forecast anchoring rejects stale same-team markets when the market date clearly conflicts with the requested game date.
 
 Recent upstream `last30days` v3 ideas are adapted selectively: deterministic search planning, cross-source evidence fusion, small evidence clustering, and per-author caps. These only improve retrieval and explanations; they do not replace the market-anchored forecast engine.
 
