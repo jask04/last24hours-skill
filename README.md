@@ -1,4 +1,4 @@
-# /last24hours v1.0.12
+# /last24hours v1.0.13
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -12,7 +12,7 @@ Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and
 
 Paper forecast tracking is available for calibration work. The paper ledger records hypothetical daily forecasts, resolves them later when public market outcomes are available, scores calibration, tracks whether the portfolio is leaning on easy favorites or longshots, and prints suggested system improvements for review. New paper records include the skill version so calibration can be compared across forecast-engine changes. It does not place trades, size positions, recommend stakes, or automatically change forecast weights.
 
-For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers injuries, lineups, rest, playoff incentives, and meaningful line movement over betting-bot chatter, ticket resale posts, or generic hype.
+For sports, the market sets the number and social/web evidence mainly explains the line. The skill now prefers concrete injuries, availability, lineups, rest, playoff incentives, and exact-date line movement over betting-bot chatter, ticket resale posts, generic previews, historical clips, or vague hype. Low-signal sports sources may remain visible for auditability, but they should not become the forecast rationale.
 Slate explanations are matchup-scoped, so a status note for one game should not explain another game's forecast.
 
 For weather and macro/politics, the skill now suppresses weak supporting evidence hard. If no high-signal weather, policy, data, polling, or market-repricing evidence is available, the forecast stays market-led or model-implied and says so directly instead of filling the answer with noisy social chatter.
@@ -266,7 +266,7 @@ Recommended extra smoke tests:
 - Comparison mode compares probability and market quality, not just sentiment.
 - Market evidence outranks social chatter when relevance is similar.
 - Social and web evidence are used to explain the line, not replace it.
-- For sports, low-signal chatter is omitted when there is no clean injury, lineup, rest, or motivation signal.
+- For sports, forecast rationale requires high-signal injury, availability, lineup, rest, motivation, or exact-date market-context evidence; generic previews, tickets, betting bots, historical clips, and stale game threads stay out of `Why this is the current line`.
 - For weather and macro, low-signal X, Reddit, and web snippets are suppressed aggressively when they do not contain actual domain signal.
 - For supported U.S. weather prompts, NWS precipitation probability can anchor the forecast and renders as `NWS-led`.
 - Broad NBA slate queries automatically expand into one search per scheduled matchup.

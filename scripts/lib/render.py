@@ -552,39 +552,31 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
     if qt.detect_query_type(report.topic) != "prediction" or not _is_nba_slate_topic(report.topic) and not _matchup_signature(report.topic):
         return items[:limit]
 
-    driver_terms = {
-        "injury", "injuries", "ruled", "questionable", "doubtful", "probable",
-        "available", "inactive", "rest", "resting", "lineup", "lineups", "starter",
-        "starters", "minutes", "restriction", "restricted", "playoff", "playoffs",
-        "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking",
-    }
-    weak_market_terms = {"odds", "line", "spread", "moneyline", "sportsbook", "fanduel", "draftkings"}
-    low_signal = {
-        "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
-        "bettorbot", "parlay", "pick", "picks", "lock", "tail", "sprinkle",
-    }
     filtered = []
-    fallback = []
+    topic_sides = _matchup_side_tokens(report.topic)
     for item in items:
         text = getattr(item, "text", "") or getattr(item, "title", "") or ""
         tokens = set(re.sub(r"[^\w\s-]", " ", text.lower()).split())
-        if "check" in tokens and "out" in tokens:
-            tokens.discard("out")
-        if source == "reddit":
-            tokens |= set(re.sub(r"[^\w\s-]", " ", getattr(item, "subreddit", "").lower()).split())
+        context = getattr(item, "author_handle", "") or getattr(item, "subreddit", "") or getattr(item, "source_domain", "")
         if _is_nba_slate_topic(report.topic) and not ((eq.NBA_TEAM_TOKENS & tokens) or "nba" in tokens):
             continue
         if len(tokens & {"lakers", "warriors", "celtics", "knicks", "heat", "raptors", "bulls", "wizards", "rockets", "sixers", "pacers", "nets", "nuggets", "grizzlies"}) >= 4:
             continue
-        if low_signal & tokens and not driver_terms & tokens:
-            continue
-        if weak_market_terms & tokens and not driver_terms & tokens:
-            fallback.append(item)
-            continue
-        if driver_terms & tokens:
+        exact_match = (
+            all(side & tokens for side in topic_sides)
+            if topic_sides
+            else bool(eq.NBA_TEAM_TOKENS & tokens)
+        )
+        exact_date = bool(re.search(r"\b(20\d{2}|jan|feb|mar|apr|april|may|jun|jul|aug|sep|oct|nov|dec|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", text.lower()))
+        category = eq.classify_sports_evidence(
+            text,
+            context,
+            exact_match=exact_match,
+            exact_date=exact_date,
+            allow_market_context=True,
+        )
+        if category in {"high_signal", "market_context"}:
             filtered.append(item)
-        else:
-            fallback.append(item)
     if filtered:
         return filtered[:limit]
     return []

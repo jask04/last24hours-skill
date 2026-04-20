@@ -79,6 +79,16 @@ SPORTS_LOW_SIGNAL_TERMS = {
     "giveaway", "fs", "wtb", "parlay", "bettorbot", "pick", "picks", "lock",
     "tail", "sprinkle", "hype", "buzz", "vibes", "dm", "interested",
 }
+SPORTS_REJECT_TERMS = {
+    "gamethread", "highlight", "highlights", "live", "score", "scores", "2k",
+    "mycareer",
+}
+SPORTS_GENERIC_PREVIEW_TERMS = {
+    "preview", "previews", "matchup", "matchups", "strategy", "strategies",
+    "overpower", "thrilling", "showdown", "watch", "channel", "tickets",
+    "sportsbook", "fanduel", "draftkings", "betting", "previous", "meeting",
+    "iconic",
+}
 SPORTS_RECAP_TERMS = {
     "matchup", "season", "series", "previous", "meeting", "sportsbook",
     "fanduel", "draftkings", "check", "showdown", "get", "ready",
@@ -163,3 +173,73 @@ def is_nba_market_text(text: str) -> bool:
     has_team = bool(NBA_TEAM_TOKENS & tokens)
     has_game_marker = any(marker in lowered for marker in (" vs. ", " vs ", " at ", "spread", "moneyline"))
     return has_team and ("nba" in lowered or has_game_marker)
+
+
+def classify_sports_evidence(
+    text: str,
+    source_context: str = "",
+    *,
+    exact_match: bool = False,
+    exact_date: bool = False,
+    allow_market_context: bool = False,
+) -> str:
+    """Classify sports evidence quality for forecast rationale selection."""
+    raw = f"{text or ''} {source_context or ''}"
+    tokens = tokenize(raw)
+    if "check" in tokens and "out" in tokens:
+        tokens.discard("out")
+
+    status_terms = {
+        "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
+        "probable", "available", "inactive", "out", "scratch", "scratched",
+        "status", "report", "listed",
+    }
+    rest_terms = {
+        "rest", "resting", "minutes", "restriction", "restricted",
+        "back-to-back", "b2b",
+    }
+    lineup_terms = {"lineup", "lineups", "starter", "starters", "starting"}
+    lineup_status_terms = status_terms | {"confirmed", "announced", "expected"}
+    incentive_terms = {
+        "seed", "seeding", "elimination", "eliminated", "clinch", "clinched",
+        "must-win", "must", "tank", "tanking",
+    }
+    market_terms = SPORTS_MARKET_CONTEXT_TERMS | {"movement", "moved", "steam"}
+
+    has_status = bool(tokens & status_terms)
+    has_rest = bool(tokens & rest_terms)
+    has_lineup_status = bool(tokens & lineup_terms and tokens & lineup_status_terms)
+    has_incentive = bool(tokens & incentive_terms)
+    has_high_signal = has_status or has_rest or has_lineup_status or has_incentive
+
+    if SPORTS_LOW_SIGNAL_TERMS & tokens and not has_high_signal:
+        return "low_signal"
+    if (SPORTS_REJECT_TERMS & tokens or {"game", "thread"} <= tokens or {"live", "score"} <= tokens) and not has_high_signal:
+        return "reject"
+    if has_high_signal and exact_match:
+        return "high_signal"
+    if allow_market_context and exact_match and exact_date and tokens & market_terms:
+        return "market_context"
+    if SPORTS_GENERIC_PREVIEW_TERMS & tokens:
+        return "generic_preview"
+    if tokens & market_terms:
+        return "market_context" if allow_market_context and exact_match and exact_date else "generic_preview"
+    return "reject"
+
+
+def is_sports_rationale_evidence(
+    text: str,
+    source_context: str = "",
+    *,
+    exact_match: bool = False,
+    exact_date: bool = False,
+    allow_market_context: bool = False,
+) -> bool:
+    category = classify_sports_evidence(
+        text,
+        source_context,
+        exact_match=exact_match,
+        exact_date=exact_date,
+        allow_market_context=allow_market_context,
+    )
+    return category in {"high_signal", "market_context"}

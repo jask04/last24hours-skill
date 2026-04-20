@@ -451,21 +451,32 @@ def _sports_candidate_score(
     base_score: float,
     author: str = "",
     community: str = "",
+    exact_date_match: bool = False,
 ) -> Optional[_EvidenceCandidate]:
-    tokens = _tokenize(f"{text} {author} {community}")
+    source_context = f"{author} {community}".strip()
+    tokens = _tokenize(f"{text} {source_context}")
     if "check" in tokens and "out" in tokens:
         tokens.discard("out")
     title_tokens = _topic_tokens(title)
     sides = _matchup_side_tokens(title)
     overlap = len(title_tokens & tokens)
     team_hits = sum(1 for side in sides if side & tokens) if sides else 0
-    signal_hits = len(SPORTS_DRIVER_TERMS & tokens)
+    exact_match = bool(team_hits == len(sides) and sides)
+    category = eq.classify_sports_evidence(
+        text,
+        source_context,
+        exact_match=exact_match,
+        exact_date=exact_date_match,
+        allow_market_context=True,
+    )
+    if category not in {"high_signal", "market_context"}:
+        return None
     concrete_hits = len(SPORTS_HIGH_SIGNAL_TERMS & tokens)
+    if category == "market_context":
+        concrete_hits = max(concrete_hits, 1)
     if not sides and "nba" in title.lower() and not ((eq.NBA_TEAM_TOKENS & tokens) or "nba" in tokens):
         return None
     if sides and team_hits == 0:
-        return None
-    if concrete_hits == 0:
         return None
     if team_hits < len(sides):
         return None
@@ -605,13 +616,20 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
     title_sides = _matchup_side_tokens(title)
     sports_target_date = _sports_target_date(report) if sports_query else None
     for driver in fused.drivers:
-        if sports_query and not _sports_evidence_date_compatible(driver.text, sports_target_date):
+        exact_date_match = _sports_evidence_date_compatible(driver.text, sports_target_date)
+        if sports_query and not exact_date_match:
             continue
         tokens = _tokenize(driver.text)
         team_hits = sum(1 for side in title_sides if side & tokens) if title_sides else 0
         signal_hits = len((DRIVER_TERMS | SPORTS_HIGH_SIGNAL_TERMS | WEATHER_SIGNAL_TERMS | MACRO_SIGNAL_TERMS) & tokens)
         if sports_query:
-            candidate = _sports_candidate_score(driver.text, title, driver.source, driver.score * 100.0)
+            candidate = _sports_candidate_score(
+                driver.text,
+                title,
+                driver.source,
+                driver.score * 100.0,
+                exact_date_match=exact_date_match,
+            )
             if not candidate:
                 continue
             candidates.append(candidate)
@@ -631,11 +649,19 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         text = getattr(item, "text", "") or ""
         if not text:
             continue
-        if sports_query and not _sports_evidence_date_compatible(text, sports_target_date):
+        exact_date_match = _sports_evidence_date_compatible(text, sports_target_date)
+        if sports_query and not exact_date_match:
             continue
         base_score = getattr(item, "score", 0)
         candidate = (
-            _sports_candidate_score(text, title, "x", base_score, author=getattr(item, "author_handle", ""))
+            _sports_candidate_score(
+                text,
+                title,
+                "x",
+                base_score,
+                author=getattr(item, "author_handle", ""),
+                exact_date_match=exact_date_match,
+            )
             if sports_query
             else _generic_candidate_score(
                 text,
@@ -653,11 +679,19 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         text = getattr(item, "title", "") or ""
         if not text:
             continue
-        if sports_query and not _sports_evidence_date_compatible(text, sports_target_date):
+        exact_date_match = _sports_evidence_date_compatible(text, sports_target_date)
+        if sports_query and not exact_date_match:
             continue
         base_score = getattr(item, "score", 0)
         candidate = (
-            _sports_candidate_score(text, title, "reddit", base_score, community=getattr(item, "subreddit", ""))
+            _sports_candidate_score(
+                text,
+                title,
+                "reddit",
+                base_score,
+                community=getattr(item, "subreddit", ""),
+                exact_date_match=exact_date_match,
+            )
             if sports_query
             else _generic_candidate_score(
                 f"{text} {getattr(item, 'subreddit', '')}",
@@ -675,11 +709,19 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         text = f"{getattr(item, 'title', '')} {getattr(item, 'snippet', '')}".strip()
         if not text:
             continue
-        if sports_query and not _sports_evidence_date_compatible(text, sports_target_date):
+        exact_date_match = _sports_evidence_date_compatible(text, sports_target_date)
+        if sports_query and not exact_date_match:
             continue
         base_score = getattr(item, "score", 0)
         candidate = (
-            _sports_candidate_score(text, title, "web", base_score, community=getattr(item, "source_domain", ""))
+            _sports_candidate_score(
+                text,
+                title,
+                "web",
+                base_score,
+                community=getattr(item, "source_domain", ""),
+                exact_date_match=exact_date_match,
+            )
             if sports_query
             else _generic_candidate_score(
                 text,
@@ -1174,7 +1216,10 @@ def _build_forecast_item(
     if _is_sports_query(title) or _is_sports_query(report.topic):
         forecast.upside_catalysts, forecast.downside_catalysts = _sports_catalysts(evidence_candidates, forecast.favorite_label)
         if not forecast.why_line:
-            forecast.why_line = "Mostly market-driven right now; no clean injury, lineup, or rest signal surfaced in the last 24 hours."
+            if forecast.anchor_source in {"polymarket", "kalshi", "blended"}:
+                forecast.why_line = "Mostly market-driven right now; no clean injury, lineup, rest, or market-moving team signal surfaced in the last 24 hours."
+            else:
+                forecast.why_line = "No clean market exists and no high-signal team-specific driver surfaced in the last 24 hours."
     else:
         forecast.upside_catalysts, forecast.downside_catalysts = _generic_catalysts(report, forecast.favorite_label)
         if not forecast.why_line:

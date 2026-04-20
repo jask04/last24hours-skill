@@ -239,6 +239,148 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertNotIn("Timberwolves", forecasts[0].why_line)
         self.assertNotIn("Edwards", forecasts[0].why_line)
 
+    def test_generic_sports_preview_does_not_become_why_line(self):
+        report = _report("Raptors vs Cavaliers April 20 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Raptors vs. Cavaliers",
+                question="Raptors vs. Cavaliers",
+                url="https://polymarket.com/event/nba-tor-cle-2026-04-20",
+                outcome_prices=[("Raptors", 0.24), ("Cavaliers", 0.76)],
+                engagement=schema.Engagement(volume=50_000, liquidity=20_000),
+                market_type="game_outcome",
+                end_date="2026-04-20",
+                score=90,
+                relevance=0.90,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Toronto Raptors vs Cleveland Cavaliers 2026 playoffs: Will the Raptors' new lineup overpower the Cavs' defense? Discover the key matchups and strategies.",
+                url="https://x.com/seo/status/1",
+                author_handle="PreviewBot",
+                score=99,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(forecasts[0].polymarket_market_id, "PM1")
+        self.assertNotIn("overpower", forecasts[0].why_line)
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+
+    def test_real_injury_signal_beats_higher_scored_preview(self):
+        report = _report("Raptors vs Cavaliers April 20 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Raptors vs. Cavaliers",
+                question="Raptors vs. Cavaliers",
+                url="https://polymarket.com/event/nba-tor-cle-2026-04-20",
+                outcome_prices=[("Raptors", 0.24), ("Cavaliers", 0.76)],
+                engagement=schema.Engagement(volume=50_000, liquidity=20_000),
+                market_type="game_outcome",
+                end_date="2026-04-20",
+                score=90,
+                relevance=0.90,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Toronto Raptors vs Cleveland Cavaliers preview: key matchups, strategy, tickets and TV channel.",
+                url="https://x.com/seo/status/1",
+                author_handle="PreviewBot",
+                score=99,
+            ),
+            schema.XItem(
+                id="X2",
+                text="Raptors vs Cavaliers status report: Donovan Mitchell available, Thomas Bryant ruled out with calf injury.",
+                url="https://x.com/reporter/status/2",
+                author_handle="CavsBeatReporter",
+                score=40,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("status report", forecasts[0].why_line)
+        self.assertIn("ruled out", forecasts[0].why_line)
+        self.assertNotIn("tickets", forecasts[0].why_line)
+
+    def test_ticket_and_betting_bot_posts_are_rejected_from_sports_rationale(self):
+        report = _report("Lakers vs Warriors April 20 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Lakers vs. Warriors",
+                question="Lakers vs. Warriors",
+                url="https://polymarket.com/event/nba-lal-gsw-2026-04-20",
+                outcome_prices=[("Lakers", 0.58), ("Warriors", 0.42)],
+                engagement=schema.Engagement(volume=50_000, liquidity=20_000),
+                market_type="game_outcome",
+                end_date="2026-04-20",
+                score=90,
+                relevance=0.90,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Selling Lakers Warriors tickets section 117 row 6 DM me",
+                url="https://x.com/tickets/status/1",
+                author_handle="ticketseller",
+                score=99,
+            ),
+            schema.XItem(
+                id="X2",
+                text="BettorBot lock pick parlay Lakers Warriors tail this now",
+                url="https://x.com/bot/status/2",
+                author_handle="BettorBot",
+                score=90,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertNotIn("tickets", forecasts[0].why_line.lower())
+        self.assertNotIn("bettorbot", forecasts[0].why_line.lower())
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+
+    def test_exact_date_sportsbook_odds_can_explain_matching_game(self):
+        report = _report("Lakers vs Rockets April 21 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Rockets vs. Lakers",
+                question="Rockets vs. Lakers",
+                url="https://polymarket.com/event/nba-hou-lal-2026-04-21",
+                outcome_prices=[("Rockets", 0.62), ("Lakers", 0.38)],
+                engagement=schema.Engagement(volume=94_000, liquidity=324_000),
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                score=91,
+                relevance=0.91,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="NBA playoff odds for Los Angeles Lakers vs Houston Rockets Game 2 betting, with point spread, moneyline, over/under for Tuesday, April 21, 2026.",
+                url="https://x.com/azcentral/status/1",
+                author_handle="azcentral",
+                score=75,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(forecasts[0].polymarket_market_id, "PM1")
+        self.assertAlmostEqual(forecasts[0].forecast_probability, 0.62)
+        self.assertIn("odds", forecasts[0].why_line)
+
     def test_date_specific_macro_forecast_prefers_matching_month_market(self):
         report = _report("Will the Fed cut rates by June")
         report.polymarket = [

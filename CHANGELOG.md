@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-04-19
+
+### Fixed
+- Sports forecast explanations now use a shared evidence-quality gate that rejects generic previews, ticket chatter, betting-bot posts, stale game threads, and historical clips as `Why this is the current line`
+- Exact-date sportsbook odds and high-signal injury, lineup, rest, availability, and playoff-incentive reports remain eligible sports rationale
+- Sports fallback wording now distinguishes market-backed forecasts from no-market model-implied forecasts when supporting evidence is thin
+
 ## [1.0.12] - 2026-04-19
 
 ### Fixed

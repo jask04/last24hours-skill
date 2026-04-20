@@ -95,9 +95,14 @@ def _is_signal(topic: str, text: str, context: str, query_type: qt.QueryType) ->
     if query_type == "prediction" and eq.is_macro_query(topic):
         return eq.is_macro_signal(text, topic_tokens, context)
     if query_type == "prediction" and (eq.SPORTS_TEAM_TOKENS & (tokens | topic_tokens) or "nba" in topic_tokens):
-        if tokens & eq.SPORTS_LOW_SIGNAL_TERMS and not (tokens & eq.SPORTS_HIGH_SIGNAL_TERMS):
-            return False
-        return bool(tokens & (eq.SPORTS_HIGH_SIGNAL_TERMS | eq.SPORTS_MARKET_CONTEXT_TERMS))
+        category = eq.classify_sports_evidence(
+            text,
+            context,
+            exact_match=bool(tokens & topic_tokens),
+            exact_date=False,
+            allow_market_context=False,
+        )
+        return category == "high_signal"
     return bool(tokens & (eq.DRIVER_TERMS | eq.MACRO_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS))
 
 
@@ -115,10 +120,18 @@ def _score(topic: str, text: str, context: str, source: str, base_score: int, qu
     score = source_base + min(0.28, (base_score or 0) / 350.0) + min(0.22, overlap * 0.04)
     signal_hits = len(tokens & (eq.DRIVER_TERMS | eq.MACRO_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS))
     score += min(0.25, signal_hits * 0.04)
-    if tokens & eq.SPORTS_HIGH_SIGNAL_TERMS:
-        score += 0.12
-    if tokens & eq.SPORTS_LOW_SIGNAL_TERMS and not (tokens & eq.SPORTS_HIGH_SIGNAL_TERMS):
-        score -= 0.30
+    if query_type == "prediction" and (eq.SPORTS_TEAM_TOKENS & (tokens | topic_tokens) or "nba" in topic_tokens):
+        sports_category = eq.classify_sports_evidence(
+            text,
+            context,
+            exact_match=bool(tokens & topic_tokens),
+            exact_date=False,
+            allow_market_context=False,
+        )
+        if sports_category == "high_signal":
+            score += 0.12
+        if sports_category in {"low_signal", "generic_preview", "reject"}:
+            score -= 0.30
     return max(0.0, score)
 
 
