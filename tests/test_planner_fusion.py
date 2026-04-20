@@ -196,6 +196,39 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertIn("date-compatible", forecasts[0].degraded_warning)
         self.assertNotIn("threshold-compatible", forecasts[0].degraded_warning)
 
+    def test_slate_forecast_does_not_use_other_matchup_driver(self):
+        report = _report("NBA matchups tomorrow")
+        report.planning_notes = ["nba-slate-date:2026-04-20"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Hawks vs. Knicks",
+                question="Hawks vs. Knicks",
+                url="https://polymarket.com/event/nba-atl-nyk-2026-04-20",
+                outcome_prices=[("Hawks", 0.32), ("Knicks", 0.68)],
+                engagement=schema.Engagement(volume=100_000, liquidity=50_000),
+                market_type="game_outcome",
+                end_date="2026-04-20",
+                score=90,
+                relevance=0.90,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Minnesota Timberwolves status report for tomorrow at Denver Nuggets: QUESTIONABLE Anthony Edwards right knee injury maintenance",
+                url="https://x.com/twolves/status/1",
+                author_handle="Twolves_PR",
+                score=95,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(forecasts[0].polymarket_market_id, "PM1")
+        self.assertNotIn("Timberwolves", forecasts[0].why_line)
+        self.assertNotIn("Edwards", forecasts[0].why_line)
+
     def test_date_specific_macro_forecast_prefers_matching_month_market(self):
         report = _report("Will the Fed cut rates by June")
         report.polymarket = [

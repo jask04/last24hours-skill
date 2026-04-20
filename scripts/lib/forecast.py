@@ -593,6 +593,12 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         tokens = _tokenize(driver.text)
         team_hits = sum(1 for side in title_sides if side & tokens) if title_sides else 0
         signal_hits = len((DRIVER_TERMS | SPORTS_HIGH_SIGNAL_TERMS | WEATHER_SIGNAL_TERMS | MACRO_SIGNAL_TERMS) & tokens)
+        if sports_query:
+            candidate = _sports_candidate_score(driver.text, title, driver.source, driver.score * 100.0)
+            if not candidate:
+                continue
+            candidates.append(candidate)
+            continue
         candidates.append(
             _EvidenceCandidate(
                 score=driver.score * 100.0,

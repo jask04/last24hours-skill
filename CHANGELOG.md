@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-04-19
+
+### Fixed
+- Sports slate forecast explanations now apply matchup-side filtering to fused evidence drivers so one game's injury/status note cannot become another game's `Why this is the current line`
+
 ## [1.0.10] - 2026-04-19
 
 ### Added
