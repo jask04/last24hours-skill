@@ -509,6 +509,11 @@ class PolymarketItem:
     date_confidence: str = "high"  # API provides exact timestamps
     engagement: Optional[Engagement] = None  # volume + liquidity
     end_date: Optional[str] = None
+    end_datetime: Optional[str] = None
+    minutes_to_close: Optional[float] = None
+    closing_soon_reason: str = ""
+    live_game_context: str = ""
+    resolvability: str = ""
     relevance: float = 0.5
     why_relevant: str = ""
     subs: SubScores = field(default_factory=SubScores)
@@ -540,6 +545,11 @@ class PolymarketItem:
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
             'end_date': self.end_date,
+            'end_datetime': self.end_datetime,
+            'minutes_to_close': self.minutes_to_close,
+            'closing_soon_reason': self.closing_soon_reason,
+            'live_game_context': self.live_game_context,
+            'resolvability': self.resolvability,
             'relevance': self.relevance,
             'why_relevant': self.why_relevant,
             'subs': self.subs.to_dict(),
@@ -703,6 +713,11 @@ class MarketWatchItem:
     evidence_refs: List[str] = field(default_factory=list)
     cross_market_note: str = ""
     end_date: Optional[str] = None
+    end_datetime: Optional[str] = None
+    minutes_to_close: Optional[float] = None
+    closing_soon_reason: str = ""
+    live_game_context: str = ""
+    resolvability: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -738,6 +753,11 @@ class MarketWatchItem:
             'evidence_refs': self.evidence_refs,
             'cross_market_note': self.cross_market_note,
             'end_date': self.end_date,
+            'end_datetime': self.end_datetime,
+            'minutes_to_close': self.minutes_to_close,
+            'closing_soon_reason': self.closing_soon_reason,
+            'live_game_context': self.live_game_context,
+            'resolvability': self.resolvability,
         }
 
 
@@ -1128,6 +1148,11 @@ class Report:
                 date_confidence=p.get('date_confidence', 'high'),
                 engagement=eng,
                 end_date=p.get('end_date'),
+                end_datetime=p.get('end_datetime'),
+                minutes_to_close=p.get('minutes_to_close'),
+                closing_soon_reason=p.get('closing_soon_reason', ''),
+                live_game_context=p.get('live_game_context', ''),
+                resolvability=p.get('resolvability', ''),
                 relevance=p.get('relevance', 0.5),
                 why_relevant=p.get('why_relevant', ''),
                 subs=subs,
@@ -1233,6 +1258,11 @@ class Report:
                 evidence_refs=m.get('evidence_refs', []),
                 cross_market_note=m.get('cross_market_note', ''),
                 end_date=m.get('end_date'),
+                end_datetime=m.get('end_datetime'),
+                minutes_to_close=m.get('minutes_to_close'),
+                closing_soon_reason=m.get('closing_soon_reason', ''),
+                live_game_context=m.get('live_game_context', ''),
+                resolvability=m.get('resolvability', ''),
             ))
 
         return cls(

@@ -299,7 +299,15 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "status": "open" if venue in {"kalshi", "polymarket"} else "unknown",
                 "resolution_source": venue if venue in {"kalshi", "polymarket"} else "",
                 "evidence_json": json.dumps({"catalyst_summary": item.get("catalyst_summary", ""), "risk": item.get("risk", "")}, sort_keys=True),
-                "notes_json": json.dumps({"domain": _domain(topic), "paper_only": True, "rank_score": item.get("rank_score")}, sort_keys=True),
+                "notes_json": json.dumps({
+                    "domain": _domain(topic),
+                    "paper_only": True,
+                    "rank_score": item.get("rank_score"),
+                    "minutes_to_close": item.get("minutes_to_close"),
+                    "closing_soon_reason": item.get("closing_soon_reason", ""),
+                    "live_game_context": item.get("live_game_context", ""),
+                    "resolvability": item.get("resolvability", ""),
+                }, sort_keys=True),
                 "skill_version": skill_version,
             })
     return picks

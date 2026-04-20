@@ -26,6 +26,7 @@ _MARKET_WATCHLIST_PATTERNS = re.compile(
     r"\b("
     r"markets?\s+to\s+watch|best\s+[^?]{0,40}\s+markets?|recommend\s+[^?]{0,50}\s+markets?|"
     r"market\s+opportunit(?:y|ies)|market\s+picks?|biggest\s+market\s+moves?|"
+    r"closing\s+soon|live\s+markets?|live\s+(?:sports\s+)?games?|live\s+sports|in-game|ingame|markets?\s+ending\s+soon|settling\s+soon|ending\s+soon|"
     r"interesting\s+(?:polymarket|kalshi|prediction\s+market)[^?]{0,40}\s+markets?|"
     r"(?:polymarket|kalshi)\s+markets?\s+to\s+watch|prediction\s+markets?\s+to\s+watch"
     r")\b",

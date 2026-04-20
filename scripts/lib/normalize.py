@@ -493,6 +493,11 @@ def normalize_polymarket_items(
             date_confidence="high",
             engagement=engagement,
             end_date=item.get("end_date"),
+            end_datetime=item.get("end_datetime"),
+            minutes_to_close=item.get("minutes_to_close"),
+            closing_soon_reason=item.get("closing_soon_reason", ""),
+            live_game_context=item.get("live_game_context", ""),
+            resolvability=item.get("resolvability", ""),
             relevance=item.get("relevance", 0.5),
             why_relevant=item.get("why_relevant", ""),
         ))

@@ -1,4 +1,5 @@
 import math
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -144,6 +145,10 @@ class PaperExtractionTests(unittest.TestCase):
                     "outcome_label": "Yes",
                     "probability": 0.61,
                     "url": "https://polymarket.com/event/ai-coding-market",
+                    "minutes_to_close": 43.0,
+                    "closing_soon_reason": "closing_soon",
+                    "live_game_context": "",
+                    "resolvability": "manual rule check required",
                 },
                 {
                     "venue": "kalshi",
@@ -159,6 +164,10 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(picks[0]["pick_type"], "watchlist")
         self.assertEqual(picks[0]["venue"], "polymarket")
         self.assertIn("ai-coding-market", picks[0]["venue_market_key"])
+        notes = json.loads(picks[0]["notes_json"])
+        self.assertEqual(notes["minutes_to_close"], 43.0)
+        self.assertEqual(notes["closing_soon_reason"], "closing_soon")
+        self.assertEqual(notes["resolvability"], "manual rule check required")
 
     def test_watchlist_json_prefers_balanced_pick_when_top_is_extreme_favorite(self):
         report = {

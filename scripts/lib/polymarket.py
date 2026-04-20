@@ -717,7 +717,8 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
                 pass
 
         # End date for the market
-        end_date = top_market.get("endDate")
+        end_datetime = top_market.get("endDate")
+        end_date = end_datetime
         if end_date:
             try:
                 end_date = end_date[:10]
@@ -820,6 +821,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             "liquidity": liquidity,
             "date": date_str,
             "end_date": end_date,
+            "end_datetime": end_datetime,
             "relevance": round(relevance, 2),
             "why_relevant": f"Prediction market: {title[:60]}",
         })

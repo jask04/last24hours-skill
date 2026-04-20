@@ -490,6 +490,33 @@ def _risk_line(
     return "; ".join(risks) + "."
 
 
+def _has_closing_soon_note(report: schema.Report) -> bool:
+    return any(note == "closing_soon" or note.startswith("live-games:") for note in getattr(report, "planning_notes", []))
+
+
+def _closing_score(minutes_to_close: Optional[float], reason: str) -> float:
+    if minutes_to_close is None:
+        return 0.0
+    minutes = max(0.0, float(minutes_to_close))
+    if minutes <= 60:
+        base = 1.0
+    elif minutes <= 180:
+        base = 0.82
+    elif minutes <= 360:
+        base = 0.62
+    elif minutes <= 720:
+        base = 0.42
+    else:
+        base = 0.12
+    if reason == "live_sports":
+        base += 0.18
+    elif reason == "starting_soon":
+        base += 0.10
+    elif reason == "near_settlement":
+        base += 0.08
+    return min(1.0, base)
+
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     if _is_bad_candidate(report.topic, item):
         return None
@@ -511,6 +538,12 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     evidence_score, catalyst_summary, evidence_refs = _evidence_for_market(report, item)
     cross_score, cross_note = _cross_market_note(item, other_items)
     certainty_penalty = _near_certain_penalty(probability, movement, quality, market_type)
+    closing_mode = _has_closing_soon_note(report)
+    minutes_to_close = getattr(item, "minutes_to_close", None)
+    closing_reason = getattr(item, "closing_soon_reason", "") or ""
+    live_game_context = getattr(item, "live_game_context", "") or ""
+    resolvability = getattr(item, "resolvability", "") or ""
+    closing_signal = _closing_score(minutes_to_close, closing_reason)
     if (
         market_type == "threshold"
         and probability is not None
@@ -518,20 +551,40 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         and not (movement >= 0.35 and quality >= 0.70 and (volume or 0) >= 250_000)
     ):
         return None
-    rank_score = int(max(0, min(100, 100 * (
-        0.40 * quality +
-        0.24 * relevance +
-        0.14 * evidence_score +
-        0.12 * movement +
-        0.06 * spread_quality +
-        0.04 * cross_score -
-        certainty_penalty
-    ))))
+    if closing_mode:
+        rank_score = int(max(0, min(100, 100 * (
+            0.32 * closing_signal +
+            0.22 * quality +
+            0.14 * spread_quality +
+            0.12 * movement +
+            0.10 * evidence_score +
+            0.06 * relevance +
+            0.04 * cross_score -
+            certainty_penalty
+        ))))
+    else:
+        rank_score = int(max(0, min(100, 100 * (
+            0.40 * quality +
+            0.24 * relevance +
+            0.14 * evidence_score +
+            0.12 * movement +
+            0.06 * spread_quality +
+            0.04 * cross_score -
+            certainty_penalty
+        ))))
 
+    if closing_mode and not closing_signal:
+        return None
     if rank_score < 24 and _domain(report.topic) != "broad":
         return None
 
     why_bits = []
+    if closing_reason == "live_sports":
+        why_bits.append("live sports")
+    elif closing_reason == "starting_soon":
+        why_bits.append("starting soon")
+    elif minutes_to_close is not None:
+        why_bits.append("closing soon")
     if spread is not None and spread <= 0.04:
         why_bits.append("tight spread")
     elif spread is not None and spread >= 0.12:
@@ -550,6 +603,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.append("fresh catalyst context")
     if cross_score >= 0.05:
         why_bits.append("cross-market disagreement/alignment signal")
+    if resolvability == "direct_market_resolution":
+        why_bits.append("clear settlement path")
+    elif resolvability:
+        why_bits.append(resolvability.replace("_", " "))
     if not why_bits:
         why_bits.append("best available topic match, but lower-confidence")
     if market_type == "player_prop":
@@ -612,6 +669,11 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         evidence_refs=evidence_refs,
         cross_market_note=cross_note,
         end_date=getattr(item, "end_date", None),
+        end_datetime=getattr(item, "end_datetime", None),
+        minutes_to_close=minutes_to_close,
+        closing_soon_reason=closing_reason,
+        live_game_context=live_game_context,
+        resolvability=resolvability,
     )
 
 
@@ -627,7 +689,18 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         if candidate:
             candidates.append(candidate)
 
-    candidates.sort(key=lambda item: item.rank_score, reverse=True)
+    closing_mode = _has_closing_soon_note(report)
+    if closing_mode:
+        candidates.sort(
+            key=lambda item: (
+                1 if item.closing_soon_reason == "live_sports" else 0,
+                item.rank_score,
+                -(item.minutes_to_close if item.minutes_to_close is not None else 10_000),
+            ),
+            reverse=True,
+        )
+    else:
+        candidates.sort(key=lambda item: item.rank_score, reverse=True)
     results = []
     seen = set()
     for candidate in candidates:

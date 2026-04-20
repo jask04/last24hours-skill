@@ -82,6 +82,26 @@ def save_raw_report(report, source_info: dict, missing_keys: str, topic: str, sa
     return save_path
 
 
+def record_paper_watchlist_picks(report) -> int:
+    """Record the selected watchlist candidates as paper-only ledger picks."""
+    import paper as paper_cli
+
+    payload = report.to_dict()
+    payload["query_type"] = "market_watchlist"
+    picks = [pick for pick in paper_cli.extract_paper_picks(payload) if pick.get("pick_type") == "watchlist"]
+    if not picks:
+        return 0
+    run_id = paper_cli.store.record_paper_run(
+        "paper_watchlist",
+        status="completed",
+        topics_attempted=1,
+        picks_created=len(picks),
+        skill_version=paper_cli._skill_version(),
+    )
+    paper_cli._store_picks(run_id, picks)
+    return len(picks)
+
+
 def parse_search_flag(search_str: str) -> set:
     """Parse and validate the --search flag value.
 
@@ -203,6 +223,7 @@ def _install_global_timeout(timeout_seconds: int):
 from lib import (
     bird_x,
     bluesky,
+    closing_soon,
     truthsocial,
     dates,
     dedupe,
@@ -1938,6 +1959,23 @@ def main():
         metavar="YYYY-MM-DD",
         help="Resolve today/tomorrow relative to this local date. Also available as LAST24HOURS_AS_OF_DATE.",
     )
+    parser.add_argument(
+        "--closing-window-hours",
+        type=int,
+        default=12,
+        metavar="N",
+        help="For closing-soon market watchlists, include markets closing within N hours (default: 12).",
+    )
+    parser.add_argument(
+        "--live-sports",
+        action="store_true",
+        help="Force live/starting-soon sports discovery for market-watchlist scans.",
+    )
+    parser.add_argument(
+        "--paper-watchlist",
+        action="store_true",
+        help="Record selected market-watchlist candidates as paper picks. Does not place trades.",
+    )
 
     args = parser.parse_args()
     args.topic = " ".join(args.topic) if args.topic else None
@@ -2049,6 +2087,10 @@ def main():
         sys.exit(1)
 
     initial_query_type = qt.detect_query_type(args.topic)
+    closing_soon_mode = closing_soon.is_closing_soon_query(args.topic) or args.live_sports
+    if args.paper_watchlist and initial_query_type != "market_watchlist":
+        print("Error: --paper-watchlist only supports market-watchlist runs.", file=sys.stderr)
+        sys.exit(1)
 
     # Initialize progress display with topic
     progress_mode = "market watchlist" if initial_query_type == "market_watchlist" else "forecasting"
@@ -2141,8 +2183,18 @@ def main():
     query_type = initial_query_type
     expanded_schedule_date = None
     search_topics = None
+    live_games = []
+    if closing_soon_mode and (args.live_sports or closing_soon.wants_live_sports(args.topic)):
+        try:
+            live_games = sports_schedule.fetch_live_games()
+        except Exception as e:
+            sys.stderr.write(f"[schedule] live sports discovery failed: {e}\n")
+            sys.stderr.flush()
     if query_type == "market_watchlist":
-        search_topics = market_watchlist.search_topics(args.topic)
+        if closing_soon_mode:
+            search_topics = closing_soon.closing_search_topics(args.topic, live_games)
+        else:
+            search_topics = market_watchlist.search_topics(args.topic)
     elif query_type == "prediction" and sports_schedule.is_nba_slate_query(args.topic):
         try:
             expanded_schedule_date, slate_games = sports_schedule.expand_nba_slate_query(args.topic)
@@ -2193,6 +2245,11 @@ def main():
     )
     if query_type in {"prediction", "market_watchlist"}:
         search_topics = plan.search_topics
+    if closing_soon_mode:
+        if "closing_soon" not in plan.notes:
+            plan.notes.append("closing_soon")
+        if live_games:
+            plan.notes.append(f"live-games:{len(live_games)}")
 
     # Run research
     reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error = run_research(
@@ -2306,6 +2363,22 @@ def main():
     deduped_weather = sorted_weather
     deduped_web = websearch.dedupe_websearch(sorted_web) if sorted_web else []
 
+    if query_type == "market_watchlist" and closing_soon_mode:
+        try:
+            closing_raw_pm = closing_soon.scan_polymarket_closing_soon(
+                args.topic,
+                from_date,
+                to_date,
+                window_hours=max(1, args.closing_window_hours),
+                live_games=live_games,
+            )
+            closing_pm = normalize.normalize_polymarket_items(closing_raw_pm, from_date, to_date)
+            closing_pm = score.score_polymarket_items(closing_pm)
+            combined = closing_pm + deduped_pm
+            deduped_pm = dedupe.dedupe_polymarket(score.sort_items(combined, query_type=query_type))
+        except Exception as e:
+            polymarket_error = f"{polymarket_error}; closing-soon scan failed: {e}" if polymarket_error else f"closing-soon scan failed: {e}"
+
     # Post-retrieval relevance filter: drop low-relevance items per source
     deduped_reddit = score.relevance_filter(deduped_reddit, "REDDIT")
     deduped_x = score.relevance_filter(deduped_x, "X")
@@ -2321,6 +2394,10 @@ def main():
     else:
         deduped_pm = score.relevance_filter(deduped_pm, "POLYMARKET") if deduped_pm else []
         deduped_ka = score.relevance_filter(deduped_ka, "KALSHI") if deduped_ka else []
+    for idx, item in enumerate(deduped_pm, start=1):
+        item.id = f"PM{idx}"
+    for idx, item in enumerate(deduped_ka, start=1):
+        item.id = f"KA{idx}"
 
     # Cross-source linking: annotate items that discuss the same story
     dedupe.cross_source_link(
@@ -2424,6 +2501,10 @@ def main():
 
     # Output result
     output_result(report, args.emit, web_needed, args.topic, from_date, to_date, missing_keys, args.days, source_info)
+
+    if args.paper_watchlist:
+        created = record_paper_watchlist_picks(report)
+        print(f"[paper] Recorded {created} paper watchlist pick(s)", file=sys.stderr)
 
     # Auto-save raw research to file if --save-dir is set
     if args.save_dir:

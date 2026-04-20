@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-04-19
+
+### Added
+- Closing-soon market-watchlist mode for prompts such as `Polymarket markets closing soon`, with near-expiry Polymarket scanning, preserved close datetimes, minutes-to-close ranking, and settlement-rule warnings
+- ESPN-backed live/starting-soon game detection for NBA, MLB, NHL, and NFL, used to search and label matching live sports Polymarket markets
+- `--closing-window-hours`, `--live-sports`, and `--paper-watchlist` flags for narrowing scans, forcing live-game discovery, and recording selected watchlist candidates as paper-only picks
+
+### Changed
+- Market-watchlist output now surfaces close time, minutes to close, liquidity/spread context, live score/status when available, resolvability notes, and a warning to verify fast-moving lines in the Polymarket UI
+- Optional paper-watchlist records store closing-soon reason, minutes to close, live-game context, and resolvability in `notes_json` without changing the SQLite schema
+
 ## [1.0.13] - 2026-04-19
 
 ### Fixed

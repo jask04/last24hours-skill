@@ -56,6 +56,11 @@ class SchemaQueryTests(unittest.TestCase):
                 signal_timestamp="2026-04-11T00:00:00Z",
                 signal_missing_reason="",
                 market_type="macro_binary",
+                end_datetime="2026-04-11T20:00:00Z",
+                minutes_to_close=90.0,
+                closing_soon_reason="closing_soon",
+                live_game_context="",
+                resolvability="manual rule check required",
             )
         ]
         report.kalshi = [
@@ -90,6 +95,10 @@ class SchemaQueryTests(unittest.TestCase):
                 market_type="macro_binary",
                 market_signal_quality=0.5,
                 movement_24h=2.0,
+                end_datetime="2026-04-11T20:00:00Z",
+                minutes_to_close=90.0,
+                closing_soon_reason="closing_soon",
+                resolvability="manual rule check required",
             )
         ]
         report.planning_notes = ["deterministic-plan", "quick-no-entity-resolution"]
@@ -102,6 +111,8 @@ class SchemaQueryTests(unittest.TestCase):
         self.assertEqual(restored.weather[0].probability_pct, 6)
         self.assertEqual(restored.polymarket[0].market_type, "macro_binary")
         self.assertEqual(restored.polymarket[0].spread, 0.01)
+        self.assertEqual(restored.polymarket[0].end_datetime, "2026-04-11T20:00:00Z")
+        self.assertEqual(restored.polymarket[0].minutes_to_close, 90.0)
         self.assertEqual(restored.kalshi[0].market_type, "macro_binary")
         self.assertEqual(restored.forecasts[0].anchor_source, "kalshi")
         self.assertEqual(restored.market_watchlist[0].market_type, "macro_binary")

@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.13"
+version: "1.0.14"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.13: Forecast From the Last 24 Hours
+# last24hours v1.0.14: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -71,12 +71,14 @@ The default job is to answer:
 - What uncertainty matters?
 - What would move the forecast up or down?
 
-For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
+For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, `closing soon`, `live markets`, `live games`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
 - What are the best-ranked markets to monitor for this topic?
 - Which venue and outcome is being surfaced?
 - What exchange-native market signal explains the rank?
 - What catalyst or evidence supports watching it?
 - What risk or uncertainty would change the ranking?
+
+For closing-soon or live-sports watchlist prompts, prioritize near-expiry Polymarket markets and direct live/starting-soon sports game markets. Show close time, minutes to close, liquidity/spread, live game status when available, and settlement-rule warnings. Do not call these bets, do not imply profit, and tell the user to verify fast-moving lines in the Polymarket UI.
 
 ## Core Rule
 
@@ -101,6 +103,12 @@ Treat these as `MARKET_WATCHLIST` prompts:
 - `market opportunities`
 - `market picks`
 - `biggest market moves`
+- `closing soon`
+- `live markets`
+- `live games`
+- `in-game`
+- `markets ending soon`
+- `settling soon`
 - `interesting Polymarket markets`
 - `interesting Kalshi markets`
 

@@ -342,12 +342,32 @@ def _format_market_type(market_type: str) -> str:
     return labels.get(market_type or "unknown", "Market")
 
 
+def _format_close_line(item: schema.MarketWatchItem) -> Optional[str]:
+    parts = []
+    end_value = item.end_datetime or item.end_date
+    if end_value:
+        parts.append(f"close {end_value}")
+    if item.minutes_to_close is not None:
+        minutes = max(0.0, float(item.minutes_to_close))
+        if minutes < 90:
+            parts.append(f"{minutes:.0f} min")
+        else:
+            parts.append(f"{minutes / 60:.1f} hr")
+    if item.closing_soon_reason:
+        parts.append(item.closing_soon_reason.replace("_", " "))
+    if item.resolvability:
+        parts.append(item.resolvability.replace("_", " "))
+    return " | ".join(parts) if parts else None
+
+
 def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     if qt.detect_query_type(report.topic) != "market_watchlist":
         return []
 
     lines = ["### Market Picks To Watch", ""]
     lines.append("*Informational market-monitoring output, not trade execution or allocation advice.*")
+    if any(item.closing_soon_reason for item in report.market_watchlist):
+        lines.append("*Fast-moving markets can reprice before action is possible; verify the displayed line, liquidity, and settlement terms in the Polymarket UI.*")
     lines.append("")
     if not report.market_watchlist:
         lines.append("No high-quality market picks found.")
@@ -359,6 +379,11 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     for item in report.market_watchlist:
         lines.append(f"**{item.id}. {item.title or item.question}**")
         lines.append(f"Pick: {item.venue} {_format_market_type(item.market_type)} - {_format_watch_probability(item)}")
+        close_line = _format_close_line(item)
+        if close_line:
+            lines.append(f"Timing: {close_line}")
+        if item.live_game_context:
+            lines.append(f"Live game: {item.live_game_context}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
         catalyst = item.catalyst_summary or "Catalyst context is thin; ranking is mostly market-signal driven."
@@ -369,7 +394,7 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
         if item.cross_market_note:
             risk += f" {item.cross_market_note}"
         lines.append(f"Risk / what would change it: {risk}")
-        if item.end_date:
+        if item.end_date and not close_line:
             lines.append(f"Expiration: {item.end_date}")
         if item.url:
             lines.append(item.url)
@@ -1396,7 +1421,9 @@ def render_context_snippet(report: schema.Report) -> str:
         lines.append("## Market Watchlist Summary")
         lines.append("")
         for item in report.market_watchlist[:5]:
-            lines.append(f"- {item.id}: {item.title or item.question} - {_format_watch_probability(item)} via {item.venue}")
+            close_line = _format_close_line(item)
+            timing = f" ({close_line})" if close_line else ""
+            lines.append(f"- {item.id}: {item.title or item.question} - {_format_watch_probability(item)} via {item.venue}{timing}")
         lines.append("")
 
     # Key sources summary
@@ -1482,11 +1509,18 @@ def render_full_report(report: schema.Report) -> str:
         lines.append("## Market Picks To Watch")
         lines.append("")
         lines.append("*Informational market-monitoring output, not trade execution or allocation advice.*")
+        if any(item.closing_soon_reason for item in report.market_watchlist):
+            lines.append("*Fast-moving markets can reprice before action is possible; verify the displayed line, liquidity, and settlement terms in the Polymarket UI.*")
         lines.append("")
         for item in report.market_watchlist:
             lines.append(f"### {item.id}: {item.title or item.question}")
             lines.append("")
             lines.append(f"- **Pick:** {item.venue} - {_format_watch_probability(item)}")
+            close_line = _format_close_line(item)
+            if close_line:
+                lines.append(f"- **Timing:** {close_line}")
+            if item.live_game_context:
+                lines.append(f"- **Live game:** {item.live_game_context}")
             lines.append(f"- **Why it ranks:** {item.why_ranks} (rank score {item.rank_score}/100)")
             lines.append(f"- **Market signal:** {item.market_signal}")
             lines.append(f"- **Catalyst / evidence:** {item.catalyst_summary}")
