@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-04-19
+
+### Added
+- Model-implied forecasts now carry a visible degraded-run warning in JSON and compact output when no clean market or official anchor clears matching
+- Paper-ledger calibration summaries now include favorite/longshot mix, average edge from 50%, and probability-bucket groups to make win-rate quality easier to audit
+- Regression coverage for degraded forecast warning rendering and favorite-heavy paper portfolios
+
 ## [1.0.6] - 2026-04-19
 
 ### Fixed

@@ -349,6 +349,11 @@ class CalibrationTests(unittest.TestCase):
         self.assertIn("domain:crypto", summary["groups"])
         self.assertIn("anchor_source:weather_api", summary["groups"])
         self.assertIn("confidence:medium", summary["groups"])
+        self.assertIn("probability_bucket:65-80", summary["groups"])
+        self.assertIn("probability_bucket:0-35", summary["groups"])
+        self.assertAlmostEqual(summary["favorite_pick_rate"], 0.5)
+        self.assertAlmostEqual(summary["longshot_pick_rate"], 0.5)
+        self.assertAlmostEqual(summary["avg_edge_from_50"], 0.25)
 
     def test_suggest_refuses_small_samples(self):
         suggestions = paper.suggestions_from_summary({"count": 24, "groups": {}})
@@ -372,6 +377,20 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(len(suggestions), 1)
         self.assertIn("venue:kalshi", suggestions[0])
         self.assertNotIn("domain:crypto", suggestions[0])
+
+    def test_suggest_flags_favorite_heavy_portfolios(self):
+        summary = {
+            "count": 25,
+            "avg_probability": 0.72,
+            "observed_rate": 0.72,
+            "favorite_pick_rate": 0.76,
+            "groups": {},
+        }
+
+        suggestions = paper.suggestions_from_summary(summary)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertIn("heavily concentrated in favorites", suggestions[0])
 
 
 class LaunchdTests(unittest.TestCase):

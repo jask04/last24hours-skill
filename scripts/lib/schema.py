@@ -639,6 +639,7 @@ class ForecastItem:
     market_view: str = ""
     why_line: str = ""
     uncertainty: str = ""
+    degraded_warning: str = ""
     upside_catalysts: List[str] = field(default_factory=list)
     downside_catalysts: List[str] = field(default_factory=list)
     model_implied: bool = False
@@ -660,6 +661,7 @@ class ForecastItem:
             'market_view': self.market_view,
             'why_line': self.why_line,
             'uncertainty': self.uncertainty,
+            'degraded_warning': self.degraded_warning,
             'upside_catalysts': self.upside_catalysts,
             'downside_catalysts': self.downside_catalysts,
             'model_implied': self.model_implied,
@@ -1190,6 +1192,7 @@ class Report:
                 market_view=f.get('market_view', ''),
                 why_line=f.get('why_line', ''),
                 uncertainty=f.get('uncertainty', ''),
+                degraded_warning=f.get('degraded_warning', ''),
                 upside_catalysts=f.get('upside_catalysts', []),
                 downside_catalysts=f.get('downside_catalysts', []),
                 model_implied=f.get('model_implied', False),

@@ -311,6 +311,8 @@ def _render_forecast_item(item: schema.ForecastItem) -> list[str]:
     lines.append(f"Forecast: {call} {probability_range}")
     market_view = item.market_view or "No clean market view available."
     lines.append(f"Market view: {market_view} [{_anchor_label(item)}]")
+    if item.degraded_warning:
+        lines.append(item.degraded_warning)
     if item.why_line:
         lines.append(f"Why this is the current line: {item.why_line}")
     lines.append(f"Confidence / uncertainty: {item.confidence_level} confidence. {item.uncertainty}")

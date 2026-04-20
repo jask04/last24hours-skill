@@ -83,6 +83,18 @@ def _domain(topic: str) -> str:
     return "broad"
 
 
+def _probability_bucket(probability: float) -> str:
+    if probability < 0.35:
+        return "0-35"
+    if probability < 0.50:
+        return "35-50"
+    if probability < 0.65:
+        return "50-65"
+    if probability < 0.80:
+        return "65-80"
+    return "80-100"
+
+
 def _parse_iso_date(value: Any) -> Optional[datetime.date]:
     if not value:
         return None
@@ -573,6 +585,9 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     avg_prob = sum(float(p.get("model_probability") or 0) for p in resolved) / len(resolved)
     observed = sum(float(p.get("resolution_value") or 0) for p in resolved) / len(resolved)
     clv_values = [float(p["closing_line_value"]) for p in resolved if p.get("closing_line_value") is not None]
+    probabilities = [float(p.get("model_probability") or 0) for p in resolved]
+    favorite_count = sum(1 for probability in probabilities if probability >= 0.70)
+    longshot_count = sum(1 for probability in probabilities if probability <= 0.30)
     groups: Dict[str, Dict[str, Any]] = {}
     for field in ("venue", "anchor_source", "pick_type", "market_type", "confidence"):
         for value in sorted({str(p.get(field) or "unknown") for p in resolved}):
@@ -591,12 +606,23 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
             "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
         }
+    for value in sorted({_probability_bucket(float(p.get("model_probability") or 0)) for p in resolved}):
+        rows = [p for p in resolved if _probability_bucket(float(p.get("model_probability") or 0)) == value]
+        groups[f"probability_bucket:{value}"] = {
+            "count": len(rows),
+            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
+            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
+            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
+        }
     return {
         "count": len(resolved),
         "avg_brier": avg_brier,
         "avg_log_loss": avg_log_loss,
         "avg_probability": avg_prob,
         "observed_rate": observed,
+        "favorite_pick_rate": favorite_count / len(resolved),
+        "longshot_pick_rate": longshot_count / len(resolved),
+        "avg_edge_from_50": sum(abs(probability - 0.50) for probability in probabilities) / len(resolved),
         "avg_closing_line_value": sum(clv_values) / len(clv_values) if clv_values else None,
         "groups": groups,
     }
@@ -610,6 +636,10 @@ def suggestions_from_summary(summary: Dict[str, Any]) -> List[str]:
     if abs(gap) >= 0.05:
         direction = "overconfident" if gap > 0 else "underconfident"
         suggestions.append(f"Global forecasts look {direction} by {abs(gap) * 100:.0f} points across {summary['count']} resolved picks; consider adjusting confidence ranges before changing point probabilities.")
+    if summary.get("favorite_pick_rate", 0) >= 0.70:
+        suggestions.append(
+            f"Paper picks are heavily concentrated in favorites ({summary['favorite_pick_rate'] * 100:.0f}% at 70%+); track win rate alongside Brier/log-loss so the system does not improve by avoiding hard calls."
+        )
     for name, group in sorted(summary.get("groups", {}).items()):
         if group["count"] < 10:
             continue

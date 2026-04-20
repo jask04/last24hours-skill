@@ -845,6 +845,30 @@ def _generic_fallback_why_line(report: schema.Report) -> str:
     return "Mostly market-driven right now; supporting evidence is thin."
 
 
+def _degraded_forecast_warning(report: schema.Report) -> str:
+    topic = report.topic
+    topic_spec = _threshold_spec(topic)
+    if topic_spec.threshold is not None:
+        return (
+            "DEGRADED RUN WARNING: no threshold-compatible Polymarket/Kalshi market "
+            "cleared anchoring, so this is a lower-confidence model-implied forecast."
+        )
+    if _is_weather_query(topic):
+        return (
+            "DEGRADED RUN WARNING: no clean market or official weather anchor cleared, "
+            "so this is a lower-confidence model-implied forecast."
+        )
+    if _is_macro_query(topic):
+        return (
+            "DEGRADED RUN WARNING: no clean Fed/macro market cleared anchoring, so this "
+            "is a lower-confidence model-implied forecast."
+        )
+    return (
+        "DEGRADED RUN WARNING: no clean Polymarket/Kalshi market cleared anchoring, "
+        "so this is a lower-confidence model-implied forecast."
+    )
+
+
 def _sports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str) -> tuple[list[str], list[str]]:
     favorite = favorite_label or "the favorite"
     if favorite.lower() in {"yes", "no"}:
@@ -1007,6 +1031,7 @@ def _build_forecast_item(
         forecast.forecast_range_high = high
         forecast.anchor_source = "model_implied"
         forecast.market_view = "No clean Polymarket or Kalshi market found."
+        forecast.degraded_warning = _degraded_forecast_warning(report)
         forecast.confidence_level = _confidence_label(None, 0.0, evidence_count, has_market=False)
         forecast.uncertainty = _uncertainty_text(forecast.confidence_level, None, False, False, evidence_count)
 

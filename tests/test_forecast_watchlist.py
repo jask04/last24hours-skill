@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.lib import forecast, market_watchlist, schema
+from scripts.lib import forecast, market_watchlist, render, schema
 
 
 def _report(topic: str) -> schema.Report:
@@ -128,6 +128,9 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIsNone(forecasts[0].kalshi_market_id)
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
         self.assertLess(forecasts[0].forecast_probability, 0.20)
+        self.assertIn("DEGRADED RUN WARNING", forecasts[0].degraded_warning)
+        report.forecasts = forecasts
+        self.assertIn("DEGRADED RUN WARNING", render.render_compact(report))
 
     def test_crypto_threshold_forecast_keeps_matching_threshold_market(self):
         report = _report("Bitcoin above 100k this week")
