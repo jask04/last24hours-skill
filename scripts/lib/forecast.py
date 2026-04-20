@@ -108,6 +108,25 @@ def _top_polymarket_probability(item: schema.PolymarketItem) -> tuple[Optional[s
     return label, ordered[0][1]
 
 
+def _polymarket_probability_for_topic(
+    item: schema.PolymarketItem,
+    topic: str,
+) -> tuple[Optional[str], Optional[float]]:
+    """Return the probability for the requested event side when identifiable."""
+    topic_spec = _threshold_spec(topic)
+    market_spec = _threshold_spec(f"{item.title} {item.question}")
+    if (
+        item.outcome_prices
+        and topic_spec.direction in {"above", "below"}
+        and market_spec.direction in {"above", "below"}
+        and topic_spec.direction == market_spec.direction
+    ):
+        for label, probability in item.outcome_prices:
+            if str(label).strip().lower() == "yes":
+                return "Yes", probability
+    return _top_polymarket_probability(item)
+
+
 def _topic_tokens(topic: str) -> set[str]:
     stop = {"will", "the", "for", "and", "today", "tomorrow", "tonight", "odds", "probability"}
     return {
@@ -699,7 +718,38 @@ def _evidence_has_conflict(candidates: list[_EvidenceCandidate], favorite_label:
     return favorite_support and opposing_support
 
 
+def _context_threshold_reference(report: schema.Report, threshold: float) -> Optional[float]:
+    values: list[float] = []
+    for item in list(report.polymarket) + list(report.kalshi):
+        values.extend(_threshold_numbers(f"{getattr(item, 'title', '')} {getattr(item, 'question', '')}"))
+    for item in list(report.x[:8]) + list(report.reddit[:5]) + list(report.web[:5]):
+        values.extend(_threshold_numbers(f"{getattr(item, 'title', '')} {getattr(item, 'content', '')} {getattr(item, 'summary', '')}"))
+    plausible = [value for value in values if 1_000 <= value < threshold * 0.98]
+    return max(plausible) if plausible else None
+
+
 def _model_implied_range(report: schema.Report) -> tuple[float, float]:
+    topic_spec = _threshold_spec(report.topic)
+    if topic_spec.entity in _CRYPTO_ENTITY_ALIASES and topic_spec.direction == "above" and topic_spec.threshold:
+        reference = _context_threshold_reference(report, topic_spec.threshold)
+        ratio = (topic_spec.threshold / reference) if reference else None
+        if topic_spec.window == "this_week":
+            if ratio and ratio >= 1.30:
+                return 0.03, 0.12
+            if ratio and ratio >= 1.20:
+                return 0.05, 0.18
+            if ratio and ratio >= 1.10:
+                return 0.12, 0.32
+            return 0.08, 0.25
+        if topic_spec.window == "this_month":
+            if ratio and ratio >= 1.30:
+                return 0.08, 0.22
+            if ratio and ratio >= 1.20:
+                return 0.12, 0.30
+    if topic_spec.entity in _CRYPTO_ENTITY_ALIASES and topic_spec.direction == "below" and topic_spec.threshold:
+        reference = _context_threshold_reference(report, topic_spec.threshold * 2)
+        if reference and reference / topic_spec.threshold >= 1.20 and topic_spec.window == "this_week":
+            return 0.05, 0.18
     evidence_count = len(report.x[:5]) + len(report.reddit[:5]) + len(report.web[:5])
     if evidence_count >= 5:
         return 0.48, 0.58
@@ -847,7 +897,7 @@ def _build_forecast_item(
 
     poly_label, poly_probability = (None, None)
     if polymarket_item:
-        poly_label, poly_probability = _top_polymarket_probability(polymarket_item)
+        poly_label, poly_probability = _polymarket_probability_for_topic(polymarket_item, report.topic)
     kalshi_probability = kalshi_item.current_probability if kalshi_item else None
     weather_item, weather_probability = _weather_probability(report)
 

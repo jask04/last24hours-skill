@@ -127,6 +127,7 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIsNone(forecasts[0].polymarket_market_id)
         self.assertIsNone(forecasts[0].kalshi_market_id)
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
+        self.assertLess(forecasts[0].forecast_probability, 0.20)
 
     def test_crypto_threshold_forecast_keeps_matching_threshold_market(self):
         report = _report("Bitcoin above 100k this week")
@@ -148,7 +149,8 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(forecasts[0].polymarket_market_id, "PM1")
         self.assertEqual(forecasts[0].anchor_source, "polymarket")
-        self.assertAlmostEqual(forecasts[0].forecast_probability, 0.78)
+        self.assertEqual(forecasts[0].favorite_label, "Yes")
+        self.assertAlmostEqual(forecasts[0].forecast_probability, 0.22)
 
     def test_crypto_threshold_forecast_does_not_blend_incompatible_kalshi_market(self):
         report = _report("Bitcoin above 100k this week")

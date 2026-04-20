@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-04-19
+
+### Fixed
+- Crypto threshold forecasts now use the requested Yes side for compatible Yes/No threshold markets instead of blindly taking the highest-priced outcome
+- Extreme near-term crypto threshold forecasts without a clean market now fall back to a lower model-implied range instead of a neutral 50/50-style estimate
+
 ## [1.0.5] - 2026-04-19
 
 ### Added
