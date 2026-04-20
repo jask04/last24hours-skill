@@ -57,6 +57,11 @@ class LiveGame:
     start_time: str
     status_state: str
     status_detail: str
+    event_id: str = ""
+    home_short_name: str = ""
+    away_short_name: str = ""
+    home_abbreviation: str = ""
+    away_abbreviation: str = ""
     period: int = 0
     clock: str = ""
     home_score: Optional[int] = None
@@ -73,6 +78,37 @@ class LiveGame:
             score = f"; {self.away_team} {self.away_score}, {self.home_team} {self.home_score}"
         clock = f"; period {self.period} {self.clock}".strip() if self.period or self.clock else ""
         return f"{self.league.upper()} {self.status_detail}{score}{clock}".strip()
+
+    @property
+    def live_search_aliases(self) -> List[str]:
+        """Return Polymarket search terms for direct live game matching."""
+        pairs = [
+            (self.away_team, self.home_team),
+            (self.home_team, self.away_team),
+            (self.away_short_name, self.home_short_name),
+            (self.home_short_name, self.away_short_name),
+            (self.away_abbreviation, self.home_abbreviation),
+            (self.home_abbreviation, self.away_abbreviation),
+        ]
+        aliases: List[str] = []
+        for left, right in pairs:
+            left = (left or "").strip()
+            right = (right or "").strip()
+            if left and right and left.lower() != right.lower():
+                aliases.extend([
+                    f"{left} at {right}",
+                    f"{left} vs {right}",
+                    f"{self.league.upper()} {left} {right}",
+                ])
+        seen = set()
+        result = []
+        for alias in [self.matchup, *aliases]:
+            normalized = " ".join(alias.split())
+            key = normalized.lower()
+            if normalized and key not in seen:
+                result.append(normalized)
+                seen.add(key)
+        return result
 
 
 def _parse_espn_time(value: str) -> Optional[datetime]:
@@ -92,6 +128,15 @@ def _score_int(value) -> Optional[int]:
         return None
 
 
+def _team_value(competitor: dict, *keys: str) -> str:
+    team = competitor.get("team") or {}
+    for key in keys:
+        value = team.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
 def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_within_minutes: int) -> Optional[LiveGame]:
     comp = (event.get("competitions") or [{}])[0]
     status = comp.get("status") or event.get("status") or {}
@@ -108,8 +153,8 @@ def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_withi
     competitors = comp.get("competitors") or []
     home = next((c for c in competitors if c.get("homeAway") == "home"), {})
     away = next((c for c in competitors if c.get("homeAway") == "away"), {})
-    home_team = ((home.get("team") or {}).get("displayName") or "").strip()
-    away_team = ((away.get("team") or {}).get("displayName") or "").strip()
+    home_team = _team_value(home, "displayName", "name", "shortDisplayName")
+    away_team = _team_value(away, "displayName", "name", "shortDisplayName")
     matchup = event.get("name") or (f"{away_team} at {home_team}" if away_team and home_team else "")
     if not matchup:
         return None
@@ -121,6 +166,11 @@ def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_withi
         start_time=event.get("date", ""),
         status_state="in" if state == "in" else "pre",
         status_detail=status_type.get("detail") or status_type.get("shortDetail") or status_type.get("description") or ("Live" if state == "in" else "Starting soon"),
+        event_id=str(event.get("id") or ""),
+        home_short_name=_team_value(home, "shortDisplayName", "name", "displayName"),
+        away_short_name=_team_value(away, "shortDisplayName", "name", "displayName"),
+        home_abbreviation=_team_value(home, "abbreviation"),
+        away_abbreviation=_team_value(away, "abbreviation"),
         period=int(status.get("period") or 0),
         clock=str(status.get("displayClock") or ""),
         home_score=_score_int(home.get("score")),
@@ -183,7 +233,10 @@ def fetch_live_games(
         base = ESPN_SCOREBOARD_URLS.get(league)
         if not base:
             continue
-        data = http.get(f"{base}?dates={date_yyyymmdd}", timeout=15, retries=2)
+        try:
+            data = http.get(f"{base}?dates={date_yyyymmdd}", timeout=5, retries=1)
+        except Exception:
+            continue
         for event in data.get("events", []):
             parsed = _parse_live_game(league, event, now_utc, starting_within_minutes)
             if parsed:

@@ -1,4 +1,4 @@
-# /last24hours v1.0.14
+# /last24hours v1.0.15
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -10,7 +10,7 @@ When no clean market or official source can anchor a forecast, the output now ma
 
 Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
 
-Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Fast-moving lines must be verified in the Polymarket UI before relying on them.
+Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Live-sports scans only surface direct matching game-outcome markets; series, futures, totals, props, and wrong-matchup markets are rejected with diagnostics. Fast-moving lines must be verified in the Polymarket UI before relying on them.
 
 Paper forecast tracking is available for calibration work. The paper ledger records hypothetical daily forecasts, resolves them later when public market outcomes are available, scores calibration, tracks whether the portfolio is leaning on easy favorites or longshots, and prints suggested system improvements for review. New paper records include the skill version so calibration can be compared across forecast-engine changes. It does not place trades, size positions, recommend stakes, or automatically change forecast weights.
 
@@ -297,7 +297,7 @@ The ranker combines:
 
 Kalshi watchlist candidates are enriched with public batch candlesticks when available to estimate 24h movement, 24h volume, latest open interest, and signal timestamps. For high-value domains such as NBA, Fed/rates, and BTC/ETH, the Kalshi path also checks direct series/event markets so the first page of generic multigame markets does not hide relevant contracts. Polymarket candidates normalize public Gamma market fields such as 24h volume, liquidity, one-day movement, and bid/ask or spread fields when present. Missing enrichment does not drop a market; it is reflected in the market signal and risk note.
 
-Closing-soon scans use Polymarket Gamma `public-search` seeds for daily, today/tomorrow, crypto daily/hourly, weather daily, and live sports matchup terms. They filter closed, inactive, expired, no-liquidity, and effectively settled one-tick markets by default. Live sports discovery uses ESPN public scoreboards for NBA, MLB, NHL, and NFL, then labels only direct game-outcome markets that match the live or starting-soon matchup.
+Closing-soon scans use Polymarket Gamma `public-search` seeds for daily, today/tomorrow, crypto daily/hourly, weather daily, and live sports matchup terms. They filter closed, inactive, expired, no-liquidity, and effectively settled one-tick markets by default. Live sports discovery uses ESPN public scoreboards for NBA, MLB, NHL, and NFL, searches with full team names, short names, abbreviations, reversed matchups, and league-prefixed aliases, then labels only direct game-outcome markets that match the live or starting-soon matchup.
 
 When a Kalshi candidate is within range of the watchlist cutoff, the renderer may include it for venue coverage rather than returning an all-Polymarket list. Weak or poorly matched Kalshi rows are still suppressed.
 

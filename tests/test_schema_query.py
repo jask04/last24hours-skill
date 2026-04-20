@@ -60,6 +60,9 @@ class SchemaQueryTests(unittest.TestCase):
                 minutes_to_close=90.0,
                 closing_soon_reason="closing_soon",
                 live_game_context="",
+                live_game_league="",
+                live_match_confidence=None,
+                live_match_reason="",
                 resolvability="manual rule check required",
             )
         ]
@@ -98,6 +101,9 @@ class SchemaQueryTests(unittest.TestCase):
                 end_datetime="2026-04-11T20:00:00Z",
                 minutes_to_close=90.0,
                 closing_soon_reason="closing_soon",
+                live_game_league="nba",
+                live_match_confidence=0.85,
+                live_match_reason="direct_match",
                 resolvability="manual rule check required",
             )
         ]
@@ -116,6 +122,9 @@ class SchemaQueryTests(unittest.TestCase):
         self.assertEqual(restored.kalshi[0].market_type, "macro_binary")
         self.assertEqual(restored.forecasts[0].anchor_source, "kalshi")
         self.assertEqual(restored.market_watchlist[0].market_type, "macro_binary")
+        self.assertEqual(restored.market_watchlist[0].live_game_league, "nba")
+        self.assertEqual(restored.market_watchlist[0].live_match_confidence, 0.85)
+        self.assertEqual(restored.market_watchlist[0].live_match_reason, "direct_match")
         self.assertEqual(restored.planned_queries[0], "NYC rain tomorrow")
         self.assertEqual(restored.evidence_fusion_stats["driver_count"], 1)
 

@@ -2184,10 +2184,14 @@ def main():
     expanded_schedule_date = None
     search_topics = None
     live_games = []
-    if closing_soon_mode and (args.live_sports or closing_soon.wants_live_sports(args.topic)):
+    live_sports_mode = closing_soon_mode and (args.live_sports or closing_soon.wants_live_sports(args.topic))
+    live_closing_diagnostics = {}
+    live_games_error = ""
+    if live_sports_mode:
         try:
             live_games = sports_schedule.fetch_live_games()
         except Exception as e:
+            live_games_error = str(e)
             sys.stderr.write(f"[schedule] live sports discovery failed: {e}\n")
             sys.stderr.flush()
     if query_type == "market_watchlist":
@@ -2249,8 +2253,12 @@ def main():
         search_topics = closing_soon.closing_search_topics(args.topic, live_games)
         if "closing_soon" not in plan.notes:
             plan.notes.append("closing_soon")
-        if live_games:
+        if live_sports_mode:
             plan.notes.append(f"live-games:{len(live_games)}")
+            plan.notes.append(f"live-games-in:{sum(1 for game in live_games if game.is_live)}")
+            plan.notes.append(f"live-games-pre:{sum(1 for game in live_games if not game.is_live)}")
+            if live_games_error:
+                plan.notes.append("live-games-error")
 
     # Run research
     reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error = run_research(
@@ -2366,17 +2374,34 @@ def main():
 
     if query_type == "market_watchlist" and closing_soon_mode:
         try:
-            closing_raw_pm = closing_soon.scan_polymarket_closing_soon(
-                args.topic,
-                from_date,
-                to_date,
-                window_hours=max(1, args.closing_window_hours),
-                live_games=live_games,
-            )
+            if live_sports_mode and not live_games:
+                closing_raw_pm = []
+                live_closing_diagnostics = {
+                    "live_games": 0,
+                    "live_games_live": 0,
+                    "live_games_starting_soon": 0,
+                    "live_polymarket_matches": 0,
+                    "live_reject_reasons": {},
+                }
+            else:
+                closing_raw_pm = closing_soon.scan_polymarket_closing_soon(
+                    args.topic,
+                    from_date,
+                    to_date,
+                    window_hours=max(1, args.closing_window_hours),
+                    live_games=live_games,
+                    diagnostics=live_closing_diagnostics,
+                )
             closing_pm = normalize.normalize_polymarket_items(closing_raw_pm, from_date, to_date)
             closing_pm = score.score_polymarket_items(closing_pm)
-            combined = closing_pm + deduped_pm
+            combined = closing_pm if live_sports_mode else closing_pm + deduped_pm
             deduped_pm = dedupe.dedupe_polymarket(score.sort_items(combined, query_type=query_type))
+            if live_sports_mode:
+                plan.notes.append(f"live-polymarket-matches:{live_closing_diagnostics.get('live_polymarket_matches', 0)}")
+                reject_counts = live_closing_diagnostics.get("live_reject_reasons") or {}
+                if reject_counts:
+                    reject_note = ",".join(f"{key}={value}" for key, value in sorted(reject_counts.items()))
+                    plan.notes.append(f"live-rejects:{reject_note}")
         except Exception as e:
             polymarket_error = f"{polymarket_error}; closing-soon scan failed: {e}" if polymarket_error else f"closing-soon scan failed: {e}"
 

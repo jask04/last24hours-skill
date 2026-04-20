@@ -147,7 +147,10 @@ class PaperExtractionTests(unittest.TestCase):
                     "url": "https://polymarket.com/event/ai-coding-market",
                     "minutes_to_close": 43.0,
                     "closing_soon_reason": "closing_soon",
-                    "live_game_context": "",
+                    "live_game_context": "NBA 3rd Quarter; Lakers 78, Rockets 82",
+                    "live_game_league": "nba",
+                    "live_match_confidence": 0.85,
+                    "live_match_reason": "direct_match",
                     "resolvability": "manual rule check required",
                 },
                 {
@@ -167,6 +170,9 @@ class PaperExtractionTests(unittest.TestCase):
         notes = json.loads(picks[0]["notes_json"])
         self.assertEqual(notes["minutes_to_close"], 43.0)
         self.assertEqual(notes["closing_soon_reason"], "closing_soon")
+        self.assertEqual(notes["live_game_league"], "nba")
+        self.assertEqual(notes["live_match_confidence"], 0.85)
+        self.assertEqual(notes["live_match_reason"], "direct_match")
         self.assertEqual(notes["resolvability"], "manual rule check required")
 
     def test_watchlist_json_prefers_balanced_pick_when_top_is_extreme_favorite(self):

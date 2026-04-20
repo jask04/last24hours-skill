@@ -361,6 +361,16 @@ def _format_close_line(item: schema.MarketWatchItem) -> Optional[str]:
     return " | ".join(parts) if parts else None
 
 
+def _planning_note_int(report: schema.Report, prefix: str) -> Optional[int]:
+    for note in getattr(report, "planning_notes", []):
+        if note.startswith(prefix):
+            try:
+                return int(note.split(":", 1)[1])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
 def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     if qt.detect_query_type(report.topic) != "market_watchlist":
         return []
@@ -372,8 +382,15 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     lines.append("")
     if not report.market_watchlist:
         lines.append("No high-quality market picks found.")
-        if any(note.startswith("live-games:") for note in getattr(report, "planning_notes", [])):
-            lines.append("Live-sports filter: ESPN found live or starting-soon games, but no direct matching Polymarket game-outcome market cleared the scanner.")
+        live_games_count = _planning_note_int(report, "live-games:")
+        live_matches_count = _planning_note_int(report, "live-polymarket-matches:")
+        if "live-games-error" in getattr(report, "planning_notes", []):
+            lines.append("Live-sports filter: ESPN live-game discovery was unavailable or timed out, so no live Polymarket game scan was trusted.")
+        elif live_games_count == 0:
+            lines.append("Live-sports filter: ESPN found no live or starting-soon NBA/MLB/NHL/NFL games for this run.")
+        elif live_games_count is not None:
+            matched = live_matches_count or 0
+            lines.append(f"Live-sports filter: ESPN found {live_games_count} live/starting-soon game(s), but only {matched} direct matching Polymarket game-outcome market(s) cleared the scanner.")
         elif "closing_soon" in getattr(report, "planning_notes", []):
             lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
         else:
@@ -390,6 +407,9 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             lines.append(f"Timing: {close_line}")
         if item.live_game_context:
             lines.append(f"Live game: {item.live_game_context}")
+        if item.live_match_reason:
+            confidence = f" ({item.live_match_confidence:.0%})" if item.live_match_confidence is not None else ""
+            lines.append(f"Live match: {item.live_match_reason.replace('_', ' ')}{confidence}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
         catalyst = item.catalyst_summary or "Catalyst context is thin; ranking is mostly market-signal driven."

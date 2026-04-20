@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.15] - 2026-04-19
+
+### Changed
+- Live-sports closing-soon scans now use ESPN team abbreviations, short names, full matchups, reversed matchups, and league-prefixed aliases when searching Polymarket
+- Live-sports watchlists now return only direct matching game-outcome markets; series markets, futures, total-games props, player props, and wrong-matchup markets are rejected with diagnostics
+- No-match live-sports output now distinguishes no live ESPN games from live games with no direct Polymarket game-outcome match
+- Watchlist JSON and optional paper-watchlist notes now include live league, match confidence, and match reason for live sports candidates
+
 ## [1.0.14] - 2026-04-19
 
 ### Added

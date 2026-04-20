@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 from . import dates, market_types, polymarket, sports_schedule
 
@@ -71,8 +72,11 @@ def closing_search_topics(topic: str, live_games: Iterable[sports_schedule.LiveG
     if "weather" in lowered or "temperature" in lowered:
         seeds.extend([f"temperature {local_today.strftime('%B %-d')}", f"temperature {tomorrow.strftime('%B %-d')}"])
     for game in live_games:
-        seeds.append(game.matchup)
-        seeds.append(f"{game.league} {game.matchup}")
+        for alias in game.live_search_aliases:
+            seeds.append(alias)
+            seeds.append(f"{game.league} {alias}")
+        if game.start_time:
+            seeds.append(f"{game.league} {game.away_abbreviation} {game.home_abbreviation} {game.start_time[:10]}")
     sports_topic = any(term in lowered for term in ("sports", "nba", "mlb", "nhl", "nfl", "game", "games"))
     if sports_topic and not live_games:
         seeds.extend(["NBA today", "MLB today", "NHL today", "NFL today"])
@@ -110,13 +114,74 @@ def _resolvability(item: dict) -> str:
     return "manual rule check required"
 
 
-def _match_live_game(item: dict, live_games: Iterable[sports_schedule.LiveGame]) -> Optional[sports_schedule.LiveGame]:
-    text = f"{item.get('title','')} {item.get('question','')}".lower()
+def _clean_token_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+
+
+def _team_aliases(game: sports_schedule.LiveGame, side: str) -> List[str]:
+    if side == "home":
+        values = [game.home_team, game.home_short_name, game.home_abbreviation]
+    else:
+        values = [game.away_team, game.away_short_name, game.away_abbreviation]
+    aliases = []
+    for value in values:
+        normalized = " ".join(_clean_token_text(value).split())
+        if normalized and normalized not in aliases:
+            aliases.append(normalized)
+    return aliases
+
+
+def _contains_alias(text: str, aliases: List[str]) -> bool:
+    padded = f" {_clean_token_text(text)} "
+    tokens = set(padded.split())
+    for alias in aliases:
+        alias = " ".join(_clean_token_text(alias).split())
+        if not alias:
+            continue
+        if len(alias) <= 3:
+            if alias in tokens:
+                return True
+        elif f" {alias} " in padded:
+            return True
+        else:
+            parts = [part for part in alias.split() if len(part) > 3]
+            if parts and any(part in tokens for part in parts):
+                return True
+    return False
+
+
+def _match_live_game(item: dict, live_games: Iterable[sports_schedule.LiveGame]) -> Tuple[Optional[sports_schedule.LiveGame], float, str]:
+    text = f"{item.get('title','')} {item.get('question','')} {item.get('url','')}"
     for game in live_games:
-        teams = [game.home_team.lower(), game.away_team.lower()]
-        if all(team and (team in text or any(part in text for part in team.split() if len(part) > 3)) for team in teams):
-            return game
-    return None
+        home_aliases = _team_aliases(game, "home")
+        away_aliases = _team_aliases(game, "away")
+        home_match = _contains_alias(text, home_aliases)
+        away_match = _contains_alias(text, away_aliases)
+        if home_match and away_match:
+            exact_names = (
+                _clean_token_text(game.home_team) in _clean_token_text(text)
+                and _clean_token_text(game.away_team) in _clean_token_text(text)
+            )
+            exact_abbr = bool(game.home_abbreviation and game.away_abbreviation and _contains_alias(text, [game.home_abbreviation]) and _contains_alias(text, [game.away_abbreviation]))
+            confidence = 0.95 if exact_names else 0.85 if exact_abbr else 0.72
+            return game, confidence, "direct_match"
+    return None, 0.0, "no_live_game_match"
+
+
+def _sports_reject_reason(item: dict, market_type: str, live_games: Iterable[sports_schedule.LiveGame]) -> str:
+    text = f"{item.get('title','')} {item.get('question','')} {item.get('url','')}".lower()
+    if "total games" in text or "games o/u" in text:
+        return "total_games_prop"
+    if "series" in text or "who will win series" in text:
+        return "series_market"
+    if market_type == "futures":
+        return "series_market"
+    if market_type in {"player_prop", "team_prop"}:
+        return market_type
+    live_match, _, reason = _match_live_game(item, live_games)
+    if not live_match:
+        return "wrong_matchup" if (" vs" in text or " at " in text) else reason
+    return "not_direct_game_outcome"
 
 
 def _closing_score(item: dict, minutes: float, live_match: Optional[sports_schedule.LiveGame], window_minutes: int) -> float:
@@ -140,9 +205,12 @@ def scan_polymarket_closing_soon(
     live_games: Optional[List[sports_schedule.LiveGame]] = None,
     include_effectively_settled: bool = False,
     now: Optional[datetime] = None,
+    diagnostics: Optional[dict] = None,
 ) -> List[dict]:
     """Return normalized raw Polymarket dicts for near-expiry/live markets."""
     live_games = live_games or []
+    live_only = bool(live_games) and wants_live_sports(topic)
+    reject_counts: Counter[str] = Counter()
     local_now = _now_local(now)
     now_utc = local_now.astimezone(timezone.utc)
     window_minutes = int(window_hours * 60)
@@ -161,7 +229,19 @@ def scan_polymarket_closing_soon(
             continue
         minutes = (end_dt - now_utc).total_seconds() / 60.0
         market_type = market_types.classify_market(item.get("title", ""), item.get("question", ""), item.get("url", ""))
-        live_match = _match_live_game(item, live_games) if market_type == "game_outcome" else None
+        live_match = None
+        live_confidence = 0.0
+        live_reason = ""
+        if live_games:
+            if market_type == "game_outcome":
+                live_match, live_confidence, live_reason = _match_live_game(item, live_games)
+                if live_only and not live_match:
+                    text = f"{item.get('title','')} {item.get('question','')}".lower()
+                    reject_counts["wrong_matchup" if (" vs" in text or " at " in text) else (live_reason or "no_live_game_match")] += 1
+                    continue
+            elif live_only:
+                reject_counts[_sports_reject_reason(item, market_type, live_games)] += 1
+                continue
         if minutes < 0:
             continue
         if minutes > window_minutes and not live_match:
@@ -175,9 +255,18 @@ def scan_polymarket_closing_soon(
         item["minutes_to_close"] = round(minutes, 1)
         item["closing_soon_reason"] = reason
         item["live_game_context"] = live_match.context if live_match else ""
+        item["live_game_league"] = live_match.league if live_match else ""
+        item["live_match_confidence"] = round(live_confidence, 2) if live_match else None
+        item["live_match_reason"] = live_reason if live_match else ""
         item["resolvability"] = _resolvability(item)
         item["relevance"] = max(float(item.get("relevance") or 0.0), min(1.0, _closing_score(item, minutes, live_match, window_minutes) / 100.0))
         item["_closing_rank"] = _closing_score(item, minutes, live_match, window_minutes)
         candidates.append(item)
     candidates.sort(key=lambda item: item.get("_closing_rank", 0), reverse=True)
+    if diagnostics is not None:
+        diagnostics["live_games"] = len(live_games)
+        diagnostics["live_games_live"] = sum(1 for game in live_games if game.is_live)
+        diagnostics["live_games_starting_soon"] = sum(1 for game in live_games if not game.is_live)
+        diagnostics["live_polymarket_matches"] = sum(1 for item in candidates if item.get("closing_soon_reason") in {"live_sports", "starting_soon"})
+        diagnostics["live_reject_reasons"] = dict(sorted(reject_counts.items()))
     return candidates[:25]

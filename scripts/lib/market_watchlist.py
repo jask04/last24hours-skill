@@ -542,6 +542,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     minutes_to_close = getattr(item, "minutes_to_close", None)
     closing_reason = getattr(item, "closing_soon_reason", "") or ""
     live_game_context = getattr(item, "live_game_context", "") or ""
+    live_game_league = getattr(item, "live_game_league", "") or ""
+    live_match_confidence = getattr(item, "live_match_confidence", None)
+    live_match_reason = getattr(item, "live_match_reason", "") or ""
     resolvability = getattr(item, "resolvability", "") or ""
     closing_signal = _closing_score(minutes_to_close, closing_reason)
     if (
@@ -673,6 +676,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         minutes_to_close=minutes_to_close,
         closing_soon_reason=closing_reason,
         live_game_context=live_game_context,
+        live_game_league=live_game_league,
+        live_match_confidence=live_match_confidence,
+        live_match_reason=live_match_reason,
         resolvability=resolvability,
     )
 
@@ -693,7 +699,7 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
     if closing_mode:
         candidates.sort(
             key=lambda item: (
-                1 if item.closing_soon_reason == "live_sports" else 0,
+                2 if item.closing_soon_reason == "live_sports" else 1 if item.closing_soon_reason == "starting_soon" else 0,
                 item.rank_score,
                 -(item.minutes_to_close if item.minutes_to_close is not None else 10_000),
             ),

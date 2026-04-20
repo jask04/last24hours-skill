@@ -513,6 +513,9 @@ class PolymarketItem:
     minutes_to_close: Optional[float] = None
     closing_soon_reason: str = ""
     live_game_context: str = ""
+    live_game_league: str = ""
+    live_match_confidence: Optional[float] = None
+    live_match_reason: str = ""
     resolvability: str = ""
     relevance: float = 0.5
     why_relevant: str = ""
@@ -549,6 +552,9 @@ class PolymarketItem:
             'minutes_to_close': self.minutes_to_close,
             'closing_soon_reason': self.closing_soon_reason,
             'live_game_context': self.live_game_context,
+            'live_game_league': self.live_game_league,
+            'live_match_confidence': self.live_match_confidence,
+            'live_match_reason': self.live_match_reason,
             'resolvability': self.resolvability,
             'relevance': self.relevance,
             'why_relevant': self.why_relevant,
@@ -717,6 +723,9 @@ class MarketWatchItem:
     minutes_to_close: Optional[float] = None
     closing_soon_reason: str = ""
     live_game_context: str = ""
+    live_game_league: str = ""
+    live_match_confidence: Optional[float] = None
+    live_match_reason: str = ""
     resolvability: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -757,6 +766,9 @@ class MarketWatchItem:
             'minutes_to_close': self.minutes_to_close,
             'closing_soon_reason': self.closing_soon_reason,
             'live_game_context': self.live_game_context,
+            'live_game_league': self.live_game_league,
+            'live_match_confidence': self.live_match_confidence,
+            'live_match_reason': self.live_match_reason,
             'resolvability': self.resolvability,
         }
 
@@ -1152,6 +1164,9 @@ class Report:
                 minutes_to_close=p.get('minutes_to_close'),
                 closing_soon_reason=p.get('closing_soon_reason', ''),
                 live_game_context=p.get('live_game_context', ''),
+                live_game_league=p.get('live_game_league', ''),
+                live_match_confidence=p.get('live_match_confidence'),
+                live_match_reason=p.get('live_match_reason', ''),
                 resolvability=p.get('resolvability', ''),
                 relevance=p.get('relevance', 0.5),
                 why_relevant=p.get('why_relevant', ''),
@@ -1262,6 +1277,9 @@ class Report:
                 minutes_to_close=m.get('minutes_to_close'),
                 closing_soon_reason=m.get('closing_soon_reason', ''),
                 live_game_context=m.get('live_game_context', ''),
+                live_game_league=m.get('live_game_league', ''),
+                live_match_confidence=m.get('live_match_confidence'),
+                live_match_reason=m.get('live_match_reason', ''),
                 resolvability=m.get('resolvability', ''),
             ))
 

@@ -131,6 +131,10 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
             return "game_outcome"
         return "player_prop"
 
+    if _has_matchup(text_lower) and re.search(r"/event/(nba|nfl|mlb|nhl)-", text_lower):
+        if ":" not in question and not (tokens & _PLAYER_PROP_STATS):
+            return "game_outcome"
+
     if (tokens & eq.SPORTS_TEAM_TOKENS) and any(marker in text_lower for marker in _GAME_OUTCOME_MARKERS):
         return "game_outcome"
 

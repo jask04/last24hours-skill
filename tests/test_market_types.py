@@ -24,6 +24,16 @@ class MarketTypeTests(unittest.TestCase):
             "game_outcome",
         )
 
+    def test_sports_slug_with_abbreviated_matchup_classifies_as_game_outcome(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "LAL vs HOU",
+                "LAL vs HOU",
+                "https://polymarket.com/event/nba-lal-hou-2026-04-21",
+            ),
+            "game_outcome",
+        )
+
     def test_crypto_threshold_classifies_as_threshold(self):
         self.assertEqual(
             market_types.classify_market(
