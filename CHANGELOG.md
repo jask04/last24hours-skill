@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-04-19
+
+### Added
+- Paper ledger records now store the skill version on new runs and picks so future calibration can be compared across forecast-engine changes
+- Paper reports now include open-portfolio diagnostics for favorite/balanced/longshot mix, model-implied picks, manual-resolution gaps, and legacy unversioned samples
+- Market-watchlist paper extraction now prefers a balanced calibration sample when the top-ranked watchlist item is an extreme favorite
+
 ## [1.0.7] - 2026-04-19
 
 ### Added

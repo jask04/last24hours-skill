@@ -28,10 +28,14 @@ class PaperStoreTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'paper_%'"
                 )
             }
+            run_columns = {row[1] for row in conn.execute("PRAGMA table_info(paper_runs)")}
+            pick_columns = {row[1] for row in conn.execute("PRAGMA table_info(paper_picks)")}
         finally:
             conn.close()
 
         self.assertEqual(tables, {"paper_runs", "paper_picks"})
+        self.assertIn("skill_version", run_columns)
+        self.assertIn("skill_version", pick_columns)
 
     def test_repeated_paper_picks_are_preserved(self):
         run_id = paper.store.record_paper_run("paper_portfolio")
@@ -45,6 +49,7 @@ class PaperStoreTests(unittest.TestCase):
             "title": "BTC above 100k",
             "model_probability": 0.42,
             "status": "open",
+            "skill_version": "1.0.test",
         }
 
         first = paper.store.add_paper_pick(payload)
@@ -52,6 +57,7 @@ class PaperStoreTests(unittest.TestCase):
 
         self.assertNotEqual(first, second)
         self.assertEqual(len(paper.store.list_recent_paper_picks()), 2)
+        self.assertEqual(paper.store.list_recent_paper_picks()[0]["skill_version"], "1.0.test")
 
 
 class PaperExtractionTests(unittest.TestCase):
@@ -92,6 +98,7 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(picks[0]["venue_market_key"], "KXBTC-100K")
         self.assertEqual(picks[0]["model_probability"], 0.46)
         self.assertEqual(picks[0]["market_probability"], 0.44)
+        self.assertEqual(picks[0]["skill_version"], paper._skill_version())
 
     def test_weather_forecast_pick_is_open_and_stores_target_date(self):
         report = {
@@ -152,6 +159,36 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(picks[0]["pick_type"], "watchlist")
         self.assertEqual(picks[0]["venue"], "polymarket")
         self.assertIn("ai-coding-market", picks[0]["venue_market_key"])
+
+    def test_watchlist_json_prefers_balanced_pick_when_top_is_extreme_favorite(self):
+        report = {
+            "topic": "AI coding tools markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "Obvious favorite",
+                    "question": "Favorite?",
+                    "outcome_label": "Yes",
+                    "probability": 0.94,
+                    "url": "https://polymarket.com/event/favorite",
+                },
+                {
+                    "venue": "polymarket",
+                    "title": "Balanced market",
+                    "question": "Balanced?",
+                    "outcome_label": "Yes",
+                    "probability": 0.58,
+                    "url": "https://polymarket.com/event/balanced",
+                },
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(picks[0]["title"], "Balanced market")
+        self.assertAlmostEqual(picks[0]["model_probability"], 0.58)
 
 
 class ResolverTests(unittest.TestCase):
@@ -391,6 +428,31 @@ class CalibrationTests(unittest.TestCase):
 
         self.assertEqual(len(suggestions), 1)
         self.assertIn("heavily concentrated in favorites", suggestions[0])
+
+    def test_open_pick_diagnostics_flags_mix_and_legacy_samples(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "open",
+                "model_probability": 0.91,
+                "venue": "polymarket",
+                "resolution_source": "polymarket",
+                "skill_version": "1.0.8",
+            },
+            {
+                "status": "open",
+                "model_probability": 0.88,
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "resolution_source": "",
+                "skill_version": "",
+            },
+        ])
+
+        self.assertEqual(diagnostics["mix"]["favorite"], 2)
+        self.assertEqual(diagnostics["model_implied_count"], 1)
+        self.assertEqual(diagnostics["legacy_unversioned_count"], 1)
+        self.assertTrue(any("favorite-heavy" in warning for warning in diagnostics["warnings"]))
+        self.assertTrue(any("legacy" in warning for warning in diagnostics["warnings"]))
 
 
 class LaunchdTests(unittest.TestCase):

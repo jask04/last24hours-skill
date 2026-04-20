@@ -37,6 +37,12 @@ from lib import http
 from lib import sports_schedule, weather
 
 
+def _skill_version() -> str:
+    text = (REPO_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    match = re.search(r'^version:\s*"([^"]+)"', text, re.MULTILINE)
+    return match.group(1) if match else ""
+
+
 def _now_slug() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -95,6 +101,16 @@ def _probability_bucket(probability: float) -> str:
     return "80-100"
 
 
+def _pick_probability_class(probability: Optional[float]) -> str:
+    if probability is None:
+        return "unknown"
+    if probability >= 0.70:
+        return "favorite"
+    if probability <= 0.30:
+        return "longshot"
+    return "balanced"
+
+
 def _parse_iso_date(value: Any) -> Optional[datetime.date]:
     if not value:
         return None
@@ -149,12 +165,27 @@ def _evidence_payload(report: Dict[str, Any], item: Dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True)
 
 
+def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Prefer calibration-useful watchlist items when the top item is an extreme favorite."""
+    if not items:
+        return None
+    top_probability = _prob(items[0].get("probability") or items[0].get("implied_probability"))
+    if top_probability is None or top_probability < 0.85:
+        return items[0]
+    for item in items[1:]:
+        probability = _prob(item.get("probability") or item.get("implied_probability"))
+        if probability is not None and 0.35 <= probability <= 0.80:
+            return item
+    return items[0]
+
+
 def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract paper picks from a last24hours JSON report."""
     topic = report.get("topic", "")
     query_type = report.get("query_type") or ("market_watchlist" if report.get("market_watchlist") else "prediction")
     poly_by_id = _market_map(report.get("polymarket", []))
     kalshi_by_id = _market_map(report.get("kalshi", []))
+    skill_version = _skill_version()
     picks: List[Dict[str, Any]] = []
 
     for forecast in report.get("forecasts", []):
@@ -227,14 +258,17 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             "confidence": forecast.get("confidence_level", "low"),
             "end_date": end_date,
             "status": "open" if venue in {"kalshi", "polymarket", "weather_api"} else "unknown",
-            "resolution_source": "",
+            "resolution_source": "nws_observations" if venue == "weather_api" else (venue if venue in {"kalshi", "polymarket"} else ""),
             "evidence_json": _evidence_payload(report, forecast),
             "notes_json": json.dumps({"domain": _domain(topic), "paper_only": True}, sort_keys=True),
+            "skill_version": skill_version,
         })
 
     watchlist = report.get("market_watchlist", [])
     if watchlist:
-        item = watchlist[0]
+        item = _select_watchlist_item(watchlist)
+        if item is None:
+            return picks
         probability = _prob(item.get("probability") or item.get("implied_probability"))
         if probability is not None:
             venue = str(item.get("venue") or "").lower()
@@ -263,18 +297,21 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "confidence": "watchlist",
                 "end_date": item.get("end_date"),
                 "status": "open" if venue in {"kalshi", "polymarket"} else "unknown",
-                "resolution_source": "",
+                "resolution_source": venue if venue in {"kalshi", "polymarket"} else "",
                 "evidence_json": json.dumps({"catalyst_summary": item.get("catalyst_summary", ""), "risk": item.get("risk", "")}, sort_keys=True),
                 "notes_json": json.dumps({"domain": _domain(topic), "paper_only": True, "rank_score": item.get("rank_score")}, sort_keys=True),
+                "skill_version": skill_version,
             })
     return picks
 
 
 def _store_picks(run_id: int, picks: List[Dict[str, Any]]) -> List[int]:
     ids = []
+    version = _skill_version()
     for pick in picks:
         payload = dict(pick)
         payload["paper_run_id"] = run_id
+        payload["skill_version"] = payload.get("skill_version") or version
         ids.append(store.add_paper_pick(payload))
     return ids
 
@@ -628,6 +665,47 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    open_picks = [p for p in picks if p.get("status") in {"open", "unknown"}]
+    mix = {"favorite": 0, "balanced": 0, "longshot": 0, "unknown": 0}
+    manual_only = 0
+    missing_version = 0
+    model_implied = 0
+    for pick in open_picks:
+        probability = _prob(pick.get("model_probability"))
+        mix[_pick_probability_class(probability)] += 1
+        if not pick.get("skill_version"):
+            missing_version += 1
+        if pick.get("venue") == "model_implied" or pick.get("anchor_source") == "model_implied":
+            model_implied += 1
+        has_auto_resolver = pick.get("venue") in {"kalshi", "polymarket", "weather_api"} or pick.get("resolution_source") in {"kalshi", "polymarket", "nws_observations", "espn_nba"}
+        if pick.get("status") == "unknown" or not has_auto_resolver:
+            manual_only += 1
+    warnings = []
+    total = len(open_picks)
+    if total and mix["favorite"] / total >= 0.70:
+        warnings.append(f"Open paper portfolio is favorite-heavy: {mix['favorite']} of {total} open picks are 70%+.")
+    if model_implied:
+        warnings.append(f"{model_implied} open/unknown picks are model-implied and may need manual resolution or a deterministic resolver.")
+    if manual_only:
+        warnings.append(f"{manual_only} open/unknown picks do not currently have a reliable automatic resolver.")
+    if missing_version:
+        warnings.append(f"{missing_version} open/unknown picks were created before skill-version tracking and should be treated as legacy samples.")
+    return {
+        "open_count": total,
+        "mix": mix,
+        "manual_or_unknown_resolution_count": manual_only,
+        "model_implied_count": model_implied,
+        "legacy_unversioned_count": missing_version,
+        "warnings": warnings,
+    }
+
+
+def pick_quality_warnings(picks: List[Dict[str, Any]]) -> List[str]:
+    diagnostics = open_pick_diagnostics(picks)
+    return diagnostics["warnings"]
+
+
 def suggestions_from_summary(summary: Dict[str, Any]) -> List[str]:
     if summary.get("count", 0) < 25:
         return [f"Need at least 25 resolved paper picks for global suggestions; currently have {summary.get('count', 0)}."]
@@ -677,7 +755,7 @@ def cmd_daily(args) -> None:
         print(json.dumps({"dry_run": True, "topics": [entry["topic"] for entry in entries]}, indent=2))
         return
     started = time.time()
-    run_id = store.record_paper_run(Path(args.portfolio).stem, status="running", topics_attempted=len(entries))
+    run_id = store.record_paper_run(Path(args.portfolio).stem, status="running", topics_attempted=len(entries), skill_version=_skill_version())
     created: List[int] = []
     errors: List[str] = []
     warnings: List[str] = []
@@ -687,6 +765,7 @@ def cmd_daily(args) -> None:
             picks = extract_paper_picks(report)
             if not picks:
                 warnings.append(f"{entry['topic']}: no usable paper pick found")
+            warnings.extend(f"{entry['topic']}: {warning}" for warning in pick_quality_warnings(picks))
             created.extend(_store_picks(run_id, picks))
         except Exception as exc:
             errors.append(f"{entry['topic']}: {type(exc).__name__}: {exc}")
@@ -714,7 +793,7 @@ def cmd_resolve(args) -> None:
 def cmd_report(args) -> None:
     recent = store.list_recent_paper_picks(days=args.days, limit=args.limit)
     summary = calibration_summary(store.list_resolved_paper_picks(days=args.days))
-    print(json.dumps({"days": args.days, "summary": summary, "recent_picks": recent}, indent=2, default=str))
+    print(json.dumps({"days": args.days, "summary": summary, "open_portfolio": open_pick_diagnostics(recent), "recent_picks": recent}, indent=2, default=str))
 
 
 def cmd_suggest(args) -> None:

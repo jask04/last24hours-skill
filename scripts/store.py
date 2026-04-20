@@ -207,6 +207,10 @@ CREATE INDEX IF NOT EXISTS idx_paper_picks_status ON paper_picks(status, created
 CREATE INDEX IF NOT EXISTS idx_paper_picks_topic ON paper_picks(topic, created_at);
 CREATE INDEX IF NOT EXISTS idx_paper_picks_venue ON paper_picks(venue, venue_market_key);
 """,
+    3: """
+ALTER TABLE paper_runs ADD COLUMN skill_version TEXT DEFAULT '';
+ALTER TABLE paper_picks ADD COLUMN skill_version TEXT DEFAULT '';
+""",
 }
 
 
@@ -545,6 +549,7 @@ def record_paper_run(
     report_path: str = "",
     error_message: str = "",
     duration_seconds: float = 0,
+    skill_version: str = "",
 ) -> int:
     """Record a paper ledger run and return its ID."""
     init_db()
@@ -553,8 +558,8 @@ def record_paper_run(
         cursor = conn.execute(
             """INSERT INTO paper_runs
                (portfolio_name, status, topics_attempted, picks_created, picks_resolved,
-                report_path, error_message, duration_seconds)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                report_path, error_message, duration_seconds, skill_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 portfolio_name,
                 status,
@@ -564,6 +569,7 @@ def record_paper_run(
                 report_path,
                 error_message,
                 duration_seconds,
+                skill_version,
             ),
         )
         conn.commit()
@@ -577,6 +583,7 @@ def update_paper_run(run_id: int, **kwargs):
     allowed = {
         "portfolio_name", "status", "topics_attempted", "picks_created",
         "picks_resolved", "report_path", "error_message", "duration_seconds",
+        "skill_version",
     }
     invalid = sorted(set(kwargs) - allowed)
     if invalid:
@@ -601,7 +608,7 @@ def add_paper_pick(pick: Dict[str, Any]) -> int:
         "venue_market_key", "market_url", "title", "question", "market_type",
         "outcome_label", "model_probability", "market_probability", "best_bid",
         "best_ask", "spread", "anchor_source", "confidence", "end_date",
-        "status", "resolution_source", "evidence_json", "notes_json",
+        "status", "resolution_source", "evidence_json", "notes_json", "skill_version",
     ]
     values = [pick.get(field) for field in fields]
     conn = _connect()
