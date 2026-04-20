@@ -333,6 +333,9 @@ Risk / what would change it: {stale, illiquid, wide-spread, or catalyst conditio
 
 Good prompts:
 - `/last24hours NBA markets to watch today`
+- `/last24hours Polymarket markets closing soon`
+- `/last24hours live sports games on Polymarket right now`
+- `/last24hours crypto markets closing soon tonight`
 - `/last24hours macro markets to watch this week`
 - `/last24hours recommend Polymarket and Kalshi markets around Fed cuts`
 - `/last24hours crypto prediction markets to watch today`
@@ -430,6 +433,9 @@ Recommended validation after edits:
 - `python scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --quick --emit=compact`
 - `python scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact`
 - `python scripts/last24hours.py "Will the Fed cut rates by June" --quick --emit=compact`
+- `python scripts/last24hours.py "Polymarket markets closing soon" --quick --emit=compact --closing-window-hours 6`
+- `python scripts/last24hours.py "live sports games on Polymarket right now" --quick --emit=compact --search=polymarket`
+- `python scripts/paper.py daily --portfolio fixtures/paper_portfolio.json --quick --dry-run`
 
 What this skill does not do:
 - place trades

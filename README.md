@@ -41,6 +41,29 @@ Recent upstream `last30days` v3 ideas are adapted selectively: deterministic sea
 
 Built on [last30days](https://github.com/mvanhorn/last30days-skill) by Matt Van Horn.
 
+## Feature Tour
+
+Use `/last24hours` for five related workflows:
+
+| Workflow | What it does | Example |
+| --- | --- | --- |
+| Probability forecast | Produces a market-anchored forecast with uncertainty and catalysts | `/last24hours Bitcoin above 100k this week` |
+| Sports slate forecast | Expands broad NBA slate prompts into matchup-specific forecasts | `/last24hours tomorrows nba games` |
+| Market watchlist | Ranks topic-scoped Polymarket/Kalshi markets for monitoring | `/last24hours NBA markets to watch today` |
+| Closing-soon scanner | Finds near-expiry Polymarket markets and live/starting-soon sports markets | `/last24hours Polymarket markets closing soon` |
+| Paper forecast ledger | Records hypothetical forecasts, resolves them later, and reports calibration | `python3 scripts/paper.py daily --portfolio fixtures/paper_portfolio.json --quick` |
+
+Current notable capabilities:
+- Polymarket and Kalshi market anchoring with liquidity/quality-aware blending when both venues describe the same outcome.
+- Threshold-aware forecast matching, so `Bitcoin above 100k this week` does not anchor to unrelated `$70k` or range markets.
+- Official National Weather Service anchoring for supported U.S. weather prompts such as `NYC rain tomorrow`.
+- ESPN-backed NBA slate and paper-pick resolution, plus live/starting-soon detection for NBA, MLB, NHL, and NFL watchlists.
+- Closing-soon Polymarket scanning with full close datetimes, minutes-to-close, liquidity/spread, 24h movement, and resolvability notes.
+- Market-watchlist catalyst filtering that rejects unrelated promo posts, picks/parlay chatter, and domain-mismatched snippets.
+- Paper-only calibration loop with Brier score, log loss, probability buckets, favorite/longshot diagnostics, and conservative suggestions.
+- Disposable raw markdown report cleanup with `--save-dir`, `--save-retention-days`, and `--clean-save-dir`.
+- Deterministic relative-date testing with `--as-of-date YYYY-MM-DD` or `LAST24HOURS_AS_OF_DATE`.
+
 ## What It Returns
 
 For forecastable queries, the default answer shape is:
@@ -70,13 +93,14 @@ For market-watchlist queries, the default answer shape is:
 Market Picks To Watch
 
 Pick: Polymarket or Kalshi market, outcome label, and implied probability
-Why it ranks: market depth, movement, catalyst context, or cross-market signal
+Timing: close datetime, minutes to close, and settlement/resolvability notes when applicable
+Why it ranks: market depth, movement, catalyst context, closing-soon signal, or cross-market signal
 Market signal: price, 24h move, spread, 24h volume, liquidity, open interest, and signal-quality notes
-Catalyst / evidence: X, Reddit, web, or HN context when it clears quality filters
+Catalyst / evidence: X, Reddit, web, or HN context when it clears market-specific quality filters
 Risk / what would change it: why the ranking could break or need revision
 ```
 
-If the request is too broad, the skill returns a lower-confidence watchlist using only high-quality available candidates. If no clean candidates exist, it says `No high-quality market picks found` and lists the filters that failed.
+If the request is too broad, the skill returns a lower-confidence watchlist using only high-quality available candidates. If no clean candidates exist, it says `No high-quality market picks found` and lists the filters that failed. If market data is useful but external catalyst evidence is noisy, the item stays market-signal driven and says `Catalyst context is thin; ranking is mostly market-signal driven.`
 
 ## Source Priority
 
@@ -193,11 +217,22 @@ Usage guidelines:
 - Forecast prompts return one forecast-first answer with `Forecast`, `Market view`, `Why this is the current line`, `Confidence / uncertainty`, and `What changes the number`.
 - Market-watchlist prompts return ranked market picks, not one synthesized forecast.
 - Closing-soon and live-sports watchlist prompts prioritize near-expiry/live markets over long-dated topic matches.
+- Live-sports watchlists return direct matching game-outcome markets only; if ESPN finds no live/starting-soon games or no direct Polymarket match, the output says so directly.
 - Narrow watchlist prompts by domain, league, asset, or macro theme when possible.
 - Broad prompts such as `markets to watch` degrade to a lower-confidence scan and may return no picks if market matches are weak.
 - Watchlist rankings are informational market-monitoring outputs, not trade execution or allocation advice.
 
-For local testing, `--as-of-date YYYY-MM-DD` pins relative language such as `today`, `tomorrow`, and NBA slate dates. `--save-dir DIR` writes raw markdown reports and cleans old `*-raw*.md` files older than 14 days by default. Run `--clean-save-dir --save-dir DIR` to clean without running a forecast.
+Useful CLI flags:
+- `--quick`, `--deep`: change source fanout and timeout budget.
+- `--emit=compact`, `--emit=json`: choose chat-friendly or machine-readable output.
+- `--search=polymarket,kalshi,x,reddit,web`: force a source subset.
+- `--as-of-date YYYY-MM-DD`: pin `today`, `tomorrow`, weather target dates, and NBA slate expansion.
+- `--closing-window-hours N`: change the closing-soon scan window, default `12`.
+- `--live-sports`: force live-game discovery for a watchlist prompt.
+- `--paper-watchlist`: record selected watchlist candidates as hypothetical paper picks.
+- `--save-dir DIR`: write raw markdown reports and clean old `*-raw*.md` files after the retention window.
+- `--save-retention-days N`: change raw-report retention, default `14`.
+- `--clean-save-dir --save-dir DIR`: clean saved raw reports without running a forecast.
 
 ## Paper Forecast Ledger
 
@@ -209,6 +244,7 @@ python3 scripts/paper.py resolve
 python3 scripts/paper.py report --days 30
 python3 scripts/paper.py suggest --days 90
 python3 scripts/paper.py install-launchd --time 08:00 --dry-run
+python3 scripts/paper.py install-launchd --time 08:00 --load
 ```
 
 Manual resolution is available for outcomes that do not have a deterministic public resolver:
@@ -218,7 +254,9 @@ python3 scripts/paper.py resolve --pick-id ID --outcome 1
 python3 scripts/paper.py resolve --pick-id ID --outcome 0
 ```
 
-The daily macOS runner writes `~/Library/LaunchAgents/com.jask.last24hours.paper-daily.plist` and prints the `launchctl bootstrap` command. It does not load the LaunchAgent unless `--load` is passed.
+The daily macOS runner writes `~/Library/LaunchAgents/com.jask.last24hours.paper-daily.plist` and prints the `launchctl bootstrap` command. It does not load the LaunchAgent unless `--load` is passed. Logs go to `~/.local/share/last24hours/logs/`.
+
+Paper records are intentionally hypothetical. The ledger does not execute trades, size positions, recommend stakes, or mutate forecast weights automatically.
 
 ## Local Runs
 
@@ -231,6 +269,9 @@ python3 scripts/last24hours.py "NBA markets to watch today" --quick --emit=compa
 python3 scripts/last24hours.py "Polymarket markets closing soon" --quick --emit=compact
 python3 scripts/last24hours.py "live sports games on Polymarket right now" --quick --emit=compact --live-sports
 python3 scripts/last24hours.py "crypto markets closing soon tonight" --quick --emit=compact --closing-window-hours 6
+python3 scripts/last24hours.py "Polymarket markets closing soon" --quick --emit=json --paper-watchlist --closing-window-hours 6
+python3 scripts/last24hours.py "NBA matchups tomorrow" --quick --emit=compact --as-of-date 2026-04-19
+python3 scripts/last24hours.py "Trail Blazers vs Spurs April 21 2026 Game 2" --quick --emit=compact --as-of-date 2026-04-19
 python3 scripts/last24hours.py --diagnose
 python3 scripts/last24hours.py "Fed rate cut probability" --search=polymarket,kalshi,x,reddit --emit=compact
 ```
@@ -240,16 +281,14 @@ python3 scripts/last24hours.py "Fed rate cut probability" --search=polymarket,ka
 After each implementation round, run at least:
 
 ```bash
-python3 -c "import py_compile; py_compile.compile('scripts/last24hours.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/render.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/openai_reddit.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/score.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/kalshi.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/forecast.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/weather.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/evidence_quality.py', doraise=True)"
-python3 -c "import py_compile; py_compile.compile('scripts/lib/market_watchlist.py', doraise=True)"
 python3 -m unittest discover -s tests
+python3 -m compileall -q scripts tests
+git diff --check
+```
+
+Feature smoke tests:
+
+```bash
 python3 scripts/last24hours.py "NBA markets to watch today" --quick --emit=compact
 python3 scripts/last24hours.py "macro markets to watch around Fed cuts" --quick --emit=compact
 python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
@@ -259,6 +298,11 @@ python3 scripts/last24hours.py "Boston Celtics at New York Knicks tomorrow" --qu
 python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "Will the Fed cut rates by June" --quick --emit=compact
 python3 scripts/last24hours.py "Will the US have a recession in 2026" --quick --emit=compact
+python3 scripts/last24hours.py "Polymarket markets closing soon" --quick --emit=compact --closing-window-hours 6
+python3 scripts/last24hours.py "crypto markets closing soon tonight" --quick --emit=compact --closing-window-hours 6
+python3 scripts/last24hours.py "live sports games on Polymarket right now" --quick --emit=compact --search=polymarket
+python3 scripts/paper.py daily --portfolio fixtures/paper_portfolio.json --quick --dry-run
+python3 scripts/paper.py report --days 30
 ```
 
 Recommended extra smoke tests:
@@ -298,6 +342,8 @@ The ranker combines:
 Kalshi watchlist candidates are enriched with public batch candlesticks when available to estimate 24h movement, 24h volume, latest open interest, and signal timestamps. For high-value domains such as NBA, Fed/rates, and BTC/ETH, the Kalshi path also checks direct series/event markets so the first page of generic multigame markets does not hide relevant contracts. Polymarket candidates normalize public Gamma market fields such as 24h volume, liquidity, one-day movement, and bid/ask or spread fields when present. Missing enrichment does not drop a market; it is reflected in the market signal and risk note.
 
 Closing-soon scans use Polymarket Gamma `public-search` seeds for daily, today/tomorrow, crypto daily/hourly, weather daily, and live sports matchup terms. They filter closed, inactive, expired, no-liquidity, and effectively settled one-tick markets by default. Live sports discovery uses ESPN public scoreboards for NBA, MLB, NHL, and NFL, searches with full team names, short names, abbreviations, reversed matchups, and league-prefixed aliases, then labels only direct game-outcome markets that match the live or starting-soon matchup.
+
+Watchlist catalyst snippets are market-specific. Crypto candidates require the asset plus crypto/price/flow/macro terms; weather candidates require location plus forecast/weather terms; sports candidates require matchup/team overlap plus injury, lineup, score/clock, delay, pitcher/goalie, or line-movement context. Promo posts, signal-room pitches, picks/parlay chatter, giveaway spam, and domain-mismatched snippets are rejected from catalyst summaries.
 
 When a Kalshi candidate is within range of the watchlist cutoff, the renderer may include it for venue coverage rather than returning an all-Polymarket list. Weak or poorly matched Kalshi rows are still suppressed.
 
