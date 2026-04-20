@@ -594,6 +594,11 @@ class KalshiItem:
     date_confidence: str = "high"
     engagement: Optional[Engagement] = None  # volume + liquidity + open interest
     end_date: Optional[str] = None
+    live_game_context: str = ""
+    live_game_league: str = ""
+    live_match_confidence: Optional[float] = None
+    live_match_reason: str = ""
+    resolvability: str = ""
     relevance: float = 0.5
     why_relevant: str = ""
     subs: SubScores = field(default_factory=SubScores)
@@ -627,6 +632,11 @@ class KalshiItem:
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
             'end_date': self.end_date,
+            'live_game_context': self.live_game_context,
+            'live_game_league': self.live_game_league,
+            'live_match_confidence': self.live_match_confidence,
+            'live_match_reason': self.live_match_reason,
+            'resolvability': self.resolvability,
             'relevance': self.relevance,
             'why_relevant': self.why_relevant,
             'subs': self.subs.to_dict(),
@@ -774,6 +784,68 @@ class MarketWatchItem:
 
 
 @dataclass
+class BundleLeg:
+    """One paper-only leg in a multi-leg watchlist bundle."""
+    id: str
+    title: str
+    venue: str
+    url: str
+    outcome_label: str
+    probability: float
+    source_item_id: str = ""
+    market_type: str = "game_outcome"
+    game_key: str = ""
+    team_tokens: List[str] = field(default_factory=list)
+    live_game_context: str = ""
+    rank_score: int = 0
+    rationale: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'title': self.title,
+            'venue': self.venue,
+            'url': self.url,
+            'outcome_label': self.outcome_label,
+            'probability': self.probability,
+            'source_item_id': self.source_item_id,
+            'market_type': self.market_type,
+            'game_key': self.game_key,
+            'team_tokens': self.team_tokens,
+            'live_game_context': self.live_game_context,
+            'rank_score': self.rank_score,
+            'rationale': self.rationale,
+        }
+
+
+@dataclass
+class PaperBundle:
+    """Paper-only multi-leg market watchlist bundle."""
+    id: str
+    title: str
+    legs: List[BundleLeg] = field(default_factory=list)
+    combined_probability_independence: Optional[float] = None
+    confidence_bucket: str = "low"
+    correlation_warning: str = ""
+    rationale: str = ""
+    fragility: str = ""
+    paper_only: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'title': self.title,
+            'legs': [leg.to_dict() for leg in self.legs],
+            'combined_probability_independence': self.combined_probability_independence,
+            'confidence_bucket': self.confidence_bucket,
+            'correlation_warning': self.correlation_warning,
+            'rationale': self.rationale,
+            'fragility': self.fragility,
+            'paper_only': self.paper_only,
+        }
+
+
+@dataclass
 class Report:
     """Full research report."""
     topic: str
@@ -797,6 +869,8 @@ class Report:
     kalshi: List[KalshiItem] = field(default_factory=list)
     forecasts: List[ForecastItem] = field(default_factory=list)
     market_watchlist: List[MarketWatchItem] = field(default_factory=list)
+    paper_bundles: List[PaperBundle] = field(default_factory=list)
+    paper_bundle_reason: str = ""
     best_practices: List[str] = field(default_factory=list)
     prompt_pack: List[str] = field(default_factory=list)
     context_snippet_md: str = ""
@@ -847,6 +921,8 @@ class Report:
             'kalshi': [k.to_dict() for k in self.kalshi],
             'forecasts': [f.to_dict() for f in self.forecasts],
             'market_watchlist': [m.to_dict() for m in self.market_watchlist],
+            'paper_bundles': [b.to_dict() for b in self.paper_bundles],
+            'paper_bundle_reason': self.paper_bundle_reason,
             'best_practices': self.best_practices,
             'prompt_pack': self.prompt_pack,
             'context_snippet_md': self.context_snippet_md,
@@ -1207,6 +1283,11 @@ class Report:
                 date_confidence=k.get('date_confidence', 'high'),
                 engagement=eng,
                 end_date=k.get('end_date'),
+                live_game_context=k.get('live_game_context', ''),
+                live_game_league=k.get('live_game_league', ''),
+                live_match_confidence=k.get('live_match_confidence'),
+                live_match_reason=k.get('live_match_reason', ''),
+                resolvability=k.get('resolvability', ''),
                 relevance=k.get('relevance', 0.5),
                 why_relevant=k.get('why_relevant', ''),
                 subs=subs,
@@ -1283,6 +1364,38 @@ class Report:
                 resolvability=m.get('resolvability', ''),
             ))
 
+        paper_bundle_items = []
+        for b in data.get('paper_bundles', []):
+            legs = [
+                BundleLeg(
+                    id=leg.get('id', ''),
+                    title=leg.get('title', ''),
+                    venue=leg.get('venue', ''),
+                    url=leg.get('url', ''),
+                    outcome_label=leg.get('outcome_label', ''),
+                    probability=leg.get('probability', 0.0),
+                    source_item_id=leg.get('source_item_id', ''),
+                    market_type=leg.get('market_type', 'game_outcome'),
+                    game_key=leg.get('game_key', ''),
+                    team_tokens=leg.get('team_tokens', []),
+                    live_game_context=leg.get('live_game_context', ''),
+                    rank_score=leg.get('rank_score', 0),
+                    rationale=leg.get('rationale', ''),
+                )
+                for leg in b.get('legs', [])
+            ]
+            paper_bundle_items.append(PaperBundle(
+                id=b.get('id', ''),
+                title=b.get('title', ''),
+                legs=legs,
+                combined_probability_independence=b.get('combined_probability_independence'),
+                confidence_bucket=b.get('confidence_bucket', 'low'),
+                correlation_warning=b.get('correlation_warning', ''),
+                rationale=b.get('rationale', ''),
+                fragility=b.get('fragility', ''),
+                paper_only=b.get('paper_only', True),
+            ))
+
         return cls(
             topic=data['topic'],
             range_from=range_from,
@@ -1305,6 +1418,8 @@ class Report:
             kalshi=kalshi_items,
             forecasts=forecast_items,
             market_watchlist=market_watchlist_items,
+            paper_bundles=paper_bundle_items,
+            paper_bundle_reason=data.get('paper_bundle_reason', ''),
             best_practices=data.get('best_practices', []),
             prompt_pack=data.get('prompt_pack', []),
             context_snippet_md=data.get('context_snippet_md', ''),

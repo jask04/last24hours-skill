@@ -428,6 +428,39 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     return lines
 
 
+def _render_paper_bundles(report: schema.Report) -> list[str]:
+    if not report.paper_bundles and not report.paper_bundle_reason:
+        return []
+
+    lines = ["### Paper Bundles", ""]
+    lines.append("*Hypothetical multi-leg watchlist output for paper tracking only; not trade execution or allocation advice.*")
+    lines.append("")
+    if not report.paper_bundles:
+        lines.append(f"No paper bundle qualified: {report.paper_bundle_reason}")
+        lines.append("")
+        return lines
+
+    for bundle in report.paper_bundles:
+        baseline = (
+            f"{bundle.combined_probability_independence:.1%}"
+            if bundle.combined_probability_independence is not None
+            else "unknown"
+        )
+        lines.append(f"**{bundle.id}. {bundle.title}**")
+        lines.append(f"Independence baseline: {baseline} ({bundle.confidence_bucket} confidence bucket).")
+        lines.append(f"Correlation warning: {bundle.correlation_warning}")
+        lines.append(f"Rationale: {bundle.rationale}")
+        lines.append(f"Fragility: {bundle.fragility}")
+        for leg in bundle.legs:
+            probability = f"{leg.probability:.1%}"
+            context = f" | {leg.live_game_context}" if leg.live_game_context else ""
+            lines.append(f"- {leg.venue} {leg.outcome_label}: {leg.title} ({probability}){context}")
+            if leg.rationale:
+                lines.append(f"  Reason: {leg.rationale}.")
+        lines.append("")
+    return lines
+
+
 def _used_market_ids(report: schema.Report) -> tuple[set[str], set[str]]:
     poly_ids = {item.polymarket_market_id for item in report.forecasts if item.polymarket_market_id}
     kalshi_ids = {item.kalshi_market_id for item in report.forecasts if item.kalshi_market_id}
@@ -677,6 +710,15 @@ def _render_nba_slate_board(report: schema.Report) -> list[str]:
     return []
 
 
+def _display_topic(topic: str) -> str:
+    text = topic or ""
+    text = re.sub(r"\bpaper\s+parlays?\b", "paper bundles", text, flags=re.I)
+    text = re.sub(r"\bparlay\s+ideas?\b", "bundle ideas", text, flags=re.I)
+    text = re.sub(r"\bparlays?\b", "bundles", text, flags=re.I)
+    text = re.sub(r"\bmulti[-\s]?leg\b", "multi-leg", text, flags=re.I)
+    return text
+
+
 def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "none") -> str:
     """Render compact output for the assistant to synthesize.
 
@@ -692,9 +734,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
 
     # Header
     if qt.detect_query_type(report.topic) == "market_watchlist":
-        lines.append(f"## Market Watchlist Inputs: {report.topic}")
+        lines.append(f"## Market Watchlist Inputs: {_display_topic(report.topic)}")
     else:
-        lines.append(f"## Forecast Inputs: {report.topic}")
+        lines.append(f"## Forecast Inputs: {_display_topic(report.topic)}")
     lines.append("")
 
     # Assess data freshness and add honesty warning if needed
@@ -743,6 +785,9 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         prediction_summary = _render_prediction_summary(report)
         if prediction_summary:
             lines.extend(prediction_summary)
+    paper_bundle_summary = _render_paper_bundles(report)
+    if paper_bundle_summary:
+        lines.extend(paper_bundle_summary)
 
     if report.weather:
         lines.append("### Official Weather")
@@ -1451,6 +1496,17 @@ def render_context_snippet(report: schema.Report) -> str:
             timing = f" ({close_line})" if close_line else ""
             lines.append(f"- {item.id}: {item.title or item.question} - {_format_watch_probability(item)} via {item.venue}{timing}")
         lines.append("")
+    if report.paper_bundles:
+        lines.append("## Paper Bundle Summary")
+        lines.append("")
+        for bundle in report.paper_bundles[:3]:
+            baseline = (
+                f"{bundle.combined_probability_independence:.1%}"
+                if bundle.combined_probability_independence is not None
+                else "unknown"
+            )
+            lines.append(f"- {bundle.id}: {baseline} independence baseline; {bundle.confidence_bucket} confidence bucket")
+        lines.append("")
 
     # Key sources summary
     lines.append("## Key Sources")
@@ -1557,6 +1613,35 @@ def render_full_report(report: schema.Report) -> str:
                 lines.append(f"- **Evidence refs:** {', '.join(item.evidence_refs[:5])}")
             if item.url:
                 lines.append(f"- **URL:** {item.url}")
+            lines.append("")
+
+    if report.paper_bundles or report.paper_bundle_reason:
+        lines.append("## Paper Bundles")
+        lines.append("")
+        lines.append("*Hypothetical multi-leg watchlist output for paper tracking only; not trade execution or allocation advice.*")
+        lines.append("")
+        if not report.paper_bundles:
+            lines.append(f"No paper bundle qualified: {report.paper_bundle_reason}")
+            lines.append("")
+        for bundle in report.paper_bundles:
+            baseline = (
+                f"{bundle.combined_probability_independence:.1%}"
+                if bundle.combined_probability_independence is not None
+                else "unknown"
+            )
+            lines.append(f"### {bundle.id}: {bundle.title}")
+            lines.append("")
+            lines.append(f"- **Independence baseline:** {baseline}")
+            lines.append(f"- **Confidence bucket:** {bundle.confidence_bucket}")
+            lines.append(f"- **Correlation warning:** {bundle.correlation_warning}")
+            lines.append(f"- **Rationale:** {bundle.rationale}")
+            lines.append(f"- **Fragility:** {bundle.fragility}")
+            for leg in bundle.legs:
+                lines.append(f"- **Leg:** {leg.venue} {leg.outcome_label} - {leg.title} ({leg.probability:.1%})")
+                if leg.live_game_context:
+                    lines.append(f"  - ESPN context: {leg.live_game_context}")
+                if leg.rationale:
+                    lines.append(f"  - Reason: {leg.rationale}")
             lines.append("")
 
     # Models

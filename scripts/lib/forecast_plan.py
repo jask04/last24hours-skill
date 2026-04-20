@@ -134,6 +134,8 @@ def build_plan(
 ) -> ForecastPlan:
     """Build a bounded deterministic plan for retrieval and evidence fusion."""
     max_queries = 3 if depth == "quick" else 5
+    if search_topics:
+        max_queries = min(len(search_topics), {"quick": 6, "default": 8, "deep": 12}.get(depth, 8))
     topics = []
     seen = set()
     for candidate in _deterministic_queries(topic, query_type, search_topics):

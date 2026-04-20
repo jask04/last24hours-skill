@@ -104,3 +104,14 @@ python3 scripts/last24hours.py "live sports games on Polymarket right now" --qui
 - Work on the current branch by default; do not create `codex/*` branches
 - Push incremental commits frequently so the repo history stays current
 - Keep commits focused and descriptive
+
+## Release Memory
+
+- Treat meaningful feature, behavior, documentation, and safety-filter updates as normal versioned releases.
+- Keep bumping semantic patch versions for each shipped update, even while the repo is private, so the history is clear if the project becomes public again.
+- For each release, update the current-version surfaces together: `SKILL.md` frontmatter and heading, `README.md` title/version text, `.claude-plugin/plugin.json`, `gemini-extension.json`, and both source-status banners in `scripts/lib/ui.py`.
+- Sweep the previous version with `rg "X.Y.Z"` and update only current-version surfaces. Do not rewrite historical changelog entries unless they are factually wrong.
+- Add a dated `CHANGELOG.md` entry for every release with concise bullets covering user-visible behavior, safety constraints, CLI flags, ledger/schema changes, and important test coverage.
+- Keep commits detailed and reviewable: use focused commit messages that mention the release version and summarize the behavioral areas changed, without naming Codex as author or co-author.
+- Before considering a release ready, run the standard verification commands from this guide and include any relevant smoke prompts in the handoff or commit/PR description.
+- Maintain public-readiness as the default: keep docs accurate, preserve provenance from `last30days`, avoid private-token leakage, and make paper-only/no-execution constraints explicit when market or sports workflows change.

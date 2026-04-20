@@ -9,6 +9,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 
+## [1.0.17] - 2026-04-20
+
+### Added
+- NBA date-window expansion for prompts such as `NBA games April 20 2026 through April 22 2026`, backed by ESPN public scoreboards
+- Paper-only multi-leg bundle output for NBA game-outcome watchlists, with independence-baseline probability math, correlation warnings, and fragility notes
+- `--paper-bundles` for recording the top paper bundle as metadata in the existing paper ledger without a schema migration
+
+### Changed
+- NBA game-outcome watchlist candidates can now carry ESPN score/status/start context outside closing-soon scans
+- Bundle-intent prompts use product wording such as Paper Bundle and Multi-Leg Watchlist while retaining the existing low-signal picks/parlay chatter filters
+
 ## [1.0.16] - 2026-04-20
 
 ### Fixed

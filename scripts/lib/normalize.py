@@ -553,6 +553,11 @@ def normalize_kalshi_items(
             date_confidence="high",
             engagement=engagement,
             end_date=item.get("end_date"),
+            live_game_context=item.get("live_game_context", ""),
+            live_game_league=item.get("live_game_league", ""),
+            live_match_confidence=item.get("live_match_confidence"),
+            live_match_reason=item.get("live_match_reason", ""),
+            resolvability=item.get("resolvability", ""),
             relevance=item.get("relevance", 0.5),
             why_relevant=item.get("why_relevant", ""),
         ))

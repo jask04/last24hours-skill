@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.16"
+version: "1.0.17"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.16: Forecast From the Last 24 Hours
+# last24hours v1.0.17: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -71,7 +71,7 @@ The default job is to answer:
 - What uncertainty matters?
 - What would move the forecast up or down?
 
-For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, `closing soon`, `live markets`, `live games`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
+For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, `closing soon`, `live markets`, `live games`, `paper bundle ideas`, `multi-leg watchlist`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
 - What are the best-ranked markets to monitor for this topic?
 - Which venue and outcome is being surfaced?
 - What exchange-native market signal explains the rank?
@@ -79,6 +79,8 @@ For prompts such as `markets to watch`, `best markets`, `recommend markets`, `ma
 - What risk or uncertainty would change the ranking?
 
 For closing-soon or live-sports watchlist prompts, prioritize near-expiry Polymarket markets and direct live/starting-soon sports game markets. Live-sports mode must only surface direct matching game-outcome markets, not series, futures, totals, player props, or wrong-matchup markets. Catalyst snippets must match the specific market domain and entity; if no clean external catalyst clears the filter, say the ranking is mostly market-signal driven. Show close time, minutes to close, liquidity/spread, live game status when available, and settlement-rule warnings. Do not call these bets, do not imply profit, and tell the user to verify fast-moving lines in the Polymarket UI.
+
+For NBA paper bundle prompts, keep the language paper-only. Treat user `parlay` wording as intent, but render `Paper Bundle` or `Multi-Leg Watchlist`. Use direct game-outcome markets only, label combined probabilities as rough independence baselines, include correlation warnings, and explain why each bundle is fragile. Do not size positions, imply execution, or present the output as advice.
 
 ## Core Rule
 
@@ -107,6 +109,9 @@ Treat these as `MARKET_WATCHLIST` prompts:
 - `live markets`
 - `live games`
 - `in-game`
+- `paper parlay ideas`
+- `paper bundle`
+- `multi-leg`
 - `markets ending soon`
 - `settling soon`
 - `interesting Polymarket markets`
@@ -333,6 +338,8 @@ Risk / what would change it: {stale, illiquid, wide-spread, or catalyst conditio
 
 Good prompts:
 - `/last24hours NBA markets to watch today`
+- `/last24hours NBA games April 20 2026 through April 22 2026`
+- `/last24hours NBA paper bundle ideas April 20 through April 22`
 - `/last24hours Polymarket markets closing soon`
 - `/last24hours live sports games on Polymarket right now`
 - `/last24hours crypto markets closing soon tonight`

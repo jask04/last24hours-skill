@@ -264,6 +264,61 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             "skill_version": skill_version,
         })
 
+    bundles = report.get("paper_bundles", [])
+    if bundles:
+        bundle = bundles[0]
+        legs = bundle.get("legs", [])
+        baseline = _prob(bundle.get("combined_probability_independence"))
+        leg_keys = []
+        for leg in legs:
+            leg_keys.append(
+                "|".join(
+                    str(part or "")
+                    for part in (
+                        leg.get("venue"),
+                        leg.get("source_item_id") or _slug_from_url(leg.get("url", "")),
+                        leg.get("outcome_label"),
+                    )
+                )
+            )
+        key = f"paper_bundle|{_domain(topic)}|{'||'.join(leg_keys)}"
+        picks.append({
+            "topic": topic,
+            "query_type": "market_watchlist",
+            "pick_type": "bundle",
+            "venue": "paper_bundle",
+            "venue_market_key": key,
+            "market_url": "",
+            "title": bundle.get("title", "Paper Bundle"),
+            "question": bundle.get("title", "Paper Bundle"),
+            "market_type": "paper_bundle",
+            "outcome_label": "Paper bundle",
+            "model_probability": baseline,
+            "market_probability": baseline,
+            "best_bid": None,
+            "best_ask": None,
+            "spread": None,
+            "anchor_source": "paper_bundle",
+            "confidence": bundle.get("confidence_bucket", "low"),
+            "end_date": None,
+            "status": "unknown",
+            "resolution_source": "",
+            "evidence_json": json.dumps({
+                "rationale": bundle.get("rationale", ""),
+                "fragility": bundle.get("fragility", ""),
+                "correlation_warning": bundle.get("correlation_warning", ""),
+            }, sort_keys=True),
+            "notes_json": json.dumps({
+                "domain": _domain(topic),
+                "paper_only": True,
+                "bundle_id": bundle.get("id", ""),
+                "combined_probability_independence": baseline,
+                "correlation_warning": bundle.get("correlation_warning", ""),
+                "legs": legs,
+            }, sort_keys=True),
+            "skill_version": skill_version,
+        })
+
     watchlist = report.get("market_watchlist", [])
     if watchlist:
         item = _select_watchlist_item(watchlist)

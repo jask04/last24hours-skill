@@ -1,7 +1,8 @@
 """Public sports schedule helpers for slate-style forecast queries."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+import re
 from typing import List, Optional, Tuple
 
 from . import dates, http
@@ -13,6 +14,44 @@ ESPN_SCOREBOARD_URLS = {
     "nhl": "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard",
     "nfl": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
 }
+
+_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+_MONTH_RE = "|".join(sorted(_MONTHS, key=len, reverse=True))
+_WEEKDAY_RE = "|".join(_WEEKDAYS)
 
 NBA_TEAM_SUBREDDITS = {
     "atlanta hawks": ["nba", "atlantahawks", "sportsbook"],
@@ -66,18 +105,25 @@ class LiveGame:
     clock: str = ""
     home_score: Optional[int] = None
     away_score: Optional[int] = None
+    game_date: str = ""
 
     @property
     def is_live(self) -> bool:
         return self.status_state == "in"
 
     @property
+    def is_final(self) -> bool:
+        return self.status_state == "post" or "final" in (self.status_detail or "").lower()
+
+    @property
     def context(self) -> str:
+        status = self.status_detail or "Scheduled"
         score = ""
         if self.home_score is not None and self.away_score is not None:
             score = f"; {self.away_team} {self.away_score}, {self.home_team} {self.home_score}"
         clock = f"; period {self.period} {self.clock}".strip() if self.period or self.clock else ""
-        return f"{self.league.upper()} {self.status_detail}{score}{clock}".strip()
+        start = f"; start {self.start_time}" if self.start_time and not self.is_live and not self.is_final else ""
+        return f"{self.league.upper()} {status}{score}{clock}{start}".strip()
 
     @property
     def live_search_aliases(self) -> List[str]:
@@ -137,19 +183,12 @@ def _team_value(competitor: dict, *keys: str) -> str:
     return ""
 
 
-def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_within_minutes: int) -> Optional[LiveGame]:
+def _parse_scoreboard_game(league: str, event: dict) -> Optional[LiveGame]:
     comp = (event.get("competitions") or [{}])[0]
     status = comp.get("status") or event.get("status") or {}
     status_type = status.get("type") or {}
     state = str(status_type.get("state") or "").lower()
     start_dt = _parse_espn_time(event.get("date", ""))
-    starts_soon = False
-    if start_dt:
-        minutes_until = (start_dt - now_utc).total_seconds() / 60.0
-        starts_soon = 0 <= minutes_until <= starting_within_minutes
-    if state != "in" and not starts_soon:
-        return None
-
     competitors = comp.get("competitors") or []
     home = next((c for c in competitors if c.get("homeAway") == "home"), {})
     away = next((c for c in competitors if c.get("homeAway") == "away"), {})
@@ -158,14 +197,15 @@ def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_withi
     matchup = event.get("name") or (f"{away_team} at {home_team}" if away_team and home_team else "")
     if not matchup:
         return None
+    status_state = state if state in {"pre", "in", "post"} else ("pre" if start_dt else state)
     return LiveGame(
         league=league,
         matchup=matchup,
         home_team=home_team,
         away_team=away_team,
         start_time=event.get("date", ""),
-        status_state="in" if state == "in" else "pre",
-        status_detail=status_type.get("detail") or status_type.get("shortDetail") or status_type.get("description") or ("Live" if state == "in" else "Starting soon"),
+        status_state=status_state,
+        status_detail=status_type.get("detail") or status_type.get("shortDetail") or status_type.get("description") or ("Live" if state == "in" else "Scheduled"),
         event_id=str(event.get("id") or ""),
         home_short_name=_team_value(home, "shortDisplayName", "name", "displayName"),
         away_short_name=_team_value(away, "shortDisplayName", "name", "displayName"),
@@ -175,7 +215,30 @@ def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_withi
         clock=str(status.get("displayClock") or ""),
         home_score=_score_int(home.get("score")),
         away_score=_score_int(away.get("score")),
+        game_date=start_dt.date().isoformat() if start_dt else "",
     )
+
+
+def _parse_live_game(league: str, event: dict, now_utc: datetime, starting_within_minutes: int) -> Optional[LiveGame]:
+    game = _parse_scoreboard_game(league, event)
+    if not game:
+        return None
+    start_dt = _parse_espn_time(game.start_time)
+    starts_soon = False
+    if start_dt:
+        minutes_until = (start_dt - now_utc).total_seconds() / 60.0
+        starts_soon = 0 <= minutes_until <= starting_within_minutes
+    if game.status_state != "in" and not starts_soon:
+        return None
+    if starts_soon and game.status_state != "in":
+        return LiveGame(
+            **{
+                **game.__dict__,
+                "status_state": "pre",
+                "status_detail": game.status_detail or "Starting soon",
+            }
+        )
+    return game
 
 
 def is_nba_slate_query(topic: str) -> bool:
@@ -205,16 +268,96 @@ def resolve_relative_nba_date(topic: str) -> Optional[str]:
     return target.strftime("%Y%m%d")
 
 
-def fetch_nba_games(date_yyyymmdd: str) -> List[str]:
-    """Fetch NBA games for a date from ESPN's public scoreboard endpoint."""
+def _date_mentions(topic: str) -> List[date]:
+    """Extract month/day[/year] dates from user text."""
+    local_today = dates.current_local_date()
+    pattern = re.compile(
+        rf"\b(?:(?:{_WEEKDAY_RE})\s+)?({_MONTH_RE})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{4}}))?\b",
+        re.I,
+    )
+    mentions: List[date] = []
+    for match in pattern.finditer(topic or ""):
+        month = _MONTHS[match.group(1).lower().rstrip(".")]
+        day = int(match.group(2))
+        year = int(match.group(3) or local_today.year)
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            continue
+        mentions.append(value)
+    return mentions
+
+
+def _next_weekday(start: date, weekday: int) -> date:
+    delta = (weekday - start.weekday()) % 7
+    return start + timedelta(days=delta)
+
+
+def resolve_nba_date_window(topic: str, max_days: int = 7) -> Optional[Tuple[str, str]]:
+    """Resolve explicit or relative NBA event windows into YYYYMMDD bounds."""
+    lowered = (topic or "").lower()
+    if "nba" not in lowered:
+        return None
+    if not any(term in lowered for term in ("game", "games", "matchup", "matchups", "market", "markets", "parlay", "bundle", "multi-leg")):
+        return None
+
+    mentions = _date_mentions(topic)
+    if len(mentions) >= 2:
+        start, end = mentions[0], mentions[1]
+    elif len(mentions) == 1:
+        start = end = mentions[0]
+    else:
+        local_today = dates.current_local_date()
+        start = local_today
+        if "tomorrow" in lowered:
+            start = local_today + timedelta(days=1)
+        elif not any(term in lowered for term in ("today", "tonight", "through", "until", " to ", " up to ", "up until")):
+            return None
+
+        weekday_match = re.search(rf"\b(?:through|until|to|up to|up until)\s+(?:next\s+)?({_WEEKDAY_RE})\b", lowered)
+        if weekday_match:
+            end = _next_weekday(start, _WEEKDAYS[weekday_match.group(1)])
+        else:
+            end = start
+
+    if end < start:
+        start, end = end, start
+    if (end - start).days + 1 > max_days:
+        end = start + timedelta(days=max_days - 1)
+    return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
+
+def is_nba_date_window_query(topic: str) -> bool:
+    return resolve_nba_date_window(topic) is not None
+
+
+def _date_iter(start_yyyymmdd: str, end_yyyymmdd: str) -> List[str]:
+    start = datetime.strptime(start_yyyymmdd, "%Y%m%d").date()
+    end = datetime.strptime(end_yyyymmdd, "%Y%m%d").date()
+    values = []
+    current = start
+    while current <= end:
+        values.append(current.strftime("%Y%m%d"))
+        current += timedelta(days=1)
+    return values
+
+
+def fetch_nba_game_records(date_yyyymmdd: str) -> List[LiveGame]:
+    """Fetch NBA scoreboard records for a date from ESPN's public endpoint."""
     url = f"{ESPN_SCOREBOARD_URL}?dates={date_yyyymmdd}"
     data = http.get(url, timeout=15, retries=2)
-    games = []
+    games: List[LiveGame] = []
     for event in data.get("events", []):
-        name = event.get("name")
-        if name:
-            games.append(name)
+        parsed = _parse_scoreboard_game("nba", event)
+        if parsed:
+            games.append(parsed)
+    games.sort(key=lambda game: (game.start_time, game.matchup))
     return games
+
+
+def fetch_nba_games(date_yyyymmdd: str) -> List[str]:
+    """Fetch NBA games for a date from ESPN's public scoreboard endpoint."""
+    return [game.matchup for game in fetch_nba_game_records(date_yyyymmdd)]
 
 
 def fetch_live_games(
@@ -253,6 +396,75 @@ def expand_nba_slate_query(topic: str) -> Tuple[Optional[str], List[str]]:
 
     games = fetch_nba_games(date_yyyymmdd)
     return date_yyyymmdd, games
+
+
+def expand_nba_date_window_query(topic: str, max_days: int = 7) -> Tuple[Optional[str], Optional[str], List[LiveGame]]:
+    """Expand an NBA date-window prompt into scheduled ESPN games."""
+    window = resolve_nba_date_window(topic, max_days=max_days)
+    if not window:
+        return None, None, []
+    start, end = window
+    games: List[LiveGame] = []
+    for date_yyyymmdd in _date_iter(start, end):
+        games.extend(fetch_nba_game_records(date_yyyymmdd))
+    return start, end, games
+
+
+def _clean_token_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+
+
+def _team_aliases(game: LiveGame, side: str) -> List[str]:
+    if side == "home":
+        values = [game.home_team, game.home_short_name, game.home_abbreviation]
+    else:
+        values = [game.away_team, game.away_short_name, game.away_abbreviation]
+    aliases = []
+    for value in values:
+        normalized = " ".join(_clean_token_text(value).split())
+        if normalized and normalized not in aliases:
+            aliases.append(normalized)
+    return aliases
+
+
+def _contains_alias(text: str, aliases: List[str]) -> bool:
+    padded = f" {_clean_token_text(text)} "
+    tokens = set(padded.split())
+    for alias in aliases:
+        alias = " ".join(_clean_token_text(alias).split())
+        if not alias:
+            continue
+        if len(alias) <= 3:
+            if alias in tokens:
+                return True
+        elif f" {alias} " in padded:
+            return True
+        else:
+            parts = [part for part in alias.split() if len(part) > 3]
+            if parts and any(part in tokens for part in parts):
+                return True
+    return False
+
+
+def match_game_for_market_text(text: str, games: List[LiveGame]) -> Tuple[Optional[LiveGame], float, str]:
+    """Match market text to an ESPN game by requiring both teams."""
+    for game in games or []:
+        home_match = _contains_alias(text, _team_aliases(game, "home"))
+        away_match = _contains_alias(text, _team_aliases(game, "away"))
+        if home_match and away_match:
+            exact_names = (
+                _clean_token_text(game.home_team) in _clean_token_text(text)
+                and _clean_token_text(game.away_team) in _clean_token_text(text)
+            )
+            exact_abbr = bool(
+                game.home_abbreviation
+                and game.away_abbreviation
+                and _contains_alias(text, [game.home_abbreviation])
+                and _contains_alias(text, [game.away_abbreviation])
+            )
+            confidence = 0.95 if exact_names else 0.85 if exact_abbr else 0.72
+            return game, confidence, "direct_match"
+    return None, 0.0, "no_game_match"
 
 
 def matchup_team_names(topic: str) -> List[str]:

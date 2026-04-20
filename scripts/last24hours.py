@@ -102,6 +102,26 @@ def record_paper_watchlist_picks(report) -> int:
     return len(picks)
 
 
+def record_paper_bundle_picks(report) -> int:
+    """Record the selected paper bundle as paper-only ledger metadata."""
+    import paper as paper_cli
+
+    payload = report.to_dict()
+    payload["query_type"] = "market_watchlist"
+    picks = [pick for pick in paper_cli.extract_paper_picks(payload) if pick.get("pick_type") == "bundle"]
+    if not picks:
+        return 0
+    run_id = paper_cli.store.record_paper_run(
+        "paper_bundle",
+        status="completed",
+        topics_attempted=1,
+        picks_created=len(picks),
+        skill_version=paper_cli._skill_version(),
+    )
+    paper_cli._store_picks(run_id, picks)
+    return len(picks)
+
+
 def parse_search_flag(search_str: str) -> set:
     """Parse and validate the --search flag value.
 
@@ -237,6 +257,7 @@ from lib import (
     env,
     forecast,
     market_watchlist,
+    paper_bundles,
     http,
     models,
     normalize,
@@ -841,6 +862,63 @@ def _market_matches_matchup(item: dict, topic: str) -> bool:
     return True
 
 
+def _search_reddit_many(
+    topics: list[str],
+    config: dict,
+    selected_models: dict,
+    from_date: str,
+    to_date: str,
+    depth: str,
+    mock: bool,
+) -> tuple:
+    """Run Reddit search for multiple matchup topics and merge."""
+    merged_items = []
+    merged_raw = {"queries": []}
+    errors = []
+    used_scrapecreators = False
+
+    with ThreadPoolExecutor(max_workers=min(4, len(topics) or 1)) as executor:
+        futures = {
+            executor.submit(_search_reddit, topic, config, selected_models, from_date, to_date, depth, mock): topic
+            for topic in topics
+        }
+        for future in as_completed(futures):
+            topic = futures[future]
+            try:
+                items, raw, err, used_sc = future.result()
+                merged_items.extend(items)
+                merged_raw["queries"].append({"topic": topic, "response": raw})
+                used_scrapecreators = used_scrapecreators or used_sc
+                if err:
+                    errors.append(f"{topic}: {err}")
+            except Exception as e:
+                errors.append(f"{topic}: {type(e).__name__}: {e}")
+
+    merged_error = None if merged_items else "; ".join(errors[:3]) if errors else None
+    return merged_items, merged_raw, merged_error, used_scrapecreators
+
+
+def _annotate_sports_market_context(items: list, games: list[sports_schedule.LiveGame]) -> None:
+    """Attach ESPN game context to direct game-outcome market candidates."""
+    if not games:
+        return
+    for item in items or []:
+        market_type = getattr(item, "market_type", "")
+        if market_type != "game_outcome":
+            continue
+        text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+        game, confidence, reason = sports_schedule.match_game_for_market_text(text, games)
+        if not game:
+            continue
+        if not getattr(item, "live_game_context", ""):
+            item.live_game_context = game.context
+        item.live_game_league = game.league
+        item.live_match_confidence = round(confidence, 2)
+        item.live_match_reason = reason
+        if not getattr(item, "resolvability", ""):
+            item.resolvability = "sports game outcome; verify live score and market rules"
+
+
 def _search_x_many(
     topics: list[str],
     config: dict,
@@ -988,6 +1066,36 @@ def _search_web(
         item.setdefault("why_relevant", "")
 
     return raw_results, web_error
+
+
+def _search_web_many(
+    topics: list[str],
+    config: dict,
+    from_date: str,
+    to_date: str,
+    depth: str,
+) -> tuple:
+    """Run native web search for multiple matchup topics and merge."""
+    merged_items = []
+    errors = []
+    with ThreadPoolExecutor(max_workers=min(4, len(topics) or 1)) as executor:
+        futures = {
+            executor.submit(_search_web, topic, config, from_date, to_date, depth): topic
+            for topic in topics
+        }
+        for future in as_completed(futures):
+            topic = futures[future]
+            try:
+                items, err = future.result()
+                merged_items.extend(items)
+                if err:
+                    errors.append(f"{topic}: {err}")
+            except Exception as e:
+                errors.append(f"{topic}: {type(e).__name__}: {e}")
+    for idx, item in enumerate(merged_items, start=1):
+        item["id"] = f"W{idx}"
+    merged_error = None if merged_items else "; ".join(errors[:3]) if errors else None
+    return merged_items, merged_error
 
 
 def _search_xiaohongshu(
@@ -1432,10 +1540,16 @@ def run_research(
         if do_reddit:
             if progress:
                 progress.start_reddit()
-            reddit_future = executor.submit(
-                _search_reddit, topic, config, selected_models,
-                from_date, to_date, depth, mock
-            )
+            if topic_scope and depth != "quick":
+                reddit_future = executor.submit(
+                    _search_reddit_many, topic_scope, config, selected_models,
+                    from_date, to_date, depth, mock
+                )
+            else:
+                reddit_future = executor.submit(
+                    _search_reddit, topic, config, selected_models,
+                    from_date, to_date, depth, mock
+                )
 
         if do_x:
             if progress:
@@ -1523,9 +1637,14 @@ def run_research(
         if web_backend:
             sys.stderr.write(f"[web] Searching via {web_backend}\n")
             sys.stderr.flush()
-            web_future = executor.submit(
-                _search_web, topic, config, from_date, to_date, depth
-            )
+            if topic_scope:
+                web_future = executor.submit(
+                    _search_web_many, topic_scope, config, from_date, to_date, depth
+                )
+            else:
+                web_future = executor.submit(
+                    _search_web, topic, config, from_date, to_date, depth
+                )
 
         # Collect results (with timeouts to prevent indefinite blocking)
         reddit_used_sc = False  # Track if ScrapeCreators was used for Reddit
@@ -1976,6 +2095,11 @@ def main():
         action="store_true",
         help="Record selected market-watchlist candidates as paper picks. Does not place trades.",
     )
+    parser.add_argument(
+        "--paper-bundles",
+        action="store_true",
+        help="Record selected paper-only multi-leg watchlist bundle metadata. Does not place trades.",
+    )
 
     args = parser.parse_args()
     args.topic = " ".join(args.topic) if args.topic else None
@@ -2091,6 +2215,9 @@ def main():
     if args.paper_watchlist and initial_query_type != "market_watchlist":
         print("Error: --paper-watchlist only supports market-watchlist runs.", file=sys.stderr)
         sys.exit(1)
+    if args.paper_bundles and initial_query_type != "market_watchlist":
+        print("Error: --paper-bundles only supports market-watchlist runs.", file=sys.stderr)
+        sys.exit(1)
 
     # Initialize progress display with topic
     progress_mode = "market watchlist" if initial_query_type == "market_watchlist" else "forecasting"
@@ -2183,6 +2310,17 @@ def main():
     query_type = initial_query_type
     expanded_schedule_date = None
     search_topics = None
+    nba_window_start = None
+    nba_window_end = None
+    nba_window_games = []
+    nba_window_error = ""
+    if sports_schedule.is_nba_date_window_query(args.topic):
+        try:
+            nba_window_start, nba_window_end, nba_window_games = sports_schedule.expand_nba_date_window_query(args.topic)
+        except Exception as e:
+            nba_window_error = str(e)
+            sys.stderr.write(f"[schedule] NBA date-window expansion failed: {e}\n")
+            sys.stderr.flush()
     live_games = []
     live_sports_mode = closing_soon_mode and (args.live_sports or closing_soon.wants_live_sports(args.topic))
     live_closing_diagnostics = {}
@@ -2197,8 +2335,12 @@ def main():
     if query_type == "market_watchlist":
         if closing_soon_mode:
             search_topics = closing_soon.closing_search_topics(args.topic, live_games)
+        elif nba_window_games:
+            search_topics = [game.matchup for game in nba_window_games]
         else:
             search_topics = market_watchlist.search_topics(args.topic)
+    elif query_type == "prediction" and nba_window_games:
+        search_topics = [game.matchup for game in nba_window_games]
     elif query_type == "prediction" and sports_schedule.is_nba_slate_query(args.topic):
         try:
             expanded_schedule_date, slate_games = sports_schedule.expand_nba_slate_query(args.topic)
@@ -2249,6 +2391,15 @@ def main():
     )
     if query_type in {"prediction", "market_watchlist"}:
         search_topics = plan.search_topics
+    if nba_window_start and nba_window_end:
+        start_iso = f"{nba_window_start[:4]}-{nba_window_start[4:6]}-{nba_window_start[6:]}"
+        end_iso = f"{nba_window_end[:4]}-{nba_window_end[4:6]}-{nba_window_end[6:]}"
+        plan.notes.append(f"nba-window:{start_iso}..{end_iso}")
+        plan.notes.append(f"nba-window-games:{len(nba_window_games)}")
+        if nba_window_error:
+            plan.notes.append("nba-window-error")
+        if nba_window_games and search_topics and len(search_topics) < len(nba_window_games):
+            plan.notes.append(f"nba-window-truncated:{len(search_topics)}/{len(nba_window_games)}")
     if closing_soon_mode:
         search_topics = closing_soon.closing_search_topics(args.topic, live_games)
         if "closing_soon" not in plan.notes:
@@ -2424,6 +2575,13 @@ def main():
         item.id = f"PM{idx}"
     for idx, item in enumerate(deduped_ka, start=1):
         item.id = f"KA{idx}"
+    sports_context_games = []
+    for game in [*live_games, *nba_window_games]:
+        key = game.event_id or f"{game.league}:{game.matchup}:{game.start_time}"
+        if key not in {existing.event_id or f"{existing.league}:{existing.matchup}:{existing.start_time}" for existing in sports_context_games}:
+            sports_context_games.append(game)
+    _annotate_sports_market_context(deduped_pm, sports_context_games)
+    _annotate_sports_market_context(deduped_ka, sports_context_games)
 
     # Cross-source linking: annotate items that discuss the same story
     dedupe.cross_source_link(
@@ -2460,6 +2618,12 @@ def main():
     report.forecasts = forecast.synthesize_forecasts(report)
     if query_type == "market_watchlist":
         report.market_watchlist = market_watchlist.synthesize_market_watchlist(report)
+        report.paper_bundles, report.paper_bundle_reason = paper_bundles.synthesize_paper_bundles(report)
+        if paper_bundles.wants_paper_bundles(args.topic) and not report.paper_bundles:
+            if nba_window_error:
+                report.paper_bundle_reason = "ESPN schedule discovery was unavailable, so no paper bundle was trusted."
+            elif sports_schedule.is_nba_date_window_query(args.topic) and not nba_window_games:
+                report.paper_bundle_reason = "ESPN found no NBA games for the requested date window."
     report.reddit_error = reddit_error
     report.x_error = x_error
     report.youtube_error = youtube_error
@@ -2534,6 +2698,9 @@ def main():
     if args.paper_watchlist:
         created = record_paper_watchlist_picks(report)
         print(f"[paper] Recorded {created} paper watchlist pick(s)", file=sys.stderr)
+    if args.paper_bundles:
+        created = record_paper_bundle_picks(report)
+        print(f"[paper] Recorded {created} paper bundle pick(s)", file=sys.stderr)
 
     # Auto-save raw research to file if --save-dir is set
     if args.save_dir:

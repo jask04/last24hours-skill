@@ -1,4 +1,4 @@
-# /last24hours v1.0.16
+# /last24hours v1.0.17
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -11,6 +11,8 @@ When no clean market or official source can anchor a forecast, the output now ma
 Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
 
 Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Live-sports scans only surface direct matching game-outcome markets; series, futures, totals, props, and wrong-matchup markets are rejected with diagnostics. Catalyst snippets must match the specific market domain and entity; when no clean external catalyst clears the filter, rankings are labeled as market-signal driven. Fast-moving lines must be verified in the Polymarket UI before relying on them.
+
+NBA date-window scans can expand prompts such as `NBA games April 20 2026 through April 22 2026` into ESPN-backed matchup searches. Bundle-intent prompts such as `NBA paper bundle ideas April 20 through April 22` produce paper-only multi-leg watchlists from direct game-outcome markets, with independence-baseline probability math, correlation warnings, and fragility notes.
 
 Paper forecast tracking is available for calibration work. The paper ledger records hypothetical daily forecasts, resolves them later when public market outcomes are available, scores calibration, tracks whether the portfolio is leaning on easy favorites or longshots, and prints suggested system improvements for review. New paper records include the skill version so calibration can be compared across forecast-engine changes. It does not place trades, size positions, recommend stakes, or automatically change forecast weights.
 
@@ -49,8 +51,10 @@ Use `/last24hours` for five related workflows:
 | --- | --- | --- |
 | Probability forecast | Produces a market-anchored forecast with uncertainty and catalysts | `/last24hours Bitcoin above 100k this week` |
 | Sports slate forecast | Expands broad NBA slate prompts into matchup-specific forecasts | `/last24hours tomorrows nba games` |
+| Sports date-window scan | Expands bounded NBA date windows into matchup-specific searches | `/last24hours NBA games April 20 2026 through April 22 2026` |
 | Market watchlist | Ranks topic-scoped Polymarket/Kalshi markets for monitoring | `/last24hours NBA markets to watch today` |
 | Closing-soon scanner | Finds near-expiry Polymarket markets and live/starting-soon sports markets | `/last24hours Polymarket markets closing soon` |
+| Paper bundles | Builds paper-only multi-leg NBA watchlist bundles with correlation warnings | `/last24hours NBA paper bundle ideas April 20 through April 22` |
 | Paper forecast ledger | Records hypothetical forecasts, resolves them later, and reports calibration | `python3 scripts/paper.py daily --portfolio fixtures/paper_portfolio.json --quick` |
 
 Current notable capabilities:
@@ -58,6 +62,7 @@ Current notable capabilities:
 - Threshold-aware forecast matching, so `Bitcoin above 100k this week` does not anchor to unrelated `$70k` or range markets.
 - Official National Weather Service anchoring for supported U.S. weather prompts such as `NYC rain tomorrow`.
 - ESPN-backed NBA slate and paper-pick resolution, plus live/starting-soon detection for NBA, MLB, NHL, and NFL watchlists.
+- ESPN-backed NBA date-window expansion and paper-only multi-leg bundle output for direct game-outcome markets.
 - Closing-soon Polymarket scanning with full close datetimes, minutes-to-close, liquidity/spread, 24h movement, and resolvability notes.
 - Market-watchlist catalyst filtering that rejects unrelated promo posts, picks/parlay chatter, and domain-mismatched snippets.
 - Paper-only calibration loop with Brier score, log loss, probability buckets, favorite/longshot diagnostics, and conservative suggestions.
@@ -266,10 +271,13 @@ python3 scripts/last24hours.py "tomorrows nba games" --quick --emit=compact
 python3 scripts/last24hours.py "NYC rain tomorrow" --quick --emit=compact
 python3 scripts/last24hours.py "todays nba games" --quick --emit=compact
 python3 scripts/last24hours.py "NBA markets to watch today" --quick --emit=compact
+python3 scripts/last24hours.py "NBA games April 20 2026 through April 22 2026" --quick --emit=compact --as-of-date 2026-04-20
+python3 scripts/last24hours.py "NBA paper bundle ideas April 20 through April 22" --quick --emit=compact --as-of-date 2026-04-20
 python3 scripts/last24hours.py "Polymarket markets closing soon" --quick --emit=compact
 python3 scripts/last24hours.py "live sports games on Polymarket right now" --quick --emit=compact --live-sports
 python3 scripts/last24hours.py "crypto markets closing soon tonight" --quick --emit=compact --closing-window-hours 6
 python3 scripts/last24hours.py "Polymarket markets closing soon" --quick --emit=json --paper-watchlist --closing-window-hours 6
+python3 scripts/last24hours.py "NBA paper bundle ideas April 20 through April 22" --quick --emit=json --paper-bundles --as-of-date 2026-04-20
 python3 scripts/last24hours.py "NBA matchups tomorrow" --quick --emit=compact --as-of-date 2026-04-19
 python3 scripts/last24hours.py "Trail Blazers vs Spurs April 21 2026 Game 2" --quick --emit=compact --as-of-date 2026-04-19
 python3 scripts/last24hours.py --diagnose
