@@ -1,6 +1,7 @@
 import unittest
+from unittest import mock
 
-from scripts.lib import forecast, market_watchlist, render, schema
+from scripts.lib import evidence_fusion, forecast, market_watchlist, render, schema
 
 
 def _report(topic: str) -> schema.Report:
@@ -203,6 +204,214 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("spot price", catalyst_text)
         for term in ("lineup", "injury", "rest", "tipoff"):
             self.assertNotIn(term, catalyst_text)
+
+    def test_broad_closing_soon_rejects_unrelated_stock_promo_catalyst(self):
+        report = _report("Polymarket markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Bitcoin Up or Down - April 20, 4AM ET",
+                question="Bitcoin Up or Down - April 20, 4AM ET",
+                url="https://polymarket.com/event/bitcoin-up-or-down-april-20-2026-4am-et",
+                outcome_prices=[("Up", 0.30), ("Down", 0.70)],
+                engagement=_engagement(volume=24_000, liquidity=6_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.79,
+                volume_24h=24_000,
+                best_bid=0.29,
+                best_ask=0.30,
+                spread=0.01,
+                movement_24h=-21.0,
+                relevance=0.95,
+                minutes_to_close=17,
+                closing_soon_reason="closing_soon",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Big thanks to @PriyRaval - stocks are on a tear! He drops daily winners that rise super fast. You need this in your feed. #StockMarket #Inflation",
+                url="https://x.com/example/status/1",
+                author_handle="promo",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+        self.assertEqual(items[0].evidence_refs, [])
+        self.assertNotIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_crypto_market_specific_catalyst_is_accepted(self):
+        report = _report("Polymarket markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Ethereum Up or Down - April 20, 4AM ET",
+                question="Ethereum Up or Down - April 20, 4AM ET",
+                url="https://polymarket.com/event/ethereum-up-or-down-april-20-2026-4am-et",
+                outcome_prices=[("Up", 0.22), ("Down", 0.78)],
+                engagement=_engagement(volume=50_000, liquidity=25_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.80,
+                volume_24h=50_000,
+                best_bid=0.22,
+                best_ask=0.23,
+                spread=0.01,
+                movement_24h=-18.0,
+                relevance=0.95,
+                minutes_to_close=15,
+                closing_soon_reason="closing_soon",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Ethereum volatility jumps as ETF flow data and liquidation pressure hit ETH price support before the daily close.",
+                url="https://x.com/example/status/2",
+                author_handle="crypto",
+                score=92,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertIn("Ethereum volatility", items[0].catalyst_summary)
+        self.assertIn("fresh catalyst context", items[0].why_ranks)
+        self.assertEqual(items[0].evidence_refs, ["X1 https://x.com/example/status/2"])
+
+    def test_soccer_watchlist_rejects_unrelated_promo_and_requires_match_overlap(self):
+        report = _report("Polymarket markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="FK Oleksandriya vs. RNK Veres Rivne",
+                question="Will FK Oleksandriya win on 2026-04-20?",
+                url="https://polymarket.com/event/ukr1-ole-ver-2026-04-20",
+                outcome_prices=[("FK Oleksandriya", 0.32), ("RNK Veres Rivne", 0.38)],
+                engagement=_engagement(volume=10_000, liquidity=10_000),
+                market_type="game_outcome",
+                market_signal_quality=0.45,
+                volume_24h=10_000,
+                relevance=0.9,
+                minutes_to_close=77,
+                closing_soon_reason="closing_soon",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Daily winners are on fire and my VIP picks keep cashing.",
+                url="https://x.com/example/status/3",
+                author_handle="promo",
+                score=99,
+            ),
+            schema.XItem(
+                id="X2",
+                text="FK Oleksandriya vs RNK Veres Rivne is delayed by heavy rain with the live score still 0-0.",
+                url="https://x.com/example/status/4",
+                author_handle="matchreport",
+                score=80,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertIn("FK Oleksandriya", items[0].catalyst_summary)
+        self.assertNotIn("Daily winners", items[0].catalyst_summary)
+        self.assertIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_weather_market_requires_location_specific_forecast_evidence(self):
+        report = _report("Polymarket markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Highest temperature in Shanghai on April 20?",
+                question="Will the highest temperature in Shanghai be 18C on April 20?",
+                url="https://polymarket.com/event/highest-temperature-in-shanghai-on-april-20-2026",
+                outcome_prices=[("Yes", 0.86), ("No", 0.14)],
+                engagement=_engagement(volume=100_000, liquidity=50_000),
+                market_type="weather_binary",
+                market_signal_quality=0.70,
+                volume_24h=100_000,
+                best_bid=0.86,
+                best_ask=0.87,
+                spread=0.01,
+                relevance=0.95,
+                minutes_to_close=120,
+                closing_soon_reason="closing_soon",
+            )
+        ]
+        report.web = [
+            schema.WebSearchItem(
+                id="W1",
+                title="Beijing weather update",
+                url="https://example.com/beijing",
+                source_domain="example.com",
+                snippet="The forecast model shows warmer temperatures and rain chances in Beijing.",
+                score=90,
+            ),
+            schema.WebSearchItem(
+                id="W2",
+                title="Shanghai weather forecast",
+                url="https://example.com/shanghai",
+                source_domain="example.com",
+                snippet="Shanghai forecast models show the highest temperature near 18C today.",
+                score=80,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertIn("Shanghai weather forecast", items[0].catalyst_summary)
+        self.assertNotIn("Beijing", items[0].catalyst_summary)
+
+    def test_fused_watchlist_driver_uses_same_market_specific_filter(self):
+        report = _report("Polymarket markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Bitcoin Up or Down - April 20, 4AM ET",
+                question="Bitcoin Up or Down - April 20, 4AM ET",
+                url="https://polymarket.com/event/bitcoin-up-or-down-april-20-2026-4am-et",
+                outcome_prices=[("Up", 0.30), ("Down", 0.70)],
+                engagement=_engagement(volume=24_000, liquidity=6_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.79,
+                volume_24h=24_000,
+                spread=0.01,
+                relevance=0.95,
+                minutes_to_close=17,
+                closing_soon_reason="closing_soon",
+            )
+        ]
+        fused = evidence_fusion.FusionResult(
+            drivers=[
+                evidence_fusion.FusedEvidence(
+                    text="Inflation is moving markets, and these daily stock winners are on a tear.",
+                    source="x",
+                    source_item_id="X1",
+                    author_key="x:promo",
+                    cluster_key="inflation markets",
+                    score=0.95,
+                )
+            ],
+            candidate_count=1,
+            cluster_count=1,
+        )
+
+        with mock.patch("scripts.lib.market_watchlist.evidence_fusion.fuse_evidence", return_value=fused):
+            items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+        self.assertNotIn("fresh catalyst context", items[0].why_ranks)
 
 
 if __name__ == "__main__":

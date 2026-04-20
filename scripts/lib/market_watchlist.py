@@ -59,6 +59,22 @@ _CRYPTO_SIGNAL_TERMS = {
     "price", "prices", "etf", "inflows", "outflows", "liquidation",
     "liquidations", "volatility", "support", "resistance", "breakout",
     "macro", "rates", "treasury", "dollar", "volume", "open", "interest",
+    "flow", "flows", "liquidity", "repricing", "market", "markets",
+}
+_CRYPTO_ENTITY_TOKENS = {"bitcoin", "btc", "ethereum", "eth", "solana", "sol", "xrp", "crypto"}
+_TECH_SIGNAL_TERMS = {
+    "model", "models", "benchmark", "benchmarks", "arena", "coding", "ai",
+    "release", "released", "launch", "launched", "eval", "leaderboard",
+    "score", "scores", "claude", "openai", "anthropic", "google", "gemini",
+}
+_MARKET_WATCHLIST_SPAM_PHRASES = {
+    "daily winners", "stocks are on a tear", "need this in your feed",
+    "signal room", "vip", "pump group", "free picks", "guaranteed",
+}
+_MARKET_WATCHLIST_SPAM_TOKENS = {
+    "airdrop", "airdrops", "giveaway", "rewards", "reward", "claim",
+    "mint", "lock", "locks", "parlay", "picks", "pick", "tail", "sprinkle",
+    "vip", "signals", "promo", "promote", "winners", "winner",
 }
 
 _META_MARKET_TERMS = {
@@ -257,6 +273,113 @@ def _source_text(item) -> str:
     return getattr(item, "title", "") or getattr(item, "text", "")
 
 
+def _market_evidence_domain(prompt_domain: str, market_type: str, market_tokens: set[str], market_text: str) -> str:
+    lowered = market_text.lower()
+    if market_type in {"crypto_daily", "threshold"} and market_tokens & _CRYPTO_ENTITY_TOKENS:
+        return "crypto"
+    if market_tokens & _CRYPTO_ENTITY_TOKENS:
+        return "crypto"
+    if market_type == "weather_binary" or (market_tokens & eq.WEATHER_QUERY_TERMS and ("temperature" in lowered or "weather" in lowered)):
+        return "weather"
+    if market_type in {"game_outcome", "player_prop", "team_prop"}:
+        return "sports"
+    if re.search(r"\b[a-z0-9]+-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}\b", lowered) or " vs" in lowered or " at " in lowered:
+        return "sports"
+    if market_tokens & (eq.MACRO_SIGNAL_TERMS | {"macro", "fed", "fomc", "cpi", "inflation", "recession"}):
+        return "macro"
+    if market_tokens & {"election", "elections", "approval", "senate", "house", "president", "governor"}:
+        return "elections"
+    if market_tokens & {"ai", "model", "models", "coding", "openai", "anthropic", "google", "gemini", "claude"}:
+        return "tech"
+    return prompt_domain
+
+
+def _is_spammy_market_evidence(text: str) -> bool:
+    lowered = (text or "").lower()
+    tokens = _tokens(text)
+    if any(phrase in lowered for phrase in _MARKET_WATCHLIST_SPAM_PHRASES):
+        return True
+    if tokens & _MARKET_WATCHLIST_SPAM_TOKENS:
+        useful = tokens & (_CRYPTO_SIGNAL_TERMS | eq.SPORTS_HIGH_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS | eq.MACRO_SIGNAL_TERMS | _TECH_SIGNAL_TERMS)
+        if not useful:
+            return True
+    return False
+
+
+def _market_entity_overlap(market_tokens: set[str], evidence_tokens: set[str]) -> int:
+    return len((market_tokens - _GENERIC_MARKET_TOKENS) & evidence_tokens)
+
+
+def _is_market_specific_evidence(
+    report_topic: str,
+    item,
+    market_type: str,
+    text: str,
+    context: str = "",
+) -> bool:
+    market_text = _market_text(item)
+    market_tokens = _tokens(market_text)
+    evidence_tokens = _tokens(f"{text} {context}")
+    prompt_domain = _domain(report_topic)
+    effective_domain = _market_evidence_domain(prompt_domain, market_type, market_tokens, market_text)
+
+    if _is_spammy_market_evidence(text):
+        return False
+
+    market_specific_tokens = market_tokens - _GENERIC_MARKET_TOKENS
+    overlap = _market_entity_overlap(market_tokens, evidence_tokens)
+
+    if effective_domain == "crypto":
+        market_crypto_tokens = market_tokens & _CRYPTO_ENTITY_TOKENS
+        if market_crypto_tokens and not (market_crypto_tokens & evidence_tokens):
+            return False
+        return bool((evidence_tokens & _CRYPTO_ENTITY_TOKENS) and (evidence_tokens & _CRYPTO_SIGNAL_TERMS))
+
+    if effective_domain == "weather":
+        location_tokens = market_specific_tokens - eq.WEATHER_LOCATION_STOP - eq.WEATHER_QUERY_TERMS - {"highest", "temperature"}
+        if location_tokens and not (location_tokens & evidence_tokens):
+            return False
+        return bool(evidence_tokens & eq.WEATHER_SIGNAL_TERMS)
+
+    if effective_domain in {"sports", "nba"}:
+        sports_team_overlap = len((market_tokens & eq.SPORTS_TEAM_TOKENS) & evidence_tokens)
+        market_specific_overlap = len(market_specific_tokens & evidence_tokens)
+        if market_tokens & eq.SPORTS_TEAM_TOKENS:
+            if sports_team_overlap < 1:
+                return False
+        elif market_specific_overlap < 2:
+            return False
+        return eq.is_sports_rationale_evidence(
+            text,
+            context,
+            exact_match=True,
+            exact_date=True,
+            allow_market_context=True,
+        ) or bool(evidence_tokens & {"score", "scores", "clock", "period", "inning", "ejection", "ejected", "goalie", "pitcher", "delay"})
+
+    if effective_domain == "macro":
+        if overlap < 1 and not (evidence_tokens & eq.MACRO_STRONG_TERMS):
+            return False
+        return eq.is_macro_signal(text, market_specific_tokens or _tokens(report_topic), context)
+
+    if effective_domain == "elections":
+        if overlap < 1:
+            return False
+        return bool(evidence_tokens & {"poll", "polls", "approval", "vote", "election", "campaign", "primary", "debate"})
+
+    if effective_domain == "tech":
+        if overlap < 1:
+            return False
+        return bool(evidence_tokens & _TECH_SIGNAL_TERMS)
+
+    if prompt_domain != "broad":
+        if overlap < 1:
+            return False
+        return _is_signal_evidence(report_topic, text, context)
+
+    return overlap >= 2 and bool(evidence_tokens & _CATALYST_TERMS)
+
+
 def _is_signal_evidence(topic: str, text: str, context: str = "") -> bool:
     domain = _domain(topic)
     tokens = _tokens(f"{text} {context}")
@@ -284,7 +407,8 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
     domain = _domain(report.topic)
     market_specific_tokens = market_tokens - _GENERIC_MARKET_TOKENS
     market_team_tokens = market_tokens & eq.SPORTS_TEAM_TOKENS
-    market_crypto_tokens = market_tokens & {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto"}
+    market_crypto_tokens = market_tokens & _CRYPTO_ENTITY_TOKENS
+    market_type = _candidate_market_type(item)
     scored = []
     fused = evidence_fusion.fuse_evidence(report, _market_text(item), "market_watchlist", limit=3)
     if fused.candidate_count:
@@ -306,7 +430,7 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
         driver_tokens = _tokens(driver.text)
         overlap = len(market_specific_tokens & driver_tokens)
         catalyst = len(driver_tokens & _CATALYST_TERMS)
-        if overlap or catalyst:
+        if (overlap or catalyst) and _is_market_specific_evidence(report.topic, item, market_type, driver.text):
             scored.append((driver.score + min(0.20, overlap * 0.04), driver, driver.text))
 
     evidence_items = list(report.x[:12]) + list(report.reddit[:10]) + list(report.web[:10]) + list(report.hackernews[:5])
@@ -333,7 +457,7 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
             continue
         if overlap < 1 and catalyst < 1:
             continue
-        if not _is_signal_evidence(report.topic, text, context):
+        if not _is_market_specific_evidence(report.topic, item, market_type, text, context):
             continue
         base_score = getattr(evidence, "score", 0) / 100.0
         scored.append((base_score + min(0.35, overlap * 0.06) + min(0.25, catalyst * 0.05), evidence, text))

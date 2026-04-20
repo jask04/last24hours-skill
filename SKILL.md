@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.15"
+version: "1.0.16"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.15: Forecast From the Last 24 Hours
+# last24hours v1.0.16: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -78,7 +78,7 @@ For prompts such as `markets to watch`, `best markets`, `recommend markets`, `ma
 - What catalyst or evidence supports watching it?
 - What risk or uncertainty would change the ranking?
 
-For closing-soon or live-sports watchlist prompts, prioritize near-expiry Polymarket markets and direct live/starting-soon sports game markets. Live-sports mode must only surface direct matching game-outcome markets, not series, futures, totals, player props, or wrong-matchup markets. Show close time, minutes to close, liquidity/spread, live game status when available, and settlement-rule warnings. Do not call these bets, do not imply profit, and tell the user to verify fast-moving lines in the Polymarket UI.
+For closing-soon or live-sports watchlist prompts, prioritize near-expiry Polymarket markets and direct live/starting-soon sports game markets. Live-sports mode must only surface direct matching game-outcome markets, not series, futures, totals, player props, or wrong-matchup markets. Catalyst snippets must match the specific market domain and entity; if no clean external catalyst clears the filter, say the ranking is mostly market-signal driven. Show close time, minutes to close, liquidity/spread, live game status when available, and settlement-rule warnings. Do not call these bets, do not imply profit, and tell the user to verify fast-moving lines in the Polymarket UI.
 
 ## Core Rule
 
@@ -265,7 +265,7 @@ Rank markets by:
 - fresh catalyst evidence from X, Reddit, web, and Hacker News
 - cross-market disagreement when Polymarket and Kalshi have comparable contracts
 
-Prefer measurable market signal over generic catalyst text. Kalshi candidates may include public candlestick-derived 24h movement, 24h volume, latest open interest, and signal timestamps. Polymarket candidates may include Gamma-derived 24h volume, liquidity, one-day movement, and bid/ask or spread fields when present. If those signals are missing, keep an otherwise relevant market but label the missing signal in `Market signal` or `Risk / what would change it`.
+Prefer measurable market signal over generic catalyst text. Reject low-signal promotional posts, signal-room pitches, picks/parlay chatter, giveaway/airdrop spam, and domain-mismatched snippets from market-watchlist catalyst notes. Kalshi candidates may include public candlestick-derived 24h movement, 24h volume, latest open interest, and signal timestamps. Polymarket candidates may include Gamma-derived 24h volume, liquidity, one-day movement, and bid/ask or spread fields when present. If those signals are missing, keep an otherwise relevant market but label the missing signal in `Market signal` or `Risk / what would change it`.
 
 For NBA, Fed/rates, BTC, and ETH watchlist scans, Kalshi should check direct series/event markets in addition to generic open-market pages. If a Kalshi candidate is close to the top-five cutoff, include it for venue coverage; do not force weak or poorly matched Kalshi rows into the watchlist.
 

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.16] - 2026-04-20
+
+### Fixed
+- Market-watchlist catalyst snippets now require market-specific entity and domain overlap, so broad closing-soon scans no longer attach unrelated promo posts to crypto, weather, or sports markets
+- Low-signal promotional posts, giveaway/airdrop spam, signal-room pitches, and generic picks/parlay chatter are rejected as catalyst evidence
+- Closing-soon output now falls back to market-signal-driven wording when no clean external catalyst clears the stricter filter
+
 ## [1.0.15] - 2026-04-19
 
 ### Changed

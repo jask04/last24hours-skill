@@ -1,4 +1,4 @@
-# /last24hours v1.0.15
+# /last24hours v1.0.16
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -10,7 +10,7 @@ When no clean market or official source can anchor a forecast, the output now ma
 
 Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
 
-Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Live-sports scans only surface direct matching game-outcome markets; series, futures, totals, props, and wrong-matchup markets are rejected with diagnostics. Fast-moving lines must be verified in the Polymarket UI before relying on them.
+Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Live-sports scans only surface direct matching game-outcome markets; series, futures, totals, props, and wrong-matchup markets are rejected with diagnostics. Catalyst snippets must match the specific market domain and entity; when no clean external catalyst clears the filter, rankings are labeled as market-signal driven. Fast-moving lines must be verified in the Polymarket UI before relying on them.
 
 Paper forecast tracking is available for calibration work. The paper ledger records hypothetical daily forecasts, resolves them later when public market outcomes are available, scores calibration, tracks whether the portfolio is leaning on easy favorites or longshots, and prints suggested system improvements for review. New paper records include the skill version so calibration can be compared across forecast-engine changes. It does not place trades, size positions, recommend stakes, or automatically change forecast weights.
 
@@ -104,7 +104,7 @@ Video/social expansion is opt-in for watchlist prompts unless explicitly request
 
 Search planning is deterministic-first. Quick mode expands to a small set of exact market/topic queries and does not call extra entity-resolution web searches. Default/deep mode records native-web availability for future bounded entity resolution while preserving clean fallback behavior.
 
-Supporting evidence is fused across X, Reddit, web, HN, Bluesky, and Truth Social with source weights, domain quality filters, light clustering, and per-author caps. This selects cleaner drivers for `Why this is the current line` and market-watchlist catalyst notes without letting social evidence move a clean market anchor.
+Supporting evidence is fused across X, Reddit, web, HN, Bluesky, and Truth Social with source weights, domain quality filters, light clustering, and per-author caps. This selects cleaner drivers for `Why this is the current line` and market-watchlist catalyst notes without letting social evidence move a clean market anchor. Market-watchlist catalyst notes also reject generic promotional posts, signal-room pitches, picks/parlay chatter, and domain-mismatched snippets.
 
 ## Installation
 
