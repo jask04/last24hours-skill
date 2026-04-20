@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-04-19
+
+### Fixed
+- Date-specific sports forecasts now reject evidence snippets that explicitly mention a conflicting game date, preventing stale game threads from explaining later-game model-implied forecasts
+
 ## [1.0.11] - 2026-04-19
 
 ### Fixed

@@ -325,6 +325,20 @@ def _sports_market_date_compatible(item, target_date: Optional[str]) -> bool:
     return bool(refs & allowed)
 
 
+def _sports_evidence_date_compatible(text: str, target_date: Optional[str]) -> bool:
+    if not target_date:
+        return True
+    refs = _date_refs(text)
+    if not refs:
+        return True
+    try:
+        target = datetime.fromisoformat(target_date).date()
+        allowed = {target.isoformat(), target.strftime("%m-%d")}
+    except ValueError:
+        allowed = {target_date, target_date[5:]}
+    return bool(refs & allowed)
+
+
 def _threshold_market_compatible(topic: str, item) -> bool:
     """Reject forecast anchors that represent a different numeric contract.
 
@@ -589,7 +603,10 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
             ),
         }
     title_sides = _matchup_side_tokens(title)
+    sports_target_date = _sports_target_date(report) if sports_query else None
     for driver in fused.drivers:
+        if sports_query and not _sports_evidence_date_compatible(driver.text, sports_target_date):
+            continue
         tokens = _tokenize(driver.text)
         team_hits = sum(1 for side in title_sides if side & tokens) if title_sides else 0
         signal_hits = len((DRIVER_TERMS | SPORTS_HIGH_SIGNAL_TERMS | WEATHER_SIGNAL_TERMS | MACRO_SIGNAL_TERMS) & tokens)
@@ -614,6 +631,8 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         text = getattr(item, "text", "") or ""
         if not text:
             continue
+        if sports_query and not _sports_evidence_date_compatible(text, sports_target_date):
+            continue
         base_score = getattr(item, "score", 0)
         candidate = (
             _sports_candidate_score(text, title, "x", base_score, author=getattr(item, "author_handle", ""))
@@ -634,6 +653,8 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         text = getattr(item, "title", "") or ""
         if not text:
             continue
+        if sports_query and not _sports_evidence_date_compatible(text, sports_target_date):
+            continue
         base_score = getattr(item, "score", 0)
         candidate = (
             _sports_candidate_score(text, title, "reddit", base_score, community=getattr(item, "subreddit", ""))
@@ -653,6 +674,8 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
     for item in report.web[:8]:
         text = f"{getattr(item, 'title', '')} {getattr(item, 'snippet', '')}".strip()
         if not text:
+            continue
+        if sports_query and not _sports_evidence_date_compatible(text, sports_target_date):
             continue
         base_score = getattr(item, "score", 0)
         candidate = (

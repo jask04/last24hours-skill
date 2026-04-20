@@ -188,6 +188,15 @@ class PlannerFusionTests(unittest.TestCase):
                 relevance=0.99,
             )
         ]
+        report.reddit = [
+            schema.RedditItem(
+                id="R1",
+                title="Game Thread: Portland Trail Blazers vs San Antonio Spurs Live Score | NBA Playoffs | Apr 19, 2026",
+                url="https://reddit.com/r/nba/comments/old",
+                subreddit="nba",
+                score=90,
+            )
+        ]
 
         forecasts = forecast.synthesize_forecasts(report)
 
@@ -195,6 +204,7 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
         self.assertIn("date-compatible", forecasts[0].degraded_warning)
         self.assertNotIn("threshold-compatible", forecasts[0].degraded_warning)
+        self.assertNotIn("Apr 19", forecasts[0].why_line)
 
     def test_slate_forecast_does_not_use_other_matchup_driver(self):
         report = _report("NBA matchups tomorrow")
