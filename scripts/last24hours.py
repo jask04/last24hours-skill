@@ -51,6 +51,37 @@ VALID_SEARCH_SOURCES = {
 }
 
 
+def cleanup_saved_reports(save_dir: Path, retention_days: int) -> int:
+    """Delete auto-saved raw markdown reports older than retention_days."""
+    if retention_days < 0 or not save_dir.exists():
+        return 0
+    cutoff = datetime.now().timestamp() - (retention_days * 86400)
+    deleted = 0
+    for path in save_dir.glob("*-raw*.md"):
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                deleted += 1
+        except OSError:
+            continue
+    return deleted
+
+
+def save_raw_report(report, source_info: dict, missing_keys: str, topic: str, save_dir: Path) -> Path:
+    import re
+    save_dir.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')[:60]
+    save_path = save_dir / f"{slug}-raw.md"
+    if save_path.exists():
+        save_path = save_dir / f"{slug}-raw-{datetime.now().strftime('%Y-%m-%d')}.md"
+    content = render.render_compact(report, missing_keys=missing_keys)
+    content += "\n" + render.render_source_status(report, source_info)
+    save_path.write_text(content, encoding="utf-8")
+    return save_path
+
+
 def parse_search_flag(search_str: str) -> set:
     """Parse and validate the --search flag value.
 
@@ -1888,9 +1919,35 @@ def main():
         metavar="DIR",
         help="Auto-save raw research output to DIR/{topic-slug}.md",
     )
+    parser.add_argument(
+        "--save-retention-days",
+        type=int,
+        default=14,
+        metavar="DAYS",
+        help="Delete auto-saved *-raw*.md reports in --save-dir older than DAYS (default: 14; negative disables cleanup)",
+    )
+    parser.add_argument(
+        "--clean-save-dir",
+        action="store_true",
+        help="Only clean old auto-saved reports in --save-dir, then exit. Uses --save-retention-days.",
+    )
+    parser.add_argument(
+        "--as-of-date",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Resolve today/tomorrow relative to this local date. Also available as LAST24HOURS_AS_OF_DATE.",
+    )
 
     args = parser.parse_args()
     args.topic = " ".join(args.topic) if args.topic else None
+    if args.as_of_date:
+        try:
+            datetime.strptime(args.as_of_date[:10], "%Y-%m-%d")
+        except ValueError:
+            print("Error: --as-of-date must be YYYY-MM-DD.", file=sys.stderr)
+            sys.exit(1)
+        os.environ["LAST24HOURS_AS_OF_DATE"] = args.as_of_date[:10]
 
     # Enable debug logging if requested
     if args.debug:
@@ -1975,6 +2032,14 @@ def main():
             "scrapecreators_disabled": env.scrapecreators_disabled(config),
         }
         print(json.dumps(diag, indent=2))
+        sys.exit(0)
+
+    if args.clean_save_dir:
+        if not args.save_dir:
+            print("Error: --clean-save-dir requires --save-dir.", file=sys.stderr)
+            sys.exit(1)
+        deleted = cleanup_saved_reports(Path(args.save_dir).expanduser(), args.save_retention_days)
+        print(json.dumps({"save_dir": str(Path(args.save_dir).expanduser()), "retention_days": args.save_retention_days, "deleted": deleted}, indent=2))
         sys.exit(0)
 
     # Validate topic (--diagnose doesn't need one)
@@ -2362,17 +2427,12 @@ def main():
 
     # Auto-save raw research to file if --save-dir is set
     if args.save_dir:
-        import re
         save_dir = Path(args.save_dir).expanduser()
-        save_dir.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r'[^a-z0-9]+', '-', args.topic.lower()).strip('-')[:60]
-        save_path = save_dir / f"{slug}-raw.md"
-        if save_path.exists():
-            save_path = save_dir / f"{slug}-raw-{datetime.now().strftime('%Y-%m-%d')}.md"
-        content = render.render_compact(report, missing_keys=missing_keys)
-        content += "\n" + render.render_source_status(report, source_info)
-        save_path.write_text(content, encoding="utf-8")
+        deleted = cleanup_saved_reports(save_dir, args.save_retention_days)
+        save_path = save_raw_report(report, source_info, missing_keys, args.topic, save_dir)
         print(f"📎 {save_path}", file=sys.stderr)
+        if deleted:
+            print(f"🧹 Deleted {deleted} old saved report(s)", file=sys.stderr)
 
     # Persist findings to SQLite if requested
     if args.store:

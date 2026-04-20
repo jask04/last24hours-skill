@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.0.9] - 2026-04-20
+## [1.0.10] - 2026-04-19
+
+### Added
+- Auto-saved raw markdown reports can now be cleaned with `--clean-save-dir --save-dir DIR`, and normal `--save-dir` runs delete old `*-raw*.md` files after a configurable retention window
+- `--as-of-date YYYY-MM-DD` and `LAST24HOURS_AS_OF_DATE` now make today/tomorrow resolution deterministic across date range, NBA slate, and weather paths
+
+## [1.0.9] - 2026-04-19
 
 ### Fixed
 - NBA slate detection now treats `NBA matchups tomorrow` as a slate query instead of falling back to a generic forecast

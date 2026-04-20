@@ -1,4 +1,4 @@
-# /last24hours v1.0.9
+# /last24hours v1.0.10
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -190,6 +190,8 @@ Usage guidelines:
 - Narrow watchlist prompts by domain, league, asset, or macro theme when possible.
 - Broad prompts such as `markets to watch` degrade to a lower-confidence scan and may return no picks if market matches are weak.
 - Watchlist rankings are informational market-monitoring outputs, not trade execution or allocation advice.
+
+For local testing, `--as-of-date YYYY-MM-DD` pins relative language such as `today`, `tomorrow`, and NBA slate dates. `--save-dir DIR` writes raw markdown reports and cleans old `*-raw*.md` files older than 14 days by default. Run `--clean-save-dir --save-dir DIR` to clean without running a forecast.
 
 ## Paper Forecast Ledger
 

@@ -1,15 +1,17 @@
 import json
+import os
 import re
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 from pathlib import Path
 from unittest import mock
 
-from scripts import evaluate_search_quality, store
-from scripts.lib import bluesky, http
+from scripts import evaluate_search_quality, last24hours, store
+from scripts.lib import bluesky, dates, http, sports_schedule, weather
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +79,33 @@ class EvalFixtureTests(unittest.TestCase):
         topics = [] if args.no_default_topics else evaluate_search_quality.load_eval_topics()
         topics.extend((topic, "custom") for topic in args.topic)
         self.assertEqual(topics, [("custom", "custom")])
+
+
+class DateAndCleanupTests(unittest.TestCase):
+    def test_as_of_date_controls_relative_nba_and_weather_dates(self):
+        with mock.patch.dict(os.environ, {"LAST24HOURS_AS_OF_DATE": "2026-04-19"}):
+            self.assertEqual(dates.get_date_range(1), ("2026-04-18", "2026-04-19"))
+            self.assertEqual(sports_schedule.resolve_relative_nba_date("NBA matchups tomorrow"), "20260420")
+            self.assertEqual(weather._target_date("NYC rain tomorrow"), "2026-04-20")
+
+    def test_cleanup_saved_reports_deletes_only_old_raw_markdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_report = root / "btc-raw.md"
+            new_report = root / "nba-raw.md"
+            other_markdown = root / "notes.md"
+            old_report.write_text("old", encoding="utf-8")
+            new_report.write_text("new", encoding="utf-8")
+            other_markdown.write_text("keep", encoding="utf-8")
+            old_time = time.time() - (3 * 86400)
+            os.utime(old_report, (old_time, old_time))
+
+            deleted = last24hours.cleanup_saved_reports(root, retention_days=1)
+
+            self.assertEqual(deleted, 1)
+            self.assertFalse(old_report.exists())
+            self.assertTrue(new_report.exists())
+            self.assertTrue(other_markdown.exists())
 
 
 class HttpHelperTests(unittest.TestCase):

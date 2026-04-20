@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-from . import evidence_quality as eq, http
+from . import dates, evidence_quality as eq, http
 
 NWS_BASE = "https://api.weather.gov"
 
@@ -53,7 +53,7 @@ def resolve_location(topic: str) -> Optional[tuple[str, float, float]]:
 
 
 def _target_date(topic: str) -> str:
-    today = datetime.now().astimezone().date()
+    today = dates.current_local_date()
     topic_lower = topic.lower()
     if "tomorrow" in topic_lower or "tmrw" in topic_lower:
         return (today + timedelta(days=1)).isoformat()

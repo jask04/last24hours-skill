@@ -1,9 +1,9 @@
 """Public sports schedule helpers for slate-style forecast queries."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List, Optional, Tuple
 
-from . import http
+from . import dates, http
 
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
 
@@ -60,7 +60,7 @@ def resolve_relative_nba_date(topic: str) -> Optional[str]:
         return None
 
     topic_lower = topic.lower()
-    local_today = datetime.now().astimezone().date()
+    local_today = dates.current_local_date()
     if "tomorrow" in topic_lower or "tomorrows" in topic_lower:
         target = local_today + timedelta(days=1)
     else:

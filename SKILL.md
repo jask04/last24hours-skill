@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.9"
+version: "1.0.10"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.9: Forecast From the Last 24 Hours
+# last24hours v1.0.10: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -188,6 +188,10 @@ Run:
 ```bash
 python3 "${SKILL_ROOT}/scripts/last24hours.py" $ARGUMENTS --emit=compact --no-native-web --save-dir=~/Documents/Last24Hours
 ```
+
+Saved raw markdown reports in `--save-dir` are disposable artifacts. The script deletes old `*-raw*.md` files after 14 days by default; use `--save-retention-days` to change that window, or `--clean-save-dir --save-dir DIR` to clean without a forecast run.
+
+When testing relative dates, use `--as-of-date YYYY-MM-DD` or `LAST24HOURS_AS_OF_DATE=YYYY-MM-DD` so `today`, `tomorrow`, weather target dates, and NBA slate expansion resolve from the intended local date.
 
 Use a foreground timeout of `180000`.
 
@@ -405,7 +409,7 @@ What this skill does:
 - uses Kalshi public market-data endpoints at `api.elections.kalshi.com/trade-api/v2` without auth
 - uses National Weather Service public endpoints at `api.weather.gov` without auth for supported U.S. weather aliases
 - optionally uses user-provided X and Bluesky credentials where configured
-- saves raw briefings to `~/Documents/Last24Hours/`
+- saves disposable raw briefings to `~/Documents/Last24Hours/` and can clean old auto-saved markdown reports
 - can store hypothetical paper forecast calibration records under `~/.local/share/last24hours/`
 
 Recommended validation after edits:

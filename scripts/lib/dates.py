@@ -1,7 +1,20 @@
 """Date utilities for last24hours skill."""
 
+import os
 from datetime import datetime, timedelta, timezone
+from datetime import date as date_cls
 from typing import Optional, Tuple
+
+
+def current_local_date(as_of_date: Optional[str] = None) -> date_cls:
+    """Return the user's local current date, with an explicit override for tests/runs."""
+    value = as_of_date or os.environ.get("LAST24HOURS_AS_OF_DATE")
+    if value:
+        try:
+            return datetime.strptime(value[:10], "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return datetime.now().astimezone().date()
 
 
 def get_date_range(days: int = 1) -> Tuple[str, str]:
@@ -10,7 +23,7 @@ def get_date_range(days: int = 1) -> Tuple[str, str]:
     Returns:
         Tuple of (from_date, to_date) as YYYY-MM-DD strings
     """
-    today = datetime.now(timezone.utc).date()
+    today = current_local_date()
     from_date = today - timedelta(days=days)
     return from_date.isoformat(), today.isoformat()
 
