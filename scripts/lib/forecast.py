@@ -705,6 +705,9 @@ def _macro_market_allowed(topic: str, market_text: str) -> bool:
         return False
     if (topic_tokens & {"fed", "fomc", "powell"}) and not (market_tokens & {"fed", "fomc", "powell"}):
         return False
+    if topic_tokens & {"cut", "cuts", "hike", "hikes"}:
+        if not (market_tokens & {"cut", "cuts", "hike", "hikes"}):
+            return False
     topic_core = _topic_tokens(topic) - _MONTH_TOKENS - {"meeting", "meetings"}
     market_core = market_tokens - _MONTH_TOKENS - {"meeting", "meetings", "interest"}
     if topic_core & {"fed", "fomc", "powell", "rates", "rate", "cut", "cuts", "hike", "hikes"}:

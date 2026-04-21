@@ -27,6 +27,15 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertIn("quick-no-entity-resolution", plan.notes)
         self.assertLessEqual(len(plan.subqueries), 3)
 
+    def test_macro_planner_keeps_explicit_month_query_tight(self):
+        plan = forecast_plan.build_plan(
+            "Fed rate cut by June",
+            "prediction",
+            "quick",
+        )
+
+        self.assertEqual(plan.search_topics, ["Fed rate cut by June"])
+
     def test_watchlist_planner_uses_topic_scoped_market_queries(self):
         plan = forecast_plan.build_plan(
             "NBA markets to watch today",
@@ -842,6 +851,42 @@ class PlannerFusionTests(unittest.TestCase):
 
         self.assertIsNone(forecasts[0].polymarket_market_id)
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
+
+    def test_date_specific_kalshi_macro_forecast_prefers_matching_month_decision_market(self):
+        report = _report("Will the Fed cut rates by June")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Fed decision in Apr 2026?",
+                question="Will the Federal Reserve Cut rates by 25bps at their April 2026 meeting?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXFEDDECISION-26APR-C25",
+                ticker="KXFEDDECISION-26APR-C25",
+                event_ticker="KXFEDDECISION-26APR",
+                current_probability=0.18,
+                engagement=schema.Engagement(volume=50_000, open_interest=100_000),
+                market_type="macro_binary",
+                score=99,
+                relevance=0.99,
+            ),
+            schema.KalshiItem(
+                id="KA2",
+                title="Fed decision in Jun 2026?",
+                question="Will the Federal Reserve Cut rates by 25bps at their June 2026 meeting?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXFEDDECISION-26JUN-C25",
+                ticker="KXFEDDECISION-26JUN-C25",
+                event_ticker="KXFEDDECISION-26JUN",
+                current_probability=0.42,
+                engagement=schema.Engagement(volume=600_000, open_interest=250_000),
+                market_type="macro_binary",
+                score=80,
+                relevance=0.80,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(forecasts[0].kalshi_market_id, "KA2")
+        self.assertAlmostEqual(forecasts[0].forecast_probability, 0.42)
 
     def test_compact_render_suppresses_unused_prediction_markets(self):
         report = _report("Will the Fed cut rates by June")

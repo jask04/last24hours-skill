@@ -84,6 +84,26 @@ class MarketTypeTests(unittest.TestCase):
             "futures",
         )
 
+    def test_kalshi_fed_decision_contract_classifies_as_macro_binary(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Fed decision in Jun 2026?",
+                "Will the Federal Reserve Cut rates by 25bps at their June 2026 meeting?",
+                "https://api.elections.kalshi.com/trade-api/v2/markets/KXFEDDECISION-26JUN-C25",
+            ),
+            "macro_binary",
+        )
+
+    def test_kalshi_fed_rate_threshold_contract_classifies_as_macro_binary(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Fed funds rate after Jun 2026 meeting?",
+                "Will the upper bound of the federal funds rate be above 4.25% following the Fed's Jun 17, 2026 meeting?",
+                "https://api.elections.kalshi.com/trade-api/v2/markets/KXFED-26JUN-T4.25",
+            ),
+            "macro_binary",
+        )
+
     def test_crypto_up_or_down_classifies_as_crypto_daily(self):
         self.assertEqual(
             market_types.classify_market(

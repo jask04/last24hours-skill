@@ -62,6 +62,10 @@ _MACRO_TERMS = {
     "inflation", "cpi", "jobs", "payrolls", "gdp", "recession",
     "unemployment", "treasury", "yield",
 }
+_MONTH_TOKEN_RE = re.compile(
+    r"\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b",
+    re.I,
+)
 
 
 def _source_weights(query_type: qt.QueryType) -> Dict[str, float]:
@@ -98,12 +102,16 @@ def _clean_topic(topic: str) -> str:
 def _macro_queries(topic: str) -> List[str]:
     tokens = set(re.sub(r"[^\w\s]", " ", topic.lower()).split())
     queries = [topic]
+    has_explicit_date = bool(_MONTH_TOKEN_RE.search(topic or "") or re.search(r"\b20\d{2}\b", topic or ""))
     if tokens & {"fed", "fomc", "powell", "rates", "rate", "cut", "cuts", "hike"}:
-        queries.append("Fed rate cuts")
+        if not has_explicit_date:
+            queries.append("Fed rate cuts")
     if tokens & {"inflation", "cpi"}:
-        queries.append("CPI inflation")
+        if not has_explicit_date:
+            queries.append("CPI inflation")
     if tokens & {"jobs", "payrolls", "unemployment"}:
-        queries.append("jobs report unemployment")
+        if not has_explicit_date:
+            queries.append("jobs report unemployment")
     if "recession" in tokens:
         queries.append("US recession indicators")
     return queries

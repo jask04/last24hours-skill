@@ -98,6 +98,7 @@ _WEATHER_MARKERS = {
 _CRYPTO_MARKERS = {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto"}
 _KALSHI_SPORTS_MARKET_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)[A-Z]*", re.IGNORECASE)
 _KALSHI_SPORTS_SERIES_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)(?:SERIES|PLAYOFF|FINAL|FINALS)", re.IGNORECASE)
+_KALSHI_MACRO_MARKET_RE = re.compile(r"/markets/KX(?:FED|FEDDECISION|CPI|JOBS)[A-Z0-9.-]*", re.IGNORECASE)
 
 
 def _tokens(text: str) -> set[str]:
@@ -141,6 +142,9 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
 
     if _looks_like_kalshi_sports_game_contract(text_lower, url):
         return "game_outcome"
+
+    if _KALSHI_MACRO_MARKET_RE.search(url or ""):
+        return "macro_binary"
 
     if any(marker in text_lower for marker in _FUTURES_MARKERS):
         return "futures"

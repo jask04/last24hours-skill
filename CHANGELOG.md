@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.37] - 2026-04-21
+
+### Fixed
+- Kalshi macro search now routes explicit Fed/rates prompts into direct `KXFEDDECISION` series coverage instead of relying only on broad rate-threshold ladders, which lets `Fed rate cut by June` return a real June Kalshi anchor.
+- Kalshi macro event parsing now understands month-only event tickers such as `KXFEDDECISION-26JUN`, improving month matching and preventing broad macro retrieval from displacing explicit month-targeted Fed contracts.
+- Kalshi Fed/rates, CPI, and jobs contracts now normalize as `macro_binary`, and forecast anchoring rejects broad rate-threshold rows when the prompt explicitly asks for a cut/hike-style contract.
+
+### Changed
+- The deterministic macro planner now keeps explicit month/date macro prompts tight instead of broadening them into generic `Fed rate cuts` subqueries that can swamp the intended month-specific market.
+
+### Tested
+- Added regressions for Kalshi Fed series routing, Kalshi Fed contract classification, month-specific Kalshi macro anchoring, and planner tightening for explicit-month Fed prompts.
+
 ## [1.0.36] - 2026-04-21
 
 ### Changed

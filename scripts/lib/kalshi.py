@@ -36,6 +36,20 @@ _LEAGUE_TOKENS = {
     "mlb": ("mlb", "baseball"),
     "nhl": ("nhl", "hockey"),
 }
+_MACRO_SERIES_BY_TOKEN = {
+    "fed": ["KXFEDDECISION", "KXFED"],
+    "fomc": ["KXFEDDECISION", "KXFED"],
+    "rates": ["KXFEDDECISION", "KXFED"],
+    "rate": ["KXFEDDECISION", "KXFED"],
+    "cut": ["KXFEDDECISION", "KXFED"],
+    "cuts": ["KXFEDDECISION", "KXFED"],
+    "hike": ["KXFEDDECISION", "KXFED"],
+    "hikes": ["KXFEDDECISION", "KXFED"],
+    "inflation": ["KXCPI"],
+    "cpi": ["KXCPI"],
+    "jobs": ["KXJOBS"],
+    "payrolls": ["KXJOBS"],
+}
 _MONTHS = {
     "JAN": 1,
     "FEB": 2,
@@ -270,13 +284,20 @@ def _series_for_topic(topic: str) -> List[str]:
     league = _detect_league(topic)
     if league == "nba":
         series.append("KXNBAGAME")
-    if tokens & {"fed", "fomc", "rates", "rate", "cuts", "cut", "hikes", "hike"}:
-        series.append("KXFED")
+    for token, mapped in _MACRO_SERIES_BY_TOKEN.items():
+        if token in tokens:
+            series.extend(mapped)
     if tokens & {"bitcoin", "btc", "crypto"}:
         series.append("KXBTC")
     if tokens & {"ethereum", "eth"}:
         series.append("KXETH")
-    return series
+    deduped = []
+    seen = set()
+    for value in series:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
 
 
 def _fetch_events_for_series(series_ticker: str, limit: int = 8) -> List[Dict[str, Any]]:
@@ -313,7 +334,17 @@ def _event_datetime(event: Dict[str, Any]) -> Optional[datetime]:
     ticker = str(event.get("event_ticker", ""))
     match = re.search(r"-(\d{2})([A-Z]{3})(\d{2})", ticker)
     if not match:
-        return None
+        month_only_match = re.search(r"-(\d{2})([A-Z]{3})(?!\d)", ticker)
+        if not month_only_match:
+            return None
+        year = 2000 + int(month_only_match.group(1))
+        month = _MONTHS.get(month_only_match.group(2))
+        if not month:
+            return None
+        try:
+            return datetime(year, month, 1, tzinfo=timezone.utc)
+        except ValueError:
+            return None
     year = 2000 + int(match.group(1))
     month = _MONTHS.get(match.group(2))
     day = int(match.group(3))
@@ -423,6 +454,15 @@ def _market_event_date(market: Dict[str, Any], event_title: str = "") -> Optiona
                     return datetime(year, month, day, tzinfo=timezone.utc).date().isoformat()
                 except ValueError:
                     pass
+        month_only_match = re.search(r"-(\d{2})([A-Z]{3})(?!\d)", text)
+        if month_only_match:
+            year = 2000 + int(month_only_match.group(1))
+            month = _MONTHS.get(month_only_match.group(2))
+            if month:
+                try:
+                    return datetime(year, month, 1, tzinfo=timezone.utc).date().isoformat()
+                except ValueError:
+                    pass
     return None
 
 
@@ -436,6 +476,22 @@ def _market_in_topic_sports_window(topic: str, market: Dict[str, Any], event_tit
     if not event_date:
         return True
     return event_date in target_dates
+
+
+def _market_in_topic_macro_window(topic: str, market: Dict[str, Any], event_title: str = "") -> bool:
+    tokens = set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split())
+    if not (tokens & {"fed", "fomc", "rates", "rate", "cut", "cuts", "hike", "hikes", "cpi", "inflation", "jobs", "payrolls"}):
+        return True
+    wanted_months = _topic_months(topic)
+    if not wanted_months:
+        return True
+    event_date = _market_event_date(market, event_title)
+    if not event_date:
+        return True
+    try:
+        return datetime.fromisoformat(event_date).month in wanted_months
+    except ValueError:
+        return True
 
 
 def _fetch_batch_candlesticks(tickers: List[str]) -> Dict[str, Any]:
@@ -633,6 +689,12 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
     ]
     if sports_window_filtered or _topic_target_dates(topic, to_date):
         ranked = sports_window_filtered
+    macro_window_filtered = [
+        market for market in ranked
+        if _market_in_topic_macro_window(topic, market, series_event_titles.get(market.get("event_ticker", ""), ""))
+    ]
+    if macro_window_filtered:
+        ranked = macro_window_filtered
 
     ranked.sort(
         key=lambda m: (
@@ -697,9 +759,17 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
             if token
         }
         if detect_query_type(topic) != "market_watchlist":
-            if topic_tokens & {"cut", "cuts", "decrease", "lower"} and not (text_tokens & {"cut", "cuts", "decrease", "lower"}):
+            if (
+                topic_tokens & {"cut", "cuts", "decrease", "lower"}
+                and "kxfeddecision" in ticker.lower()
+                and not (text_tokens & {"cut", "cuts", "decrease", "lower"})
+            ):
                 continue
-            if topic_tokens & {"hike", "hikes", "increase", "raise"} and not (text_tokens & {"hike", "hikes", "increase", "raise"}):
+            if (
+                topic_tokens & {"hike", "hikes", "increase", "raise"}
+                and "kxfeddecision" in ticker.lower()
+                and not (text_tokens & {"hike", "hikes", "increase", "raise"})
+            ):
                 continue
         question = market.get("title", "")
         current_probability = _pick_current_probability(market)
@@ -760,6 +830,7 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
             "volume": volume,
             "liquidity": liquidity,
             "open_interest": open_interest,
+            "market_type": "macro_binary" if ticker.startswith(("KXFED", "KXCPI", "KXJOBS")) else "",
             "relevance": relevance,
             "why_relevant": f"Kalshi market: {question[:60]}",
         })
