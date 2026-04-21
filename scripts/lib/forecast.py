@@ -281,6 +281,20 @@ def _macro_social_lead_ok(tokens: set[str]) -> bool:
     return bool(tokens & {"fed", "fomc", "powell"}) and len(tokens & (MACRO_STRONG_TERMS | _MACRO_STRONG_CONTEXT_TERMS)) >= 3
 
 
+def _macro_quality_lead_ok(candidate: _EvidenceCandidate) -> bool:
+    tokens = candidate.tokens
+    if candidate.source in _SOCIAL_SOURCES:
+        return False
+    if not (tokens & {"fed", "fomc", "powell"}):
+        return False
+    if not (tokens & (MACRO_STRONG_TERMS | _MACRO_STRONG_CONTEXT_TERMS)):
+        return False
+    if candidate.source == "web":
+        has_quality_domain = bool(tokens & {"federalreserve", "bls", "bea", "treasury", "fred", "reuters", "bloomberg", "wsj", "ft", "apnews"})
+        return has_quality_domain or bool(tokens & {"official", "officials", "governor", "statement", "remarks", "minutes", "cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries"})
+    return bool(tokens & {"official", "officials", "governor", "statement", "remarks", "minutes", "cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries"})
+
+
 def _social_crypto_context_ok(tokens: set[str], title_tokens: set[str]) -> bool:
     topic_entities = title_tokens & _CRYPTO_ENTITY_TOKENS
     if topic_entities and not (topic_entities & tokens):
@@ -828,12 +842,37 @@ def _degraded_source_item_score(item, source: str, topic: str) -> float:
     return base_score + overlap - penalty
 
 
+def _degraded_source_penalty_reason(item, source: str, topic: str) -> Optional[str]:
+    text = getattr(item, "text", "") or getattr(item, "title", "") or getattr(item, "snippet", "") or ""
+    context = getattr(item, "author_handle", "") or getattr(item, "subreddit", "") or getattr(item, "source_domain", "")
+    tokens = _tokenize(f"{text} {context}")
+    topic_tokens = _topic_tokens(topic)
+    overlap = len(topic_tokens & tokens)
+    macro_query = _is_macro_query(topic)
+    crypto_query = _is_crypto_query(topic)
+    if macro_query and source in _SOCIAL_SOURCES:
+        if _social_noise_tokens(tokens) or not _social_macro_context_ok(tokens, topic_tokens) or not _macro_social_lead_ok(tokens):
+            return "macro_social_demoted"
+    if crypto_query and source in _SOCIAL_SOURCES:
+        if _social_noise_tokens(tokens) or not _social_crypto_context_ok(tokens, topic_tokens) or not (tokens & _CRYPTO_STRONG_SIGNAL_TERMS):
+            return "crypto_opinion_demoted"
+    if overlap >= 1:
+        return "source_row_suppressed"
+    return None
+
+
 def _rerank_degraded_source_items(report: schema.Report, topic: str) -> None:
     if not (_is_macro_query(topic) or _is_crypto_query(topic)):
         return
-    report.x.sort(key=lambda item: _degraded_source_item_score(item, "x", topic), reverse=True)
-    report.reddit.sort(key=lambda item: _degraded_source_item_score(item, "reddit", topic), reverse=True)
-    report.web.sort(key=lambda item: _degraded_source_item_score(item, "web", topic), reverse=True)
+    for source_name, items in (("x", report.x), ("reddit", report.reddit), ("web", report.web)):
+        scored = []
+        for item in items:
+            reason = _degraded_source_penalty_reason(item, source_name, topic)
+            if reason:
+                _bump_debug_counter(report, reason)
+                _bump_debug_counter(report, "source_row_suppressed")
+            scored.append((_degraded_source_item_score(item, source_name, topic), item))
+        items[:] = [item for _, item in sorted(scored, key=lambda row: row[0], reverse=True)]
 
 
 def _bump_debug_counter(report: schema.Report, key: str, amount: int = 1) -> None:
@@ -1386,7 +1425,7 @@ def _build_forecast_item(
     forecast = schema.ForecastItem(title=title)
     forecast.favorite_label = poly_label or "Yes"
     if macro_query:
-        preferred_macro = next((candidate for candidate in evidence_candidates if candidate.source not in _SOCIAL_SOURCES), None)
+        preferred_macro = next((candidate for candidate in evidence_candidates if _macro_quality_lead_ok(candidate)), None)
         if preferred_macro:
             forecast.why_line = preferred_macro.text
         else:

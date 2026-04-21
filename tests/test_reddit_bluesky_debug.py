@@ -89,6 +89,31 @@ class RedditBlueskyDebugTests(unittest.TestCase):
         self.assertEqual(payload["empty_source_buckets"]["web"], 1)
         self.assertEqual(payload["degraded_prediction_runs"]["macro"], 1)
 
+    def test_source_health_serializes_x_and_web_degraded_statuses(self):
+        report = last24hours.schema.Report(
+            topic="Bitcoin above 100k this week",
+            range_from="2026-04-10",
+            range_to="2026-04-11",
+            generated_at="2026-04-11T00:00:00Z",
+            mode="both",
+        )
+        report.forecasts = [
+            last24hours.schema.ForecastItem(
+                title="Bitcoin above 100k this week",
+                model_implied=True,
+            )
+        ]
+        report.x_error = "HTTP 429: Too Many Requests"
+        report.web_error = "timed out contacting web search"
+
+        last24hours._populate_source_health(report, "prediction", None)
+
+        payload = report.to_dict()["evidence_fusion_stats"]["source_health"]
+        self.assertEqual(payload["source_status"]["x"]["status"], "degraded")
+        self.assertEqual(payload["source_status"]["web"]["status"], "degraded")
+        self.assertEqual(payload["degraded_source_buckets"]["x"], 1)
+        self.assertEqual(payload["degraded_source_buckets"]["web"], 1)
+
     def test_disabled_scrapecreators_gates_legacy_x_paid_path(self):
         config = {
             "SCRAPECREATORS_API_KEY": "stored-but-disabled",

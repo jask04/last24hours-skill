@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.26] - 2026-04-20
+
+### Added
+- Source-health diagnostics now track degraded/error states for X and Web alongside the existing Reddit status model, with serialized bucket counts for sparse-source audit passes
+- Degraded forecast debug counters now record macro-social and crypto-opinion suppression reasons so rendered diagnostics can explain why weak rows were hidden
+
+### Fixed
+- Degraded macro model-implied forecasts now only lead with non-social quality evidence by default; weak Fed pricing-color chatter falls back to the neutral macro explanation instead of becoming `why_line`
+- Compact macro and crypto source sections now suppress weak X/Reddit chatter more aggressively so the rendered evidence no longer undercuts degraded fallback wording
+- Compact X/Web sections and the source footer now distinguish `empty` from `degraded`/`error` states instead of presenting every failed source path as a simple zero-result run
+
+### Tested
+- Added regressions for degraded X/Web source-health serialization, macro social-pricing demotion, and compact crypto chatter suppression
+
 ## [1.0.25] - 2026-04-20
 
 ### Added

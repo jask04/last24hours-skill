@@ -483,6 +483,42 @@ class PlannerFusionTests(unittest.TestCase):
 
         self.assertIn("ETF flows", forecasts[0].why_line)
 
+    def test_macro_social_pricing_color_does_not_lead_model_implied_why_line(self):
+        report = _report("Fed rate cut by June")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Fed June cut pricing still sits near one move, but the market is priced for two by year-end after yields softened.",
+                url="https://x.com/macro/status/3",
+                author_handle="macrocolor",
+                score=90,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("no high-signal macro or policy evidence", forecasts[0].why_line.lower())
+        self.assertEqual(report.evidence_fusion_stats["debug_counters"]["macro_social_demoted"], 1)
+
+    def test_render_compact_suppresses_weak_crypto_x_chatter(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Bitcoin is still the main character and the narrative feels strong again.",
+                url="https://x.com/crypto/status/5",
+                author_handle="narrativeguy",
+                score=55,
+            )
+        ]
+        report.forecasts = forecast.synthesize_forecasts(report)
+
+        output = render.render_compact(report)
+
+        self.assertIn("No high-signal X posts found for this crypto forecast.", output)
+        self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["crypto_opinion_demoted"], 1)
+        self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["source_row_suppressed"], 1)
+
     def test_degraded_crypto_reranks_clean_source_rows_ahead_of_promo_noise(self):
         report = _report("Bitcoin above 100k this week")
         report.x = [

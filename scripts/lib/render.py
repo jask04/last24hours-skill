@@ -689,6 +689,7 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
 
     topic_tokens = eq.tokenize(report.topic)
     results = []
+    debug = report.evidence_fusion_stats.setdefault("debug_counters", {})
     for item in items:
         text = getattr(item, "text", "") or getattr(item, "title", "") or getattr(item, "snippet", "") or ""
         context = ""
@@ -706,27 +707,56 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
                 {"bet", "bets", "betting", "poll", "polls", "vip", "pick", "picks", "tail", "lock"} & tokens
                 or any(phrase in lowered for phrase in ("top traders", "most popular bets", "signal room"))
             ):
+                debug["macro_social_demoted"] = int(debug.get("macro_social_demoted", 0) or 0) + 1
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
             if source in {"x", "reddit"} and not (
                 tokens & {"official", "officials", "governor", "statement", "statements", "remarks", "minutes", "cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries"}
             ):
+                debug["macro_social_demoted"] = int(debug.get("macro_social_demoted", 0) or 0) + 1
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
             if source in {"x", "reddit"} and (
                 not (tokens & {"fed", "fomc", "powell"})
                 or not (tokens & {"cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries", "pricing", "priced", "market", "markets", "statement", "statements", "remarks", "minutes", "official", "officials", "governor"})
             ):
+                debug["macro_social_demoted"] = int(debug.get("macro_social_demoted", 0) or 0) + 1
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
             if not eq.is_macro_signal(text, topic_tokens, context):
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
         if domain == "crypto":
-            if not (tokens & {"bitcoin", "btc", "ethereum", "eth", "crypto", "etf"}):
+            if source in {"x", "reddit"} and any(
+                phrase in lowered
+                for phrase in (
+                    "bullish bitcoin narratives",
+                    "betting big",
+                    "should be above",
+                    "prediction markets",
+                    "follow hype",
+                    "hitting $100k",
+                    "hitting 100k",
+                )
+            ):
+                debug["crypto_opinion_demoted"] = int(debug.get("crypto_opinion_demoted", 0) or 0) + 1
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
-            if not (tokens & {"spot", "price", "prices", "etf", "flow", "flows", "liquidity", "exchange", "repricing", "support", "resistance", "breakout"}):
+            if not (tokens & {"bitcoin", "btc", "ethereum", "eth", "crypto", "etf"}):
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
+                continue
+            clean_crypto_terms = tokens & {"spot", "etf", "flow", "flows", "liquidity", "exchange", "repricing", "breakout"}
+            secondary_crypto_terms = tokens & {"support", "resistance", "volume"}
+            if not clean_crypto_terms and len(secondary_crypto_terms) < 2:
+                debug["crypto_opinion_demoted"] = int(debug.get("crypto_opinion_demoted", 0) or 0) + 1
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
             if source in {"x", "reddit"} and (
                 {"bet", "bets", "betting", "poll", "polls", "vip", "pick", "picks", "tail", "lock"} & tokens
                 or any(phrase in lowered for phrase in ("betting big", "most popular bets", "quick btc poll"))
             ):
+                debug["crypto_opinion_demoted"] = int(debug.get("crypto_opinion_demoted", 0) or 0) + 1
+                debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
         results.append(item)
         if len(results) >= limit:
@@ -918,7 +948,13 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.mode in ("both", "x-only", "all", "x-web") and not report.x:
         lines.append("### X Posts")
         lines.append("")
-        lines.append("*No relevant X posts found for this topic.*")
+        x_status = (((report.evidence_fusion_stats or {}).get("source_health") or {}).get("source_status") or {}).get("x", {})
+        if x_status.get("status") == "degraded":
+            lines.append("*X retrieval degraded during this run and returned no usable posts.*")
+        elif x_status.get("status") == "error":
+            lines.append("*X retrieval failed during this run.*")
+        else:
+            lines.append("*No relevant X posts found for this topic.*")
         lines.append("")
     elif report.x:
         lines.append("### X Posts")
@@ -1337,6 +1373,18 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         if not compact_web and qt.detect_query_type(report.topic) == "prediction" and domain in {"weather", "macro"}:
             lines.append(f"*No high-signal web results found for this {domain} forecast.*")
             lines.append("")
+    elif report.mode in ("both", "web-only", "reddit-web", "x-web", "all"):
+        lines.append("### Web Results")
+        lines.append("")
+        web_status = (((report.evidence_fusion_stats or {}).get("source_health") or {}).get("source_status") or {}).get("web", {})
+        if web_status.get("status") == "degraded":
+            lines.append("*Web retrieval degraded during this run and returned no usable results.*")
+        elif web_status.get("status") == "error":
+            lines.append("*Web retrieval failed during this run.*")
+        else:
+            lines.append("*No relevant web results found for this topic.*")
+        lines.append("")
+    if report.web:
         for item in compact_web:
             date_str = f" ({item.date})" if item.date else " (date unknown)"
             conf_str = f" [date:{item.date_confidence}]" if item.date_confidence != "high" else ""
@@ -1403,7 +1451,13 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  SKIP Reddit: {reason}")
 
     # X
-    if report.x_error:
+    x_status = status_map.get("x", {}).get("status")
+    x_detail = status_map.get("x", {}).get("detail", "")
+    if x_status == "degraded":
+        lines.append(f"  DEGRADED X: {x_detail or 'source degraded during this run'}")
+    elif x_status == "error":
+        lines.append(f"  ERROR X: {x_detail or report.x_error or 'source failed during this run'}")
+    elif report.x_error:
         lines.append(f"  ERROR X: {report.x_error}")
     elif report.x:
         x_line = f"  OK X: {len(report.x)} posts"
@@ -1488,7 +1542,13 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  OK Kalshi: {len(report.kalshi)} markets")
 
     # Web
-    if report.web_error:
+    web_status = status_map.get("web", {}).get("status")
+    web_detail = status_map.get("web", {}).get("detail", "")
+    if web_status == "degraded":
+        lines.append(f"  DEGRADED Web: {web_detail or 'source degraded during this run'}")
+    elif web_status == "error":
+        lines.append(f"  ERROR Web: {web_detail or report.web_error or 'source failed during this run'}")
+    elif report.web_error:
         lines.append(f"  ERROR Web: {report.web_error}")
     elif report.web:
         lines.append(f"  OK Web: {len(report.web)} pages")

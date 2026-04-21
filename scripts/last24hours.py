@@ -493,13 +493,45 @@ def _set_source_health_status(report: schema.Report, source: str, status: str, d
         statuses[source]["detail"] = detail
 
 
+def _bucket_source_health_status(report: schema.Report, source: str, status: str) -> None:
+    source_health = report.evidence_fusion_stats.setdefault("source_health", {})
+    if status == "empty":
+        buckets = source_health.setdefault("empty_source_buckets", {})
+    elif status in {"error", "blocked"}:
+        buckets = source_health.setdefault("errored_source_buckets", {})
+    elif status == "degraded":
+        buckets = source_health.setdefault("degraded_source_buckets", {})
+    else:
+        return
+    buckets[source] = int(buckets.get(source, 0) or 0) + 1
+
+
+def _is_degraded_source_error(detail: str) -> bool:
+    lowered = str(detail or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "timed out",
+            "timeout",
+            "connection reset",
+            "temporarily unavailable",
+            "too many requests",
+            "429",
+            "502",
+            "503",
+            "504",
+            "forbidden",
+            "blocked",
+        )
+    )
+
+
 def _populate_source_health(
     report: schema.Report,
     query_type: str,
     raw_reddit: dict | None,
 ) -> None:
     source_health = report.evidence_fusion_stats.setdefault("source_health", {})
-    empty_buckets = source_health.setdefault("empty_source_buckets", {})
     if query_type == "prediction":
         degraded = source_health.setdefault("degraded_prediction_runs", {})
         domain = render._prediction_domain(report.topic)  # type: ignore[attr-defined]
@@ -515,18 +547,22 @@ def _populate_source_health(
         if blocked_attempts:
             source_health["blocked_reddit_public_attempts"] = blocked_attempts
     _set_source_health_status(report, "reddit", reddit_status, reddit_detail)
-    if not report.reddit and reddit_status == "empty":
-        empty_buckets["reddit"] = int(empty_buckets.get("reddit", 0) or 0) + 1
+    if not report.reddit:
+        _bucket_source_health_status(report, "reddit", reddit_status)
 
-    x_status = "error" if report.x_error else "used" if report.x else "empty"
+    x_status = "used" if report.x else "empty"
+    if report.x_error:
+        x_status = "degraded" if _is_degraded_source_error(report.x_error) else "error"
     _set_source_health_status(report, "x", x_status, report.x_error or "")
-    if not report.x and not report.x_error:
-        empty_buckets["x"] = int(empty_buckets.get("x", 0) or 0) + 1
+    if not report.x:
+        _bucket_source_health_status(report, "x", x_status)
 
-    web_status = "error" if report.web_error else "used" if report.web else "empty"
+    web_status = "used" if report.web else "empty"
+    if report.web_error:
+        web_status = "degraded" if _is_degraded_source_error(report.web_error) else "error"
     _set_source_health_status(report, "web", web_status, report.web_error or "")
-    if not report.web and not report.web_error:
-        empty_buckets["web"] = int(empty_buckets.get("web", 0) or 0) + 1
+    if not report.web:
+        _bucket_source_health_status(report, "web", web_status)
 
 
 def _enrich_reddit_item_free(item: dict, config: dict, timeout: int, retries: int) -> dict:
