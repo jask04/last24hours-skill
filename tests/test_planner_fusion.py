@@ -519,6 +519,44 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["crypto_opinion_demoted"], 1)
         self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["source_row_suppressed"], 1)
 
+    def test_render_compact_suppresses_crypto_threshold_chatter_without_threshold_match(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="@VohnJ43 @DragnonHD @GoingParabolic I appreciate the dialogue and I am rooting for that space + Bitcoin. I'm wary of the underlying tech right now, but maybe the next leg is coming.",
+                url="https://x.com/crypto/status/6",
+                author_handle="ReardonTrades",
+                score=27,
+            )
+        ]
+        report.forecasts = forecast.synthesize_forecasts(report)
+
+        output = render.render_compact(report)
+
+        self.assertIn("No high-signal X posts found for this crypto forecast.", output)
+        self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["crypto_opinion_demoted"], 1)
+        self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["source_row_suppressed"], 1)
+
+    def test_render_compact_suppresses_crypto_threshold_etf_chatter_without_market_structure(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="@VohnJ43 @DragnonHD @GoingParabolic I appreciate the dialogue and I am rooting for that space + Bitcoin. We waited years for the spot ETFs in the U.S. and it blows my mind more folks didn't cash out above the mythical $100k.",
+                url="https://x.com/crypto/status/61",
+                author_handle="ReardonTrades",
+                score=27,
+            )
+        ]
+        report.forecasts = forecast.synthesize_forecasts(report)
+
+        output = render.render_compact(report)
+
+        self.assertIn("No high-signal X posts found for this crypto forecast.", output)
+        self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["crypto_opinion_demoted"], 1)
+        self.assertGreaterEqual(report.evidence_fusion_stats["debug_counters"]["source_row_suppressed"], 1)
+
     def test_degraded_crypto_reranks_clean_source_rows_ahead_of_promo_noise(self):
         report = _report("Bitcoin above 100k this week")
         report.x = [
@@ -541,6 +579,29 @@ class PlannerFusionTests(unittest.TestCase):
         forecasts = forecast.synthesize_forecasts(report)
 
         self.assertIn("ETF flows", forecasts[0].why_line)
+        self.assertEqual(report.x[0].id, "X2")
+
+    def test_degraded_crypto_reranks_threshold_mismatch_social_row_below_threshold_match(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Bitcoin spot price held near 96k as ETF flows and exchange liquidity steadied into the weekly close.",
+                url="https://x.com/crypto/status/7",
+                author_handle="desk1",
+                score=90,
+            ),
+            schema.XItem(
+                id="X2",
+                text="Bitcoin spot price stayed below 100k as ETF flows cooled and exchange liquidity thinned into the weekly close.",
+                url="https://x.com/crypto/status/8",
+                author_handle="desk2",
+                score=78,
+            ),
+        ]
+
+        forecast.synthesize_forecasts(report)
+
         self.assertEqual(report.x[0].id, "X2")
 
     def test_date_specific_macro_forecast_prefers_matching_month_market(self):

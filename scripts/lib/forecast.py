@@ -192,6 +192,9 @@ _CRYPTO_STRONG_SIGNAL_TERMS = {
     "support", "resistance", "breakout", "repricing", "exchange", "exchanges",
     "momentum", "volume",
 }
+_CRYPTO_PRIMARY_MARKET_TERMS = {
+    "spot", "etf", "flow", "flows", "liquidity", "exchange", "exchanges", "repricing",
+}
 _MACRO_STRONG_CONTEXT_TERMS = {
     "official", "officials", "governor", "chair", "statement", "statements",
     "remarks", "meeting", "minutes", "data", "release", "releases", "payrolls",
@@ -308,6 +311,30 @@ def _social_crypto_context_ok(tokens: set[str], title_tokens: set[str]) -> bool:
     return overlap >= 2 and len(strong_terms) >= 2
 
 
+def _social_crypto_threshold_match_ok(title: str, text: str) -> bool:
+    topic_spec = _threshold_spec(title)
+    if topic_spec.threshold is None:
+        return True
+    evidence_spec = _threshold_spec(text)
+    if evidence_spec.threshold is None:
+        return False
+    tolerance = max(500.0, topic_spec.threshold * 0.05)
+    return abs(topic_spec.threshold - evidence_spec.threshold) <= tolerance
+
+
+def _social_crypto_threshold_market_context_ok(title: str, tokens: set[str]) -> bool:
+    topic_spec = _threshold_spec(title)
+    if topic_spec.threshold is None:
+        return True
+    if tokens & {"flow", "flows", "liquidity", "exchange", "exchanges", "repricing"}:
+        return True
+    if "spot" in tokens and tokens & {"price", "prices", "support", "resistance", "volume", "momentum", "breakout"}:
+        return True
+    if tokens & {"etf", "etfs"} and tokens & {"flow", "flows", "liquidity", "repricing"}:
+        return True
+    return False
+
+
 def _social_noise_tokens(tokens: set[str]) -> bool:
     return bool(tokens & _SOCIAL_PROMO_TOKENS)
 
@@ -401,8 +428,8 @@ def _threshold_numbers(text: str) -> list[float]:
     lowered = (text or "").lower()
     values: list[float] = []
     patterns = [
-        r"\$?\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*([km])?\b",
-        r"\b(\d+(?:\.\d+)?)\s*([km])\b",
+        r"(?<![a-z0-9])\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*([km])?(?![a-z0-9])",
+        r"(?<![a-z0-9])(\d+(?:\.\d+)?)\s*([km])(?![a-z0-9])",
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, lowered):
@@ -854,7 +881,13 @@ def _degraded_source_penalty_reason(item, source: str, topic: str) -> Optional[s
         if _social_noise_tokens(tokens) or not _social_macro_context_ok(tokens, topic_tokens) or not _macro_social_lead_ok(tokens):
             return "macro_social_demoted"
     if crypto_query and source in _SOCIAL_SOURCES:
-        if _social_noise_tokens(tokens) or not _social_crypto_context_ok(tokens, topic_tokens) or not (tokens & _CRYPTO_STRONG_SIGNAL_TERMS):
+        if (
+            _social_noise_tokens(tokens)
+            or not _social_crypto_context_ok(tokens, topic_tokens)
+            or not _social_crypto_threshold_match_ok(topic, text)
+            or not _social_crypto_threshold_market_context_ok(topic, tokens)
+            or not (tokens & _CRYPTO_STRONG_SIGNAL_TERMS)
+        ):
             return "crypto_opinion_demoted"
     if overlap >= 1:
         return "source_row_suppressed"

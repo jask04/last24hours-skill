@@ -168,6 +168,30 @@ def _prediction_domain(topic: str) -> Optional[str]:
     return None
 
 
+def _threshold_numbers(text: str) -> list[float]:
+    lowered = (text or "").lower()
+    values: list[float] = []
+    for match in re.finditer(r"(?<![a-z0-9])\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*([km])?(?![a-z0-9])", lowered):
+        raw_value = float(match.group(1).replace(",", ""))
+        suffix = (match.group(2) or "").lower()
+        if suffix == "k":
+            raw_value *= 1_000
+        elif suffix == "m":
+            raw_value *= 1_000_000
+        if not suffix and 1900 <= raw_value <= 2100:
+            continue
+        if raw_value < 10:
+            continue
+        if raw_value not in values:
+            values.append(raw_value)
+    return values
+
+
+def _threshold_value(text: str) -> Optional[float]:
+    numbers = _threshold_numbers(text)
+    return max(numbers) if numbers else None
+
+
 def _market_forecast_line(item: schema.PolymarketItem) -> Optional[tuple[str, str, str]]:
     if not item.outcome_prices:
         return None
@@ -727,6 +751,8 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
                 debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
         if domain == "crypto":
+            market_structure_terms = {"flow", "flows", "liquidity", "exchange", "exchanges", "repricing"}
+            price_structure_terms = {"price", "prices", "support", "resistance", "volume", "momentum", "breakout"}
             if source in {"x", "reddit"} and any(
                 phrase in lowered
                 for phrase in (
@@ -742,6 +768,24 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
                 debug["crypto_opinion_demoted"] = int(debug.get("crypto_opinion_demoted", 0) or 0) + 1
                 debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue
+            if source in {"x", "reddit"}:
+                topic_threshold = _threshold_value(report.topic)
+                evidence_threshold = _threshold_value(text)
+                if topic_threshold is not None and evidence_threshold is None:
+                    debug["crypto_opinion_demoted"] = int(debug.get("crypto_opinion_demoted", 0) or 0) + 1
+                    debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
+                    continue
+                if (
+                    topic_threshold is not None
+                    and not (
+                        (tokens & market_structure_terms)
+                        or ("spot" in tokens and tokens & price_structure_terms)
+                        or ((tokens & {"etf", "etfs"}) and tokens & {"flow", "flows", "liquidity", "repricing"})
+                    )
+                ):
+                    debug["crypto_opinion_demoted"] = int(debug.get("crypto_opinion_demoted", 0) or 0) + 1
+                    debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
+                    continue
             if not (tokens & {"bitcoin", "btc", "ethereum", "eth", "crypto", "etf"}):
                 debug["source_row_suppressed"] = int(debug.get("source_row_suppressed", 0) or 0) + 1
                 continue

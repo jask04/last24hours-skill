@@ -22,6 +22,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Tested
 - Added paper-ledger regressions for current-skill comparable rollups, legacy-noisy breakdowns, duplicate-era separation, and stored source-health status aggregation
 
+## [1.0.29] - 2026-04-20
+
+### Changed
+- Tightened degraded crypto compact-source filtering for threshold forecasts so weak social chatter no longer survives just because it mentions `100k` plus generic ETF commentary
+- Threshold parsing now ignores numbers embedded in handles and similar alphanumeric tokens, which prevents false threshold matches in crypto social evidence
+
+### Tested
+- Added crypto forecast regressions for threshold-mismatch social chatter and threshold-matched ETF opinion chatter that still lacks real market-structure context
+
 ## [1.0.27] - 2026-04-20
 
 ### Added
