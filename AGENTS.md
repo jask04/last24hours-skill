@@ -109,6 +109,9 @@ python3 scripts/last24hours.py "live sports games on Polymarket right now" --qui
 
 - Treat meaningful feature, behavior, documentation, and safety-filter updates as normal versioned releases.
 - Keep bumping semantic patch versions for each shipped update, even while the repo is private, so the history is clear if the project becomes public again.
+- Do not skip release numbers. Each semantic patch bump must correspond to one reviewable release commit and one push on the current branch.
+- If work naturally spans multiple release-sized changes, split it into sequential versioned commits before pushing instead of bundling several release numbers into one large commit.
+- If a version gap is discovered after push, backfill the release notes immediately and record the process failure in repo instructions before continuing with later versions.
 - For each release, update the current-version surfaces together: `SKILL.md` frontmatter and heading, `README.md` title/version text, `.claude-plugin/plugin.json`, `gemini-extension.json`, and both source-status banners in `scripts/lib/ui.py`.
 - Sweep the previous version with `rg "X.Y.Z"` and update only current-version surfaces. Do not rewrite historical changelog entries unless they are factually wrong.
 - Add a dated `CHANGELOG.md` entry for every release with concise bullets covering user-visible behavior, safety constraints, CLI flags, ledger/schema changes, and important test coverage.

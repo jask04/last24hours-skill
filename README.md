@@ -135,6 +135,12 @@ Search planning is deterministic-first. Quick mode expands to a small set of exa
 
 Supporting evidence is fused across X, Reddit, web, HN, Bluesky, and Truth Social with source weights, domain quality filters, light clustering, and per-author caps. This selects cleaner drivers for `Why this is the current line` and market-watchlist catalyst notes without letting social evidence move a clean market anchor. Market-watchlist catalyst notes also reject generic promotional posts, signal-room pitches, picks/parlay chatter, and domain-mismatched snippets.
 
+## Release Discipline
+
+- Do not skip semantic patch versions. Each shipped version should map to one focused commit and one push.
+- If work naturally breaks into multiple release-sized updates, commit and push them separately in order instead of bundling several release numbers into one large commit.
+- If a version gap is discovered after push, backfill the release notes immediately and tighten the repo instructions before continuing with later versions.
+
 ## Installation
 
 ### Claude Code
