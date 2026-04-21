@@ -611,8 +611,8 @@ def _sports_market_date_compatible(item, target_date: Optional[str]) -> bool:
             getattr(item, "url", ""),
             getattr(item, "ticker", ""),
             getattr(item, "event_ticker", ""),
-            getattr(item, "date", ""),
             getattr(item, "end_date", ""),
+            getattr(item, "end_datetime", ""),
         ) if part
     )
     refs = _date_refs(market_text)
@@ -731,6 +731,19 @@ def _is_sports_query(text: str) -> bool:
     matchup = _matchup_signature(text_lower)
     sports_terms = {"nba", "nfl", "nhl", "mlb", "wnba", "basketball", "football", "soccer", "baseball", "game", "games"}
     return bool(matchup or (SPORTS_TEAM_TOKENS & _tokenize(text_lower)) or any(term in text_lower for term in sports_terms))
+
+
+def _is_esports_query(text: str) -> bool:
+    return eq.is_esports_query(text)
+
+
+def _is_esports_match_query(text: str) -> bool:
+    lowered = (text or "").lower()
+    if not _is_esports_query(text):
+        return False
+    if any(term in lowered for term in ("map pool", "major winner", "tournament winner", "champion", "props", "kills", "handicap", "total maps")):
+        return False
+    return bool(_matchup_signature(lowered) or any(term in lowered for term in ("match", "matches", "game", "games", "today", "tonight", "tomorrow")))
 
 
 def _is_weather_query(text: str) -> bool:
@@ -856,6 +869,73 @@ def _sports_candidate_score(
         source=source,
         team_hits=team_hits,
         signal_hits=concrete_hits,
+    )
+
+
+def _esports_candidate_score(
+    text: str,
+    title: str,
+    source: str,
+    base_score: float,
+    author: str = "",
+    community: str = "",
+) -> Optional[_EvidenceCandidate]:
+    source_context = f"{author} {community}".strip()
+    context = f"{text} {source_context}".strip()
+    lowered = context.lower()
+    tokens = _tokenize(context)
+    title_tokens = _topic_tokens(title)
+    sides = _matchup_side_tokens(title)
+    overlap = len(title_tokens & tokens)
+    team_hits = sum(1 for side in sides if side & tokens) if sides else 0
+    exact_match = bool(team_hits == len(sides) and sides)
+
+    low_signal_phrases = (
+        "line feels too low",
+        "streak starter",
+        "sign up and deposit",
+        "whale movements",
+        "odds favor",
+        "price gap",
+        "safe to say",
+        "pre cash",
+    )
+    if any(phrase in lowered for phrase in low_signal_phrases):
+        return None
+    if not eq.is_esports_rationale_evidence(text, source_context, exact_match=exact_match):
+        return None
+    if eq.is_cs2_query(title) and not eq.is_cs2_market_text(context):
+        return None
+    if sides:
+        if team_hits < len(sides):
+            return None
+    elif overlap == 0:
+        return None
+
+    signal_hits = len(eq.ESPORTS_HIGH_SIGNAL_TERMS & tokens)
+    score = min(base_score, 78) * 0.25 + overlap * 5 + signal_hits * 4
+    if exact_match:
+        score += 10
+    if signal_hits:
+        score += 8
+    if {"roster", "standin", "stand-in", "sub", "substitute", "coach", "bench", "benched"} & tokens:
+        score += 10
+    if {"patch", "update", "map", "pool", "veto"} & tokens:
+        score += 8
+    if {"qualifier", "qualifiers", "playoff", "playoffs", "bracket", "elimination", "seed", "seeding", "lan"} & tokens:
+        score += 6
+    if eq.ESPORTS_LOW_SIGNAL_TERMS & tokens:
+        score -= 18
+    if score < 22:
+        return None
+
+    return _EvidenceCandidate(
+        score=score,
+        text=text.strip(),
+        tokens=tokens,
+        source=source,
+        team_hits=team_hits,
+        signal_hits=signal_hits,
     )
 
 
@@ -1025,6 +1105,7 @@ def _bump_debug_counter(report: schema.Report, key: str, amount: int = 1) -> Non
 def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_EvidenceCandidate]:
     title_lower = title.lower()
     sports_query = _is_sports_query(title) or _is_sports_query(report.topic)
+    esports_query = _is_esports_query(title) or _is_esports_query(report.topic)
     weather_query = _is_weather_query(title) or _is_weather_query(report.topic)
     macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
     debug_domain = "crypto" if _is_crypto_query(title) else "macro" if macro_query else ""
@@ -1045,14 +1126,25 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
             fused.cluster_count,
         )
     title_sides = _matchup_side_tokens(title)
-    sports_target_date = _sports_target_date(report) if sports_query else None
+    sports_target_date = _sports_target_date(report) if (sports_query or esports_query) else None
     for driver in fused.drivers:
         exact_date_match = _sports_evidence_date_compatible(driver.text, sports_target_date)
-        if sports_query and not exact_date_match:
+        if (sports_query or esports_query) and not exact_date_match:
             continue
         tokens = _tokenize(driver.text)
         team_hits = sum(1 for side in title_sides if side & tokens) if title_sides else 0
         signal_hits = len((DRIVER_TERMS | SPORTS_HIGH_SIGNAL_TERMS | WEATHER_SIGNAL_TERMS | MACRO_SIGNAL_TERMS) & tokens)
+        if esports_query:
+            candidate = _esports_candidate_score(
+                driver.text,
+                title,
+                driver.source,
+                driver.score * 100.0,
+            )
+            if not candidate:
+                continue
+            candidates.append(candidate)
+            continue
         if sports_query:
             candidate = _sports_candidate_score(
                 driver.text,
@@ -1092,11 +1184,19 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         if not text:
             continue
         exact_date_match = _sports_evidence_date_compatible(text, sports_target_date)
-        if sports_query and not exact_date_match:
+        if (sports_query or esports_query) and not exact_date_match:
             continue
         base_score = getattr(item, "score", 0)
         candidate = (
-            _sports_candidate_score(
+            _esports_candidate_score(
+                text,
+                title,
+                "x",
+                base_score,
+                author=getattr(item, "author_handle", ""),
+            )
+            if esports_query
+            else _sports_candidate_score(
                 text,
                 title,
                 "x",
@@ -1125,11 +1225,19 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         if not text:
             continue
         exact_date_match = _sports_evidence_date_compatible(text, sports_target_date)
-        if sports_query and not exact_date_match:
+        if (sports_query or esports_query) and not exact_date_match:
             continue
         base_score = getattr(item, "score", 0)
         candidate = (
-            _sports_candidate_score(
+            _esports_candidate_score(
+                text,
+                title,
+                "reddit",
+                base_score,
+                community=getattr(item, "subreddit", ""),
+            )
+            if esports_query
+            else _sports_candidate_score(
                 text,
                 title,
                 "reddit",
@@ -1158,11 +1266,19 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
         if not text:
             continue
         exact_date_match = _sports_evidence_date_compatible(text, sports_target_date)
-        if sports_query and not exact_date_match:
+        if (sports_query or esports_query) and not exact_date_match:
             continue
         base_score = getattr(item, "score", 0)
         candidate = (
-            _sports_candidate_score(
+            _esports_candidate_score(
+                text,
+                title,
+                "web",
+                base_score,
+                community=getattr(item, "source_domain", ""),
+            )
+            if esports_query
+            else _sports_candidate_score(
                 text,
                 title,
                 "web",
@@ -1207,10 +1323,12 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_targ
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
-    if _is_sports_query(topic):
+    if _is_sports_query(topic) or _is_esports_match_query(topic):
         items = [
             item for item in items
-            if _is_direct_game_market(item) and _sports_market_date_compatible(item, sports_target_date)
+            if _is_direct_game_market(item)
+            and _sports_market_date_compatible(item, sports_target_date)
+            and (_is_sports_query(topic) or _is_esports_market_item(item))
         ]
         if not items:
             return None
@@ -1232,10 +1350,12 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
-    if _is_sports_query(topic):
+    if _is_sports_query(topic) or _is_esports_match_query(topic):
         items = [
             item for item in items
-            if _is_direct_game_market(item) and _sports_market_date_compatible(item, sports_target_date)
+            if _is_direct_game_market(item)
+            and _sports_market_date_compatible(item, sports_target_date)
+            and (_is_sports_query(topic) or _is_esports_market_item(item))
         ]
         if not items:
             return None
@@ -1293,6 +1413,12 @@ def _matching_kalshi_for_polymarket(
 def _is_nba_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
     text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
     return eq.is_nba_market_text(text)
+
+
+def _is_esports_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
+    text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    item_type = getattr(item, "market_type", "unknown")
+    return item_type in {"game_outcome", "esports_prop", "esports_title"} and eq.is_esports_query(text)
 
 
 def _is_direct_game_market(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
@@ -1602,6 +1728,11 @@ def _generic_fallback_why_line(report: schema.Report) -> str:
 
 def _degraded_forecast_warning(report: schema.Report) -> str:
     topic = report.topic
+    if _is_esports_match_query(topic):
+        return (
+            "DEGRADED RUN WARNING: no date-compatible direct eSports market "
+            "cleared anchoring, so this is a lower-confidence model-implied forecast."
+        )
     if _is_sports_query(topic):
         return (
             "DEGRADED RUN WARNING: no date-compatible Polymarket/Kalshi game market "
@@ -1663,6 +1794,31 @@ def _sports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str)
     return up[:2], down[:2]
 
 
+def _esports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str) -> tuple[list[str], list[str]]:
+    favorite = favorite_label or "the forecast side"
+    all_tokens = set()
+    for candidate in candidates[:5]:
+        all_tokens |= candidate.tokens
+
+    up = []
+    down = []
+
+    if {"roster", "standin", "stand-in", "sub", "substitute", "bench", "benched", "coach"} & all_tokens:
+        up.append(f"Supportive roster or stand-in news for {favorite}")
+        down.append(f"Negative roster or stand-in news for {favorite}")
+    if {"patch", "update", "map", "pool", "veto"} & all_tokens:
+        up.append("A favorable patch, map-pool, or veto setup")
+        down.append("A patch, map-pool, or veto shift moving against the current side")
+    if {"qualifier", "qualifiers", "playoff", "playoffs", "bracket", "elimination", "seed", "seeding", "lan"} & all_tokens:
+        up.append("Bracket or tournament context strengthening the current side")
+        down.append("Bracket or tournament context breaking the other way")
+    if len(up) < 2:
+        up.append("Supportive late market movement")
+    if len(down) < 2:
+        down.append("Any sharp move against the current side near match time")
+    return up[:2], down[:2]
+
+
 def _build_forecast_item(
     title: str,
     polymarket_item: Optional[schema.PolymarketItem],
@@ -1680,6 +1836,7 @@ def _build_forecast_item(
     evidence_count = len(evidence)
     macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
     crypto_threshold_query = _is_crypto_query(title) and _threshold_spec(title).threshold is not None
+    esports_query = _is_esports_query(title) or _is_esports_query(report.topic)
 
     poly_label, poly_probability = (None, None)
     if polymarket_item:
@@ -1711,6 +1868,8 @@ def _build_forecast_item(
                 None,
             )
             forecast.why_line = strong_social.text if strong_social else ""
+    elif esports_query:
+        forecast.why_line = evidence[0] if evidence else ""
     elif crypto_threshold_query:
         forecast.why_line = _crypto_threshold_why_line(report, title, evidence_candidates)
     else:
@@ -1814,7 +1973,14 @@ def _build_forecast_item(
         forecast.uncertainty = _uncertainty_text(forecast.confidence_level, None, False, False, evidence_count)
         _rerank_degraded_source_items(report, title)
 
-    if _is_sports_query(title) or _is_sports_query(report.topic):
+    if esports_query:
+        forecast.upside_catalysts, forecast.downside_catalysts = _esports_catalysts(evidence_candidates, forecast.favorite_label)
+        if not forecast.why_line:
+            if forecast.anchor_source in {"polymarket", "kalshi", "blended"}:
+                forecast.why_line = "Mostly market-driven right now; no clean roster, patch, veto, or tournament-context driver surfaced in the last 24 hours."
+            else:
+                forecast.why_line = "No clean market exists and no high-signal roster, patch, veto, or tournament-context driver surfaced in the last 24 hours."
+    elif _is_sports_query(title) or _is_sports_query(report.topic):
         forecast.upside_catalysts, forecast.downside_catalysts = _sports_catalysts(evidence_candidates, forecast.favorite_label)
         if not forecast.why_line:
             if forecast.anchor_source in {"polymarket", "kalshi", "blended"}:
@@ -1836,7 +2002,8 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     forecasts: list[schema.ForecastItem] = []
     topic_lower = report.topic.lower()
     is_nba_slate = "nba" in topic_lower and any(term in topic_lower for term in ("games", "matchups", "slate"))
-    sports_target_date = _sports_target_date(report) if _is_sports_query(report.topic) else None
+    is_esports_slate = _is_esports_match_query(report.topic) and any(term in topic_lower for term in ("matches", "games"))
+    sports_target_date = _sports_target_date(report) if (_is_sports_query(report.topic) or _is_esports_query(report.topic)) else None
 
     if is_nba_slate and (report.polymarket or report.kalshi):
         slate_rows: dict[str, dict[str, object]] = {}
@@ -1882,6 +2049,28 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
             title = str(row["title"] or report.topic)
             forecasts.append(_build_forecast_item(title, poly_item, kalshi_item, report))
         return forecasts
+
+    if is_esports_slate and report.polymarket:
+        slate_rows: dict[str, schema.PolymarketItem] = {}
+        slate_order: dict[str, int] = {}
+        for poly_item in report.polymarket:
+            if (
+                not _is_esports_market_item(poly_item)
+                or not _is_direct_game_market(poly_item)
+                or not _sports_market_date_compatible(poly_item, sports_target_date)
+            ):
+                continue
+            signature = _item_matchup_signature(poly_item)
+            if not signature:
+                continue
+            if signature not in slate_rows or poly_item.score > slate_rows[signature].score:
+                slate_rows[signature] = poly_item
+            slate_order[signature] = max(slate_order.get(signature, 0), poly_item.score)
+        for signature in sorted(slate_rows, key=lambda key: slate_order.get(key, 0), reverse=True):
+            poly_item = slate_rows[signature]
+            forecasts.append(_build_forecast_item(poly_item.title or poly_item.question or report.topic, poly_item, None, report))
+        if forecasts:
+            return forecasts
 
     top_poly = _best_polymarket(report.topic, report.polymarket, sports_target_date)
     top_kalshi = _best_kalshi(report.topic, report.kalshi, sports_target_date)

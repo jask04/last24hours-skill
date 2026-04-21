@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.39] - 2026-04-21
+
+### Added
+- CS2 match forecasting now supports direct multi-row slate boards for prompts like `Counter-Strike 2 matches today`, anchored on clean same-day Polymarket match markets
+- Shared eSports forecast logic now uses roster, patch, veto, bracket, and tournament-context catalyst framing instead of borrowing NBA-style lineup/rest language
+
+### Changed
+- Direct eSports matchup forecasts now treat CS2 match boards as date-compatible slate forecasts instead of collapsing to a single generic top market
+- Explicit CS2 title-market forecasts now use eSports evidence scoring, so map-pool prompts can anchor on cleaner map-pool context without promoting generic betting chatter into the lead line
+
+### Fixed
+- CS2 `today` forecast boards no longer leak later-date match rows through Polymarket `updatedAt` timestamps
+- CS2 map-pool forecasts now reject betting-style phrases such as `streak starter` and `line feels too low` from the main rationale path
+
 ## [1.0.38] - 2026-04-21
 
 ### Added

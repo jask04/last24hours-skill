@@ -122,6 +122,8 @@ ESPORTS_LOW_SIGNAL_TERMS = {
     "highlight", "highlights", "clip", "clips", "giveaway", "skin", "skins", "case",
     "cases", "inventory", "fragmovie", "ace", "best plays", "montage", "dev", "log",
     "developer", "trailer", "giveaways", "promo", "bet", "bets", "pick", "picks",
+    "potd", "deposit", "signup", "sign", "whale", "movements", "prizepicks", "cash",
+    "cashing",
 }
 
 

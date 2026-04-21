@@ -410,6 +410,168 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(market_watchlist.synthesize_market_watchlist(report), [])
 
+    def test_cs2_matchup_forecast_uses_direct_market_anchor(self):
+        report = _report("Counter-Strike: Astralis vs G2 today")
+        report.generated_at = "2026-04-21T18:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-astr-g2-2026-04-21",
+                outcome_prices=[("Astralis", 0.47), ("G2", 0.53)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_signal_quality=0.77,
+                volume_24h=180_000,
+                best_bid=0.52,
+                best_ask=0.54,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.95,
+                score=88,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+        self.assertEqual(forecasts[0].favorite_label, "G2")
+        self.assertNotIn("lineup", forecasts[0].why_line.lower())
+        self.assertNotIn("tipoff", " ".join(forecasts[0].downside_catalysts).lower())
+
+    def test_cs2_matches_today_returns_multi_row_slate_forecasts(self):
+        report = _report("Counter-Strike 2 matches today")
+        report.generated_at = "2026-04-21T18:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-astr-g2-2026-04-21",
+                outcome_prices=[("Astralis", 0.47), ("G2", 0.53)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_signal_quality=0.77,
+                volume_24h=180_000,
+                best_bid=0.52,
+                best_ask=0.54,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.95,
+                score=88,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Counter-Strike: fnatic vs Qual4 (BO3) - Conquest of Prague Online Stage Group Stage",
+                question="Counter-Strike: fnatic vs Qual4 (BO3) - Conquest of Prague Online Stage Group Stage",
+                url="https://polymarket.com/event/cs2-fnc-qual4-2026-04-21",
+                outcome_prices=[("fnatic", 0.79), ("Qual4", 0.21)],
+                engagement=_engagement(volume=120_000, liquidity=70_000),
+                market_signal_quality=0.72,
+                volume_24h=120_000,
+                best_bid=0.78,
+                best_ask=0.80,
+                spread=0.02,
+                movement_24h=4.0,
+                relevance=0.91,
+                score=82,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                question="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                url="https://polymarket.com/event/will-valve-will-add-cache-to-the-map-pool-by-end-of-january-519",
+                outcome_prices=[("Yes", 0.36), ("No", 0.64)],
+                engagement=_engagement(volume=120_000, liquidity=20_000),
+                market_signal_quality=0.60,
+                volume_24h=120_000,
+                best_bid=0.60,
+                best_ask=0.67,
+                spread=0.07,
+                movement_24h=7.0,
+                relevance=0.90,
+                score=70,
+                market_type="esports_title",
+                end_date="2026-06-30",
+            ),
+            schema.PolymarketItem(
+                id="PM4",
+                title="Counter-Strike: Gentle Mates vs ASTRAL (BO3) - LORGAR RANKINGS Playoffs",
+                question="Counter-Strike: Gentle Mates vs ASTRAL (BO3) - LORGAR RANKINGS Playoffs",
+                url="https://polymarket.com/event/cs2-m8-ast-2026-04-25",
+                outcome_prices=[("Gentle Mates", 0.90), ("ASTRAL", 0.10)],
+                engagement=_engagement(volume=89, liquidity=9_000),
+                market_signal_quality=0.30,
+                volume_24h=89,
+                best_bid=0.89,
+                best_ask=0.91,
+                spread=0.02,
+                movement_24h=-1.0,
+                relevance=0.80,
+                score=28,
+                market_type="game_outcome",
+                end_datetime="2026-04-25T20:00:00Z",
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 2)
+        self.assertTrue(all(item.anchor_source == "polymarket" for item in forecasts))
+        self.assertTrue(all("Counter-Strike:" in item.title for item in forecasts))
+
+    def test_cs2_map_pool_forecast_rejects_betting_style_why_line(self):
+        report = _report("CS2 map pool markets")
+        report.generated_at = "2026-04-21T18:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                question="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                url="https://polymarket.com/event/will-valve-will-add-cache-to-the-map-pool-by-end-of-january-519",
+                outcome_prices=[("Yes", 0.37), ("No", 0.63)],
+                engagement=_engagement(volume=175_000, liquidity=5_000),
+                market_signal_quality=0.62,
+                volume_24h=175_000,
+                best_bid=0.62,
+                best_ask=0.64,
+                spread=0.02,
+                movement_24h=30.0,
+                relevance=0.94,
+                score=80,
+                market_type="esports_title",
+                end_date="2026-06-30",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="CS2 x VAL Streak Starter mASKED high usage plus strong map pool line feels too low for 3 maps",
+                url="https://x.com/example/status/1",
+                author_handle="betsfeed",
+                score=70,
+            ),
+            schema.XItem(
+                id="X2",
+                text="How to improve the CS2 map pool before the Major. Cache and Cobblestone remain the obvious candidates for a future active-duty rotation.",
+                url="https://x.com/example/status/2",
+                author_handle="TheChefCS",
+                score=75,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertNotIn("line feels too low", forecasts[0].why_line.lower())
+        self.assertNotIn("streak starter", forecasts[0].why_line.lower())
+
     def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
         poly_item = schema.PolymarketItem(
             id="PM1",
