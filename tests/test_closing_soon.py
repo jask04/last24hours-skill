@@ -213,6 +213,56 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertEqual(items[1].source_item_id, "PM3")
         self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_duplicate_domain_watchlist_candidates"], 1)
 
+    def test_broad_closing_soon_demotes_manual_rule_market_when_direct_market_is_close(self):
+        report = schema.Report(
+            topic="Polymarket markets closing soon",
+            range_from="2026-04-19",
+            range_to="2026-04-19",
+            generated_at="2026-04-19T21:00:00-07:00",
+            mode="both",
+            planning_notes=["closing_soon"],
+        )
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Elon Musk # tweets April 14 - April 21, 2026?",
+                question="Will Elon Musk post 200-219 tweets from April 14 to April 21, 2026?",
+                url="https://polymarket.com/event/elon-musk-of-tweets-april-14-april-21",
+                outcome_prices=[("Yes", 0.04), ("No", 0.96)],
+                engagement=schema.Engagement(volume=1_800_000, liquidity=2_100_000),
+                market_signal_quality=0.95,
+                volume_24h=1_800_000,
+                best_bid=0.96,
+                best_ask=0.96,
+                spread=0.0,
+                relevance=0.75,
+                minutes_to_close=700.0,
+                closing_soon_reason="closing_soon",
+                resolvability="manual rule check required",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Bitcoin Up or Down on April 21?",
+                question="Bitcoin Up or Down on April 21?",
+                url="https://polymarket.com/event/bitcoin-up-or-down-on-april-21-2026",
+                outcome_prices=[("Up", 0.40), ("Down", 0.60)],
+                engagement=schema.Engagement(volume=40_000, liquidity=50_000),
+                market_signal_quality=0.74,
+                volume_24h=40_000,
+                best_bid=0.39,
+                best_ask=0.40,
+                spread=0.01,
+                relevance=0.8,
+                minutes_to_close=680.0,
+                closing_soon_reason="closing_soon",
+                resolvability="crypto reference-price market; verify Polymarket rules and live reference price",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=2)
+
+        self.assertEqual(items[0].source_item_id, "PM2")
+
     def test_espn_live_game_parser_handles_major_leagues(self):
         now = datetime(2026, 4, 20, 2, 0, tzinfo=timezone.utc)
         games = [

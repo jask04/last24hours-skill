@@ -158,6 +158,14 @@ class PaperExtractionTests(unittest.TestCase):
         report = {
             "topic": "AI coding tools markets to watch today",
             "query_type": "market_watchlist",
+            "evidence_fusion_stats": {
+                "source_health": {
+                    "source_status": {
+                        "reddit": {"status": "used"},
+                        "x": {"status": "empty"},
+                    }
+                }
+            },
             "polymarket": [
                 {
                     "id": "PM1",
@@ -203,6 +211,8 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(notes["live_match_confidence"], 0.85)
         self.assertEqual(notes["live_match_reason"], "direct_match")
         self.assertEqual(notes["resolvability"], "manual rule check required")
+        evidence = json.loads(picks[0]["evidence_json"])
+        self.assertEqual(evidence["source_health"]["source_status"]["x"]["status"], "empty")
 
     def test_watchlist_json_prefers_balanced_pick_when_top_is_extreme_favorite(self):
         report = {

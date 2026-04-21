@@ -557,6 +557,38 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("Anthropic", items[0].catalyst_summary)
         self.assertIn("fresh catalyst context", items[0].why_ranks)
 
+    def test_tech_watchlist_rejects_generic_tool_directory_chatter(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Which company has the best Coding AI model end of April?",
+                question="Will Anthropic have the best Coding AI model at the end of April 2026?",
+                url="https://polymarket.com/event/which-company-has-the-best-coding-ai-model-end-of-april",
+                outcome_prices=[("Anthropic", 0.94), ("OpenAI", 0.06)],
+                engagement=_engagement(volume=93_000, liquidity=115_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=93_000,
+                relevance=0.95,
+            )
+        ]
+        report.reddit = [
+            schema.RedditItem(
+                id="R1",
+                title="I built an MCP bridge that connects AI coding tools to a local Ollama instance and would love feedback.",
+                url="https://www.reddit.com/r/ollama/comments/example",
+                subreddit="ollama",
+                score=60,
+                relevance=0.7,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+        self.assertNotIn("fresh catalyst context", items[0].why_ranks)
+
     def test_tech_watchlist_rejects_mixed_competitor_catalyst(self):
         report = _report("AI coding tools markets to watch today")
         report.polymarket = [

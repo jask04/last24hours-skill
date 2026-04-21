@@ -304,6 +304,7 @@ def _evidence_payload(report: Dict[str, Any], item: Dict[str, Any]) -> str:
         "downside_catalysts": item.get("downside_catalysts", []),
         "planning_notes": report.get("planning_notes", []),
         "evidence_fusion_stats": report.get("evidence_fusion_stats", {}),
+        "source_health": (report.get("evidence_fusion_stats", {}) or {}).get("source_health", {}),
     }
     return json.dumps(payload, sort_keys=True)
 
@@ -496,7 +497,11 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "end_date": item.get("end_date"),
                 "status": "open" if venue in {"kalshi", "polymarket"} else "unknown",
                 "resolution_source": venue if venue in {"kalshi", "polymarket"} else "",
-                "evidence_json": json.dumps({"catalyst_summary": item.get("catalyst_summary", ""), "risk": item.get("risk", "")}, sort_keys=True),
+                "evidence_json": json.dumps({
+                    "catalyst_summary": item.get("catalyst_summary", ""),
+                    "risk": item.get("risk", ""),
+                    "source_health": (report.get("evidence_fusion_stats", {}) or {}).get("source_health", {}),
+                }, sort_keys=True),
                 "notes_json": json.dumps({
                     "domain": _domain(topic),
                     "paper_only": True,

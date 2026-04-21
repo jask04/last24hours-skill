@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 
+## [1.0.25] - 2026-04-20
+
+### Added
+- New paper records now carry source-health diagnostics inside stored evidence payloads so later calibration can segment sparse-source and degraded-source runs
+
+### Fixed
+- Tech watchlists now reject generic tooling/directory chatter as catalyst evidence unless the text also carries real release, benchmark, leaderboard, eval, or ranking signal for the matched company or model
+- Broad closing-soon watchlists now apply stronger settlement-quality pressure, so direct crypto reference-price and similarly cleaner-resolving rows can outrank odd manual-rule markets when the market signal is otherwise close
+- Reddit evidence matching now considers enriched top-comment excerpts alongside comment insights, which broadens entity grounding without loosening the paper-safe filters
+
+### Tested
+- Added regressions for generic tech-tooling chatter rejection, broad closing-soon manual-rule demotion, and paper source-health payload carry-through
+
 ## [1.0.24] - 2026-04-20
 
 ### Added

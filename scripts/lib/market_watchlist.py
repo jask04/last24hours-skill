@@ -67,6 +67,16 @@ _TECH_SIGNAL_TERMS = {
     "release", "released", "launch", "launched", "eval", "leaderboard",
     "score", "scores", "claude", "openai", "anthropic", "google", "gemini",
 }
+_TECH_STRONG_SIGNAL_TERMS = {
+    "benchmark", "benchmarks", "arena", "release", "released", "launch",
+    "launched", "eval", "evals", "leaderboard", "score", "scores",
+    "rank", "ranked", "ranking", "rankings", "wins", "won",
+}
+_TECH_LOW_SIGNAL_TERMS = {
+    "directory", "directories", "bridge", "bridges", "tool", "tools", "workflow",
+    "workflows", "free", "tier", "tiers", "feedback", "welcome", "list",
+    "lists", "stack", "stacks", "mcp", "instance", "instance", "directory",
+}
 _TECH_GENERIC_TOKENS = {
     "ai", "model", "models", "coding", "code", "arena", "score", "scores",
     "benchmark", "benchmarks", "best", "company", "april", "end",
@@ -298,7 +308,8 @@ def _source_text(item) -> str:
     if isinstance(item, schema.XItem):
         return item.text
     if isinstance(item, schema.RedditItem):
-        return f"{item.title} r/{item.subreddit} {' '.join(item.comment_insights[:2])}"
+        comment_excerpts = " ".join(comment.excerpt for comment in (item.top_comments or [])[:2] if getattr(comment, "excerpt", ""))
+        return f"{item.title} r/{item.subreddit} {' '.join(item.comment_insights[:2])} {comment_excerpts}".strip()
     if isinstance(item, schema.WebSearchItem):
         return f"{item.title} {item.snippet} {item.source_domain}"
     if isinstance(item, schema.HackerNewsItem):
@@ -429,6 +440,7 @@ def _is_market_specific_evidence(
     if effective_domain == "tech":
         market_entities = _tech_market_entities(item, market_specific_tokens)
         evidence_entities = _canonical_tech_entities(f"{text} {context}")
+        low_signal_tooling = bool(evidence_tokens & _TECH_LOW_SIGNAL_TERMS) and not bool(evidence_tokens & _TECH_STRONG_SIGNAL_TERMS)
         if not market_entities and len(evidence_entities) > 1:
             return False
         if market_entities and not evidence_entities:
@@ -439,7 +451,9 @@ def _is_market_specific_evidence(
             return False
         if overlap < 1:
             return False
-        return bool(evidence_tokens & _TECH_SIGNAL_TERMS)
+        if low_signal_tooling:
+            return False
+        return bool(evidence_tokens & _TECH_STRONG_SIGNAL_TERMS)
 
     if prompt_domain != "broad":
         if overlap < 1:
@@ -684,6 +698,23 @@ def _risk_line(
     return "; ".join(risks) + "."
 
 
+def _resolvability_score(resolvability: str, *, broad: bool = False) -> float:
+    lowered = (resolvability or "").lower()
+    if not lowered:
+        return 0.0
+    if "direct_market_resolution" in lowered:
+        return 0.08
+    if "crypto reference-price market" in lowered:
+        return 0.06
+    if "sports game outcome" in lowered:
+        return 0.05
+    if "weather market" in lowered:
+        return 0.03
+    if "manual rule check required" in lowered:
+        return -0.12 if broad else -0.05
+    return 0.0
+
+
 def _has_closing_soon_note(report: schema.Report) -> bool:
     return any(note == "closing_soon" or note.startswith("live-games:") for note in getattr(report, "planning_notes", []))
 
@@ -803,6 +834,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     resolvability = getattr(item, "resolvability", "") or ""
     closing_signal = _closing_score(minutes_to_close, closing_reason)
     tech_actionability = _tech_actionability_score(item, market_type) if domain == "tech" else 0.0
+    resolvability_score = _resolvability_score(resolvability, broad=(domain == "broad" and closing_mode))
     if (
         market_type == "threshold"
         and probability is not None
@@ -818,7 +850,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             0.12 * movement +
             0.10 * evidence_score +
             0.06 * relevance +
-            0.04 * cross_score -
+            0.04 * cross_score +
+            resolvability_score -
             certainty_penalty
         ))))
     else:
@@ -828,7 +861,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             0.14 * evidence_score +
             0.12 * movement +
             0.06 * spread_quality +
-            0.04 * cross_score -
+            0.04 * cross_score +
+            max(0.0, resolvability_score) -
             certainty_penalty
         ))))
 
@@ -880,6 +914,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.append("large 24h repricing")
     if evidence_score >= 0.35:
         why_bits.append("fresh catalyst context")
+    elif domain == "tech" and evidence_score > 0:
+        why_bits.append("light catalyst context")
     if cross_score >= 0.05:
         why_bits.append("cross-market disagreement/alignment signal")
     if resolvability == "direct_market_resolution":
