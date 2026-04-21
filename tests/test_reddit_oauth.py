@@ -158,6 +158,21 @@ class RedditOAuthTests(unittest.TestCase):
         self.assertIn("credentials are not configured", raw["warning"])
         self.assertIn("credentials are not configured", error)
 
+    def test_public_source_blocked_sets_blocked_status(self):
+        config = {"LAST24HOURS_REDDIT_SOURCE": "public"}
+        with mock.patch(
+            "scripts.last24hours.openai_reddit.search_reddit_public",
+            return_value=([], {"source": "reddit_public", "status": "blocked", "blocked_attempts": 2, "errors": ["HTTP 403: Blocked"]}),
+        ):
+            items, raw, error, _ = last24hours._search_reddit(
+                "Fed rate cut by June", config, {"openai": "gpt-test"}, "2026-04-10", "2026-04-11", "quick", False,
+            )
+
+        self.assertEqual(items, [])
+        self.assertEqual(raw["source_status"], "blocked")
+        self.assertEqual(raw["blocked_attempts"], 2)
+        self.assertIn("blocked", error.lower())
+
     def test_oauth_rate_limit_preflight_stops_additional_calls(self):
         config = {
             "REDDIT_CLIENT_ID": "client",

@@ -277,6 +277,10 @@ def _social_macro_context_ok(tokens: set[str], title_tokens: set[str]) -> bool:
     return macro_overlap >= 2 and bool(anchor_terms) and bool(support_terms) and len(strong_terms) >= 2
 
 
+def _macro_social_lead_ok(tokens: set[str]) -> bool:
+    return bool(tokens & {"fed", "fomc", "powell"}) and len(tokens & (MACRO_STRONG_TERMS | _MACRO_STRONG_CONTEXT_TERMS)) >= 3
+
+
 def _social_crypto_context_ok(tokens: set[str], title_tokens: set[str]) -> bool:
     topic_entities = title_tokens & _CRYPTO_ENTITY_TOKENS
     if topic_entities and not (topic_entities & tokens):
@@ -813,6 +817,10 @@ def _degraded_source_item_score(item, source: str, topic: str) -> float:
         source=source,
     )
     if candidate:
+        if macro_query and source in _SOCIAL_SOURCES:
+            return 180.0 + candidate.score
+        if crypto_query and source in _SOCIAL_SOURCES:
+            return 420.0 + candidate.score
         return 1_000.0 + candidate.score
     tokens = _tokenize(f"{text} {context}")
     overlap = len(_topic_tokens(topic) & tokens)
@@ -1358,6 +1366,7 @@ def _build_forecast_item(
         if len(evidence) >= 2:
             break
     evidence_count = len(evidence)
+    macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
 
     poly_label, poly_probability = (None, None)
     if polymarket_item:
@@ -1376,7 +1385,21 @@ def _build_forecast_item(
 
     forecast = schema.ForecastItem(title=title)
     forecast.favorite_label = poly_label or "Yes"
-    forecast.why_line = evidence[0] if evidence else ""
+    if macro_query:
+        preferred_macro = next((candidate for candidate in evidence_candidates if candidate.source not in _SOCIAL_SOURCES), None)
+        if preferred_macro:
+            forecast.why_line = preferred_macro.text
+        else:
+            strong_social = next(
+                (
+                    candidate for candidate in evidence_candidates
+                    if candidate.source in _SOCIAL_SOURCES and _macro_social_lead_ok(candidate.tokens)
+                ),
+                None,
+            )
+            forecast.why_line = strong_social.text if strong_social else ""
+    else:
+        forecast.why_line = evidence[0] if evidence else ""
     forecast.polymarket_market_id = polymarket_item.id if polymarket_item else None
     forecast.kalshi_market_id = kalshi_item.id if kalshi_item else None
     forecast.polymarket_probability = poly_probability

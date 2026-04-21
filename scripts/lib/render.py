@@ -707,6 +707,10 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
                 or any(phrase in lowered for phrase in ("top traders", "most popular bets", "signal room"))
             ):
                 continue
+            if source in {"x", "reddit"} and not (
+                tokens & {"official", "officials", "governor", "statement", "statements", "remarks", "minutes", "cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries"}
+            ):
+                continue
             if source in {"x", "reddit"} and (
                 not (tokens & {"fed", "fomc", "powell"})
                 or not (tokens & {"cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries", "pricing", "priced", "market", "markets", "statement", "statements", "remarks", "minutes", "official", "officials", "governor"})
@@ -848,7 +852,13 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
     elif report.mode in ("both", "reddit-only") and not report.reddit:
         lines.append("### Reddit Threads")
         lines.append("")
-        lines.append("*No relevant Reddit threads found for this topic.*")
+        reddit_status = (((report.evidence_fusion_stats or {}).get("source_health") or {}).get("source_status") or {}).get("reddit", {})
+        if reddit_status.get("status") == "blocked":
+            lines.append("*Reddit public search was blocked during this run.*")
+        elif reddit_status.get("status") == "degraded":
+            lines.append("*Reddit search degraded during this run and returned no usable threads.*")
+        else:
+            lines.append("*No relevant Reddit threads found for this topic.*")
         lines.append("")
     elif report.reddit:
         lines.append("### Reddit Threads")
@@ -1358,9 +1368,16 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
     lines = []
     lines.append("---")
     lines.append("**Sources:**")
+    status_map = source_info.get("source_status", {})
 
     # Reddit
-    if report.reddit_error:
+    reddit_status = source_info.get("reddit_status") or status_map.get("reddit", {}).get("status")
+    reddit_detail = source_info.get("reddit_error_detail") or status_map.get("reddit", {}).get("detail", "")
+    if reddit_status == "blocked":
+        lines.append(f"  BLOCKED Reddit public JSON: {reddit_detail or 'request blocked'}")
+    elif reddit_status == "degraded":
+        lines.append(f"  DEGRADED Reddit public JSON: {reddit_detail or 'source degraded during this run'}")
+    elif report.reddit_error:
         lines.append(f"  ERROR Reddit: {report.reddit_error}")
     elif report.reddit:
         source_label = {
@@ -1375,7 +1392,12 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         if source_info.get("reddit_warning"):
             lines.append(f"  WARN Reddit: {source_info['reddit_warning']}")
     elif report.mode in ("both", "reddit-only", "all", "reddit-web"):
-        pass  # Hide zero-result sources
+        source_label = {
+            "reddit_oauth": "Reddit OAuth",
+            "reddit_public": "Reddit public JSON",
+            "scrapecreators": "ScrapeCreators",
+        }.get(source_info.get("reddit_source"), "Reddit")
+        lines.append(f"  NORESULT {source_label}: no relevant threads")
     else:
         reason = source_info.get("reddit_skip_reason", "not configured")
         lines.append(f"  SKIP Reddit: {reason}")
@@ -1389,7 +1411,7 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
             x_line += f" (via @{report.resolved_x_handle} + keyword search)"
         lines.append(x_line)
     elif report.mode in ("both", "x-only", "all", "x-web"):
-        pass  # Hide zero-result sources
+        lines.append("  NORESULT X: no relevant posts")
     else:
         reason = source_info.get("x_skip_reason", "No Bird CLI or XAI_API_KEY")
         lines.append(f"  SKIP X: {reason}")
@@ -1470,6 +1492,8 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  ERROR Web: {report.web_error}")
     elif report.web:
         lines.append(f"  OK Web: {len(report.web)} pages")
+    elif report.mode in ("both", "web-only", "reddit-web", "x-web", "all"):
+        lines.append("  NORESULT Web: no relevant results")
     else:
         reason = source_info.get("web_skip_reason", "assistant will use WebSearch")
         lines.append(f"  WARN Web: {reason}")

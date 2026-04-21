@@ -150,6 +150,69 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertEqual(items[0].source_item_id, "PM1")
         self.assertIn("closing soon", items[0].why_ranks)
 
+    def test_broad_closing_soon_prefers_cross_domain_top_rows(self):
+        report = schema.Report(
+            topic="Polymarket markets closing soon",
+            range_from="2026-04-19",
+            range_to="2026-04-19",
+            generated_at="2026-04-19T21:00:00-07:00",
+            mode="both",
+            planning_notes=["closing_soon"],
+        )
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Bitcoin Up or Down - April 20, 4AM ET",
+                question="Bitcoin Up or Down - April 20, 4AM ET",
+                url="https://polymarket.com/event/btc-daily",
+                outcome_prices=[("Up", 0.30), ("Down", 0.70)],
+                engagement=schema.Engagement(volume=90_000, liquidity=40_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.78,
+                volume_24h=90_000,
+                spread=0.01,
+                relevance=0.95,
+                minutes_to_close=18.0,
+                closing_soon_reason="closing_soon",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Ethereum Up or Down - April 20, 4AM ET",
+                question="Ethereum Up or Down - April 20, 4AM ET",
+                url="https://polymarket.com/event/eth-daily",
+                outcome_prices=[("Up", 0.28), ("Down", 0.72)],
+                engagement=schema.Engagement(volume=88_000, liquidity=35_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.77,
+                volume_24h=88_000,
+                spread=0.01,
+                relevance=0.95,
+                minutes_to_close=20.0,
+                closing_soon_reason="closing_soon",
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Highest temperature in Shanghai on April 20?",
+                question="Will the highest temperature in Shanghai be 18C on April 20?",
+                url="https://polymarket.com/event/shanghai-temp",
+                outcome_prices=[("Yes", 0.62), ("No", 0.38)],
+                engagement=schema.Engagement(volume=80_000, liquidity=50_000),
+                market_type="weather_binary",
+                market_signal_quality=0.72,
+                volume_24h=80_000,
+                spread=0.02,
+                relevance=0.90,
+                minutes_to_close=30.0,
+                closing_soon_reason="closing_soon",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual(items[0].source_item_id, "PM1")
+        self.assertEqual(items[1].source_item_id, "PM3")
+        self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_duplicate_domain_watchlist_candidates"], 1)
+
     def test_espn_live_game_parser_handles_major_leagues(self):
         now = datetime(2026, 4, 20, 2, 0, tzinfo=timezone.utc)
         games = [

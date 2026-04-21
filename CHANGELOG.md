@@ -9,6 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 
+## [1.0.24] - 2026-04-20
+
+### Added
+- Source-health diagnostics now record blocked Reddit public-search attempts, degraded prediction-run counts by domain, and empty-source buckets for Reddit, X, and Web in serialized report JSON
+
+### Fixed
+- Reddit public JSON search now distinguishes blocked/degraded runs from true zero-result runs, and compact source status reports that difference explicitly
+- Degraded macro forecasts now require cleaner non-social rationale leads by default, while strong official-style social macro context only leads when it clears a higher bar
+- Degraded crypto and macro compact source sections now suppress thin promo or pricing-chatter rows more aggressively so the rendered evidence does not undercut the forecast rationale
+- Broad closing-soon watchlists now delay duplicate-domain rows when a cleaner cross-domain top set is available, while crypto-only scans remain domain-pure
+
+### Tested
+- Added regressions for blocked Reddit source status, serialized source-health counters, and broad closing-soon cross-domain ranking behavior
+
 ## [1.0.23] - 2026-04-20
 
 ### Added

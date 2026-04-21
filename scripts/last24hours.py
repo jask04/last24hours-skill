@@ -313,6 +313,7 @@ def _search_reddit(
     reddit_items = []
     reddit_source = env.get_reddit_source_preference(config)
     oauth_error = None
+    public_diagnostics = {}
 
     if mock:
         raw_response = load_fixture("openai_sample.json")
@@ -335,18 +336,41 @@ def _search_reddit(
 
         if not reddit_items:
             try:
-                reddit_items = openai_reddit.search_reddit_public(
+                public_result = openai_reddit.search_reddit_public(
                     topic, from_date, to_date, depth=depth,
                 )
+                if isinstance(public_result, tuple):
+                    reddit_items, public_diagnostics = public_result
+                else:
+                    reddit_items = public_result
+                    public_diagnostics = {"source": "reddit_public", "status": "used" if reddit_items else "empty"}
                 raw_response = {
                     "source": "reddit_public",
                     "items": reddit_items,
+                    "source_status": public_diagnostics.get("status"),
+                    "blocked_attempts": public_diagnostics.get("blocked_attempts", 0),
+                    "failed_attempts": public_diagnostics.get("failed_attempts", 0),
+                    "query_attempts": public_diagnostics.get("query_attempts", 0),
                     "warning": f"Reddit OAuth failed; fell back to public JSON: {oauth_error}" if oauth_error else None,
                 }
+                if public_diagnostics.get("errors"):
+                    raw_response["errors"] = public_diagnostics.get("errors")
+                if public_diagnostics.get("status") == "blocked" and not reddit_items:
+                    reddit_error = "Reddit public search was blocked during this run."
+                elif public_diagnostics.get("status") == "degraded" and not reddit_items:
+                    reddit_error = "Reddit public search degraded during this run."
             except Exception as e:
                 reddit_items = []
-                raw_response = {"source": "reddit_public", "error": str(e)}
-                reddit_error = f"Reddit public search error: {type(e).__name__}: {e}"
+                error_text = str(e)
+                blocked = "403" in error_text or "blocked" in error_text.lower()
+                raw_response = {
+                    "source": "reddit_public",
+                    "error": error_text,
+                    "source_status": "blocked" if blocked else "degraded",
+                    "blocked_attempts": 1 if blocked else 0,
+                    "failed_attempts": 1,
+                }
+                reddit_error = "Reddit public search was blocked during this run." if blocked else f"Reddit public search error: {type(e).__name__}: {e}"
 
         if reddit_source == "oauth" and oauth_error and not reddit_items:
             reddit_error = f"Reddit OAuth failed: {oauth_error}"
@@ -459,6 +483,50 @@ def _search_reddit(
             sys.stderr.write(f"[Reddit] Subreddit fallback error: {e}\n")
 
     return reddit_items, raw_response, reddit_error, used_scrapecreators
+
+
+def _set_source_health_status(report: schema.Report, source: str, status: str, detail: str = "") -> None:
+    source_health = report.evidence_fusion_stats.setdefault("source_health", {})
+    statuses = source_health.setdefault("source_status", {})
+    statuses[source] = {"status": status}
+    if detail:
+        statuses[source]["detail"] = detail
+
+
+def _populate_source_health(
+    report: schema.Report,
+    query_type: str,
+    raw_reddit: dict | None,
+) -> None:
+    source_health = report.evidence_fusion_stats.setdefault("source_health", {})
+    empty_buckets = source_health.setdefault("empty_source_buckets", {})
+    if query_type == "prediction":
+        degraded = source_health.setdefault("degraded_prediction_runs", {})
+        domain = render._prediction_domain(report.topic)  # type: ignore[attr-defined]
+        if domain and any(item.model_implied for item in report.forecasts):
+            degraded[domain] = int(degraded.get(domain, 0) or 0) + 1
+
+    reddit_status = "used" if report.reddit else "empty"
+    reddit_detail = ""
+    if isinstance(raw_reddit, dict):
+        reddit_status = raw_reddit.get("source_status") or reddit_status
+        reddit_detail = raw_reddit.get("error") or ""
+        blocked_attempts = int(raw_reddit.get("blocked_attempts", 0) or 0)
+        if blocked_attempts:
+            source_health["blocked_reddit_public_attempts"] = blocked_attempts
+    _set_source_health_status(report, "reddit", reddit_status, reddit_detail)
+    if not report.reddit and reddit_status == "empty":
+        empty_buckets["reddit"] = int(empty_buckets.get("reddit", 0) or 0) + 1
+
+    x_status = "error" if report.x_error else "used" if report.x else "empty"
+    _set_source_health_status(report, "x", x_status, report.x_error or "")
+    if not report.x and not report.x_error:
+        empty_buckets["x"] = int(empty_buckets.get("x", 0) or 0) + 1
+
+    web_status = "error" if report.web_error else "used" if report.web else "empty"
+    _set_source_health_status(report, "web", web_status, report.web_error or "")
+    if not report.web and not report.web_error:
+        empty_buckets["web"] = int(empty_buckets.get("web", 0) or 0) + 1
 
 
 def _enrich_reddit_item_free(item: dict, config: dict, timeout: int, retries: int) -> dict:
@@ -2221,7 +2289,7 @@ def main():
 
     # Initialize progress display with topic
     progress_mode = "market watchlist" if initial_query_type == "market_watchlist" else "forecasting"
-    progress = ui.ProgressDisplay(args.topic, show_banner=True, mode_label=progress_mode)
+    progress = ui.ProgressDisplay(paper_bundles.display_topic(args.topic), show_banner=True, mode_label=progress_mode)
 
     # Show diagnostic banner when sources are missing
     web_source = env.get_web_search_source(config)
@@ -2637,6 +2705,7 @@ def main():
     report.weather_error = weather_error
     report.web_error = web_error
     report.resolved_x_handle = args.x_handle
+    _populate_source_health(report, query_type, raw_openai if isinstance(raw_openai, dict) else None)
 
     # Generate context snippet
     report.context_snippet_md = render.render_context_snippet(report)
@@ -2661,10 +2730,17 @@ def main():
         reddit_source = raw_openai.get("source")
         if reddit_source:
             source_info["reddit_source"] = reddit_source
+        if raw_openai.get("source_status"):
+            source_info["reddit_status"] = raw_openai.get("source_status")
         if raw_openai.get("warning"):
             source_info["reddit_warning"] = raw_openai.get("warning")
         if raw_openai.get("rate_remaining") is not None:
             source_info["reddit_rate_remaining"] = raw_openai.get("rate_remaining")
+        if raw_openai.get("error"):
+            source_info["reddit_error_detail"] = raw_openai.get("error")
+    source_health = report.evidence_fusion_stats.get("source_health", {})
+    if source_health.get("source_status"):
+        source_info["source_status"] = source_health.get("source_status")
     if not x_source:
         if x_source_status["bird_installed"]:
             source_info["x_skip_reason"] = "Bird installed but not authenticated - log into x.com in browser"

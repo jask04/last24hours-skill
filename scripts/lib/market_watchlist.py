@@ -981,6 +981,37 @@ def _should_suppress_low_signal_candidate(
     return any((candidate.rank_score - item.rank_score) >= 5 for candidate in stronger_items[:3])
 
 
+def _watch_item_domain(item: schema.MarketWatchItem) -> str:
+    return _market_evidence_domain(
+        "broad",
+        item.market_type,
+        _tokens(f"{item.title} {item.question}"),
+        f"{item.title} {item.question}",
+    )
+
+
+def _should_delay_duplicate_domain_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    results: list[schema.MarketWatchItem],
+    remaining: list[schema.MarketWatchItem],
+) -> bool:
+    if _domain(report.topic) != "broad" or not _has_closing_soon_note(report):
+        return False
+    if len(results) >= 3:
+        return False
+    candidate_domain = _watch_item_domain(candidate)
+    if not candidate_domain or candidate_domain == "broad":
+        return False
+    existing_domains = {_watch_item_domain(item) for item in results}
+    if candidate_domain not in existing_domains:
+        return False
+    return any(
+        (domain := _watch_item_domain(other)) not in {"", "broad"} and domain not in existing_domains
+        for other in remaining
+    )
+
+
 def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[schema.MarketWatchItem]:
     """Rank topic-scoped Polymarket/Kalshi candidates for market-watchlist mode."""
     candidates = []
@@ -1007,9 +1038,12 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         candidates.sort(key=lambda item: item.rank_score, reverse=True)
     results = []
     seen = set()
-    for candidate in candidates:
+    for idx, candidate in enumerate(candidates):
         if _should_suppress_low_signal_candidate(report, candidate, results):
             _bump_debug_counter(report, "suppressed_long_dated_watchlist_candidates")
+            continue
+        if _should_delay_duplicate_domain_candidate(report, candidate, results, candidates[idx + 1:]):
+            _bump_debug_counter(report, "suppressed_duplicate_domain_watchlist_candidates")
             continue
         key = re.sub(r"\W+", " ", f"{candidate.title} {candidate.question}").lower().strip()
         if key in seen:

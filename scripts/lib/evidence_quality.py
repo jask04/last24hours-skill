@@ -64,7 +64,7 @@ SPORTS_DRIVER_TERMS = {
     "probable", "available", "inactive", "rest", "resting", "lineup", "lineups",
     "starter", "starters", "starting", "minutes", "restriction", "restricted",
     "back-to-back", "b2b", "playoff", "playoffs", "seed", "seeding", "elimination",
-    "clinch", "clinched", "tank", "tanking", "odds", "line", "spread", "moneyline",
+    "clinch", "clinched", "tank", "tanking", "line", "spread", "moneyline",
 }
 SPORTS_HIGH_SIGNAL_TERMS = {
     "injury", "injuries", "ruled", "questionable", "doubtful", "probable",
@@ -73,11 +73,12 @@ SPORTS_HIGH_SIGNAL_TERMS = {
     "b2b", "playoff", "playoffs", "seed", "seeding", "elimination", "clinch",
     "clinched", "tank", "tanking",
 }
-SPORTS_MARKET_CONTEXT_TERMS = {"odds", "line", "spread", "moneyline"}
+SPORTS_MARKET_CONTEXT_TERMS = {"line", "spread", "moneyline"}
 SPORTS_LOW_SIGNAL_TERMS = {
     "ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat",
     "giveaway", "fs", "wtb", "parlay", "bettorbot", "pick", "picks", "lock",
-    "tail", "sprinkle", "hype", "buzz", "vibes", "dm", "interested",
+    "tail", "sprinkle", "hype", "buzz", "vibes", "dm", "interested", "vip",
+    "cashing", "bets",
 }
 SPORTS_REJECT_TERMS = {
     "gamethread", "highlight", "highlights", "live", "score", "scores", "2k",
@@ -86,7 +87,7 @@ SPORTS_REJECT_TERMS = {
 SPORTS_GENERIC_PREVIEW_TERMS = {
     "preview", "previews", "matchup", "matchups", "strategy", "strategies",
     "overpower", "thrilling", "showdown", "watch", "channel", "tickets",
-    "sportsbook", "fanduel", "draftkings", "betting", "previous", "meeting",
+    "sportsbook", "fanduel", "draftkings", "betting", "odds", "previous", "meeting",
     "iconic",
 }
 SPORTS_RECAP_TERMS = {
@@ -205,6 +206,8 @@ def classify_sports_evidence(
         "must-win", "must", "tank", "tanking",
     }
     market_terms = SPORTS_MARKET_CONTEXT_TERMS | {"movement", "moved", "steam"}
+    line_movement_terms = {"movement", "moved", "steam", "shift", "shifted", "shortened", "drifted"}
+    ticket_terms = {"ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat", "fs", "wtb"}
 
     has_status = bool(tokens & status_terms)
     has_rest = bool(tokens & rest_terms)
@@ -212,13 +215,17 @@ def classify_sports_evidence(
     has_incentive = bool(tokens & incentive_terms)
     has_high_signal = has_status or has_rest or has_lineup_status or has_incentive
 
+    if tokens & ticket_terms and not (has_rest or has_lineup_status or has_incentive or (tokens & (status_terms - {"available"}))):
+        return "low_signal"
     if SPORTS_LOW_SIGNAL_TERMS & tokens and not has_high_signal:
         return "low_signal"
     if (SPORTS_REJECT_TERMS & tokens or {"game", "thread"} <= tokens or {"live", "score"} <= tokens) and not has_high_signal:
         return "reject"
     if has_high_signal and exact_match:
         return "high_signal"
-    if allow_market_context and exact_match and exact_date and tokens & market_terms:
+    if allow_market_context and exact_match and exact_date and tokens & market_terms and (
+        tokens & line_movement_terms or not (tokens & SPORTS_GENERIC_PREVIEW_TERMS)
+    ):
         return "market_context"
     if SPORTS_GENERIC_PREVIEW_TERMS & tokens:
         return "generic_preview"

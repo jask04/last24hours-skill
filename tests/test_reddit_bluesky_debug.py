@@ -61,6 +61,34 @@ class RedditBlueskyDebugTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertFalse(used_sc)
 
+    def test_source_health_counters_serialize_blocked_and_empty_buckets(self):
+        report = last24hours.schema.Report(
+            topic="Fed rate cut by June",
+            range_from="2026-04-10",
+            range_to="2026-04-11",
+            generated_at="2026-04-11T00:00:00Z",
+            mode="both",
+        )
+        report.forecasts = [
+            last24hours.schema.ForecastItem(
+                title="Fed rate cut by June",
+                model_implied=True,
+            )
+        ]
+
+        last24hours._populate_source_health(
+            report,
+            "prediction",
+            {"source_status": "blocked", "blocked_attempts": 2, "error": "HTTP 403: Blocked"},
+        )
+
+        payload = report.to_dict()["evidence_fusion_stats"]["source_health"]
+        self.assertEqual(payload["blocked_reddit_public_attempts"], 2)
+        self.assertEqual(payload["source_status"]["reddit"]["status"], "blocked")
+        self.assertEqual(payload["empty_source_buckets"]["x"], 1)
+        self.assertEqual(payload["empty_source_buckets"]["web"], 1)
+        self.assertEqual(payload["degraded_prediction_runs"]["macro"], 1)
+
     def test_disabled_scrapecreators_gates_legacy_x_paid_path(self):
         config = {
             "SCRAPECREATORS_API_KEY": "stored-but-disabled",

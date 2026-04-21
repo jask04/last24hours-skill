@@ -119,9 +119,17 @@ class LiveGame:
     def context(self) -> str:
         status = self.status_detail or "Scheduled"
         score = ""
-        if self.home_score is not None and self.away_score is not None:
+        if (self.is_live or self.is_final) and self.home_score is not None and self.away_score is not None:
             score = f"; {self.away_team} {self.away_score}, {self.home_team} {self.home_score}"
-        clock = f"; period {self.period} {self.clock}".strip() if self.period or self.clock else ""
+        clock = ""
+        if self.is_live and (self.period or self.clock):
+            clock_bits = []
+            if self.period:
+                clock_bits.append(f"period {self.period}")
+            if self.clock and self.clock != "0.0":
+                clock_bits.append(self.clock)
+            if clock_bits:
+                clock = f"; {' '.join(clock_bits)}"
         start = f"; start {self.start_time}" if self.start_time and not self.is_live and not self.is_final else ""
         return f"{self.league.upper()} {status}{score}{clock}{start}".strip()
 

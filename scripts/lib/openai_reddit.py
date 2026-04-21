@@ -372,6 +372,12 @@ def _public_topic_relevance(topic: str, title: str, subreddit: str = "") -> floa
     return round(max(title_score, 0.85 * title_score + 0.15 * subreddit_score), 3)
 
 
+def _is_public_blocked_error(error: Exception) -> bool:
+    if isinstance(error, http.HTTPError) and error.status_code == 403:
+        return True
+    return "blocked" in str(error).lower()
+
+
 LOW_QUALITY_SUBREDDITS = {
     "test", "testcommunityfortra", "freekarma4you", "freekarma4u",
     "upvote", "upvotes", "karma", "shadowban", "testingground4bots",
@@ -522,7 +528,7 @@ def search_reddit_public(
     from_date: str,
     to_date: str,
     depth: str = "default",
-) -> List[Dict[str, Any]]:
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Search Reddit directly via public JSON endpoint (no OpenAI key required).
 
     This is a fallback mode for environments where OpenAI auth is unavailable.
@@ -539,6 +545,15 @@ def search_reddit_public(
 
     seen_urls = set()
     all_items: List[Dict[str, Any]] = []
+    diagnostics: Dict[str, Any] = {
+        "source": "reddit_public",
+        "status": "available",
+        "query_attempts": 0,
+        "subreddit_probe_attempts": 0,
+        "blocked_attempts": 0,
+        "failed_attempts": 0,
+        "errors": [],
+    }
 
     headers = {
         "User-Agent": http.USER_AGENT,
@@ -546,6 +561,7 @@ def search_reddit_public(
     }
 
     for query in queries:
+        diagnostics["query_attempts"] += 1
         try:
             url = (
                 "https://www.reddit.com/search/.json"
@@ -613,16 +629,28 @@ def search_reddit_public(
 
         except http.HTTPError as e:
             _log_info(f"Public Reddit search failed for query '{query}': {e}")
+            diagnostics["failed_attempts"] += 1
+            diagnostics["errors"].append(str(e))
+            if _is_public_blocked_error(e):
+                diagnostics["blocked_attempts"] += 1
+                diagnostics["status"] = "blocked"
+            elif diagnostics["status"] != "blocked":
+                diagnostics["status"] = "degraded"
             # Continue with next query; partial results are still useful.
             continue
         except Exception as e:
             _log_info(f"Public Reddit search error for query '{query}': {e}")
+            diagnostics["failed_attempts"] += 1
+            diagnostics["errors"].append(str(e))
+            if diagnostics["status"] != "blocked":
+                diagnostics["status"] = "degraded"
             continue
 
     # For NBA matchup queries, directly probe team/league subreddits.
     matchup_subs = sports_schedule.matchup_subreddits(topic)
     if matchup_subs:
         for sub in matchup_subs[:4]:
+            diagnostics["subreddit_probe_attempts"] += 1
             try:
                 sub_url = (
                     f"https://www.reddit.com/r/{sub}/search/.json"
@@ -686,6 +714,13 @@ def search_reddit_public(
                     })
             except Exception as e:
                 _log_info(f"Subreddit probe error for r/{sub}: {e}")
+                diagnostics["failed_attempts"] += 1
+                diagnostics["errors"].append(f"r/{sub}: {e}")
+                if _is_public_blocked_error(e):
+                    diagnostics["blocked_attempts"] += 1
+                    diagnostics["status"] = "blocked"
+                elif diagnostics["status"] != "blocked":
+                    diagnostics["status"] = "degraded"
 
     # Sort by date (desc, unknown dates last), then relevance desc
     def _sort_key(item: Dict[str, Any]):
@@ -693,7 +728,15 @@ def search_reddit_public(
         return (date_str, float(item.get("relevance", 0.0)))
 
     all_items.sort(key=_sort_key, reverse=True)
-    return all_items[: max_items * 2]
+    if all_items:
+        diagnostics["status"] = "used"
+    elif diagnostics["blocked_attempts"]:
+        diagnostics["status"] = "blocked"
+    elif diagnostics["failed_attempts"]:
+        diagnostics["status"] = "degraded"
+    else:
+        diagnostics["status"] = "empty"
+    return all_items[: max_items * 2], diagnostics
 
 
 def search_subreddits(
