@@ -1077,6 +1077,42 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(items[0].watchlist_scope, "series")
 
+    def test_kalshi_nba_game_row_survives_mixed_watchlist_scope_filter(self):
+        report = _report("NBA markets to watch today")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Game 3: New York at Atlanta",
+                question="Game 3: New York at Atlanta Winner?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26APR23NYKATL-NYK",
+                ticker="KXNBAGAME-26APR23NYKATL-NYK",
+                event_ticker="KXNBAGAME-26APR23NYKATL",
+                current_probability=0.51,
+                implied_probability=0.51,
+                best_bid=0.50,
+                best_ask=0.51,
+                spread=0.01,
+                movement_24h=-5.0,
+                volume_24h=93_224.44,
+                market_signal_quality=0.64,
+                market_type="game_outcome",
+                date="2026-04-16",
+                date_confidence="high",
+                engagement=_engagement(volume=93_224.44, liquidity=0, open_interest=91_807.51),
+                end_date="2026-05-07",
+                relevance=0.75,
+                why_relevant="Kalshi market: Game 3: New York at Atlanta Winner?",
+                score=76,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].venue, "Kalshi")
+        self.assertEqual(items[0].watchlist_scope, "game")
+        self.assertEqual(items[0].market_type, "game_outcome")
+
     def test_weak_nba_series_row_is_suppressed_when_multiple_clean_game_rows_exist(self):
         report = _report("NBA markets to watch today")
         report.polymarket = [

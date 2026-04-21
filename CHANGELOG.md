@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.34] - 2026-04-21
+
+### Fixed
+- Kalshi NBA winner contracts such as `Game 3: New York at Atlanta Winner?` now classify as direct `game_outcome` markets instead of falling through as `unknown`, which lets them survive NBA mixed-watchlist scope filtering
+- Kalshi sports series winner contracts now classify as `futures` so explicit series-heavy sports prompts can distinguish broader series markets from single-game rows
+
+### Tested
+- Added regressions for Kalshi NBA winner contract classification, Kalshi NBA series contract classification, and Kalshi NBA game rows surviving mixed-watchlist scope filtering
+
 ## [1.0.33] - 2026-04-21
 
 ### Added

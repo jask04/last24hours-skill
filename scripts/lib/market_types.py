@@ -96,6 +96,8 @@ _WEATHER_MARKERS = {
     "tornado",
 }
 _CRYPTO_MARKERS = {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto"}
+_KALSHI_SPORTS_MARKET_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)[A-Z]*", re.IGNORECASE)
+_KALSHI_SPORTS_SERIES_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)(?:SERIES|PLAYOFF|FINAL|FINALS)", re.IGNORECASE)
 
 
 def _tokens(text: str) -> set[str]:
@@ -105,6 +107,22 @@ def _tokens(text: str) -> set[str]:
 def _has_matchup(text: str) -> bool:
     text_lower = (text or "").lower()
     return any(marker in text_lower for marker in _MATCHUP_MARKERS)
+
+
+def _looks_like_kalshi_sports_game_contract(text_lower: str, url: str) -> bool:
+    if not _KALSHI_SPORTS_MARKET_RE.search(url or ""):
+        return False
+    if "winner" not in text_lower:
+        return False
+    return bool(("game " in text_lower and " at " in text_lower) or _has_matchup(text_lower))
+
+
+def _looks_like_kalshi_sports_series_contract(text_lower: str, url: str) -> bool:
+    if not _KALSHI_SPORTS_MARKET_RE.search(url or ""):
+        return False
+    if "series" in text_lower and "winner" in text_lower:
+        return True
+    return bool(_KALSHI_SPORTS_SERIES_RE.search(url or "") and "winner" in text_lower)
 
 
 def classify_market(title: str = "", question: str = "", url: str = "") -> MarketType:
@@ -117,6 +135,12 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
         return "player_prop"
     if ":" in question and (tokens & _PLAYER_PROP_STATS):
         return "player_prop"
+
+    if _looks_like_kalshi_sports_series_contract(text_lower, url):
+        return "futures"
+
+    if _looks_like_kalshi_sports_game_contract(text_lower, url):
+        return "game_outcome"
 
     if any(marker in text_lower for marker in _FUTURES_MARKERS):
         return "futures"

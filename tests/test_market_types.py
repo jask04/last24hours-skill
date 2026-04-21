@@ -64,6 +64,26 @@ class MarketTypeTests(unittest.TestCase):
             "threshold",
         )
 
+    def test_kalshi_nba_winner_contract_classifies_as_game_outcome(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Game 3: New York at Atlanta",
+                "Game 3: New York at Atlanta Winner?",
+                "https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26APR23NYKATL-NYK",
+            ),
+            "game_outcome",
+        )
+
+    def test_kalshi_nba_series_winner_contract_classifies_as_futures(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Eastern Conference First Round",
+                "Knicks vs Hawks Series Winner?",
+                "https://api.elections.kalshi.com/trade-api/v2/markets/KXNBASERIES-26APR-NYKATL-NYK",
+            ),
+            "futures",
+        )
+
     def test_crypto_up_or_down_classifies_as_crypto_daily(self):
         self.assertEqual(
             market_types.classify_market(

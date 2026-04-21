@@ -171,6 +171,10 @@ def is_macro_signal(text: str, title_tokens: set[str], source_context: str = "")
 def is_nba_market_text(text: str) -> bool:
     tokens = tokenize(text)
     lowered = (text or "").lower()
+    if "kxnbagame" in lowered or "kxnbaseries" in lowered:
+        return True
+    if "nba" in lowered and re.search(r"\bgame\s+\d+:", lowered) and any(marker in lowered for marker in (" at ", " vs ", " vs. ")):
+        return True
     has_team = bool(NBA_TEAM_TOKENS & tokens)
     has_game_marker = any(marker in lowered for marker in (" vs. ", " vs ", " at ", "spread", "moneyline"))
     return has_team and ("nba" in lowered or has_game_marker)
