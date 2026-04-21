@@ -33,6 +33,7 @@ LAUNCHD_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plis
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import store
+from lib import evidence_quality as eq
 from lib import http
 from lib import sports_schedule, weather
 
@@ -49,7 +50,20 @@ def _now_slug() -> str:
 
 def _load_portfolio(path: Path) -> List[Dict[str, Any]]:
     entries = json.loads(path.read_text(encoding="utf-8"))
-    return [entry for entry in entries if entry.get("enabled", True)]
+    normalized = []
+    for entry in entries:
+        if not entry.get("enabled", True):
+            continue
+        item = dict(entry)
+        if "expected_pick_types" not in item:
+            expected = item.get("expected_pick_type")
+            item["expected_pick_types"] = [expected] if expected else []
+        item.setdefault("last24hours_args", [])
+        item.setdefault("pick_policy", "default")
+        item.setdefault("dedupe_policy", "allow")
+        item.setdefault("dedupe_window_days", 7)
+        normalized.append(item)
+    return normalized
 
 
 def _prob(value: Any) -> Optional[float]:
@@ -132,6 +146,135 @@ def _target_date_for_topic(topic: str, created_at: Optional[str] = None) -> date
 def _slug_from_url(url: str) -> str:
     path = urlparse(url or "").path.rstrip("/")
     return path.rsplit("/", 1)[-1] if path else ""
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    text = str(value).strip()
+    for candidate in (text.replace("Z", "+00:00"), text):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is None:
+                return parsed
+            return parsed.astimezone().replace(tzinfo=None)
+        except ValueError:
+            continue
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text[:19], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _age_bucket(created_at: Any, now: Optional[datetime] = None) -> str:
+    created = _parse_timestamp(created_at)
+    if created is None:
+        return "unknown"
+    current = now or datetime.now()
+    age_days = max(0.0, (current - created).total_seconds() / 86400.0)
+    if age_days < 1:
+        return "0-1d"
+    if age_days < 3:
+        return "1-3d"
+    if age_days < 7:
+        return "3-7d"
+    if age_days < 14:
+        return "7-14d"
+    return "14d+"
+
+
+def _safe_json_loads(raw: Any) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        loaded = json.loads(str(raw))
+        return loaded if isinstance(loaded, dict) else {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _stored_rationale_text(pick: Dict[str, Any]) -> str:
+    payload = _safe_json_loads(pick.get("evidence_json"))
+    return " ".join(
+        str(value or "").strip()
+        for value in (
+            payload.get("why_line", ""),
+            payload.get("catalyst_summary", ""),
+            payload.get("rationale", ""),
+        )
+        if value
+    ).strip()
+
+
+def _looks_like_alert_spam(text: str) -> bool:
+    raw = (text or "").strip()
+    letters = [char for char in raw if char.isalpha()]
+    uppercase = [char for char in letters if char.isupper()]
+    upper_ratio = (len(uppercase) / len(letters)) if letters else 0.0
+    loud_tokens = sum(1 for token in raw.split() if len(token) >= 4 and token.isupper())
+    return upper_ratio >= 0.45 or loud_tokens >= 4
+
+
+def _is_legacy_noisy_rationale(pick: Dict[str, Any]) -> bool:
+    text = _stored_rationale_text(pick)
+    if not text:
+        return False
+    lowered = text.lower()
+    neutral_prefixes = (
+        "mostly market-driven right now",
+        "no clean market exists",
+        "official nws hourly forecast",
+        "catalyst context is thin",
+        "direct scheduled nba game-outcome market",
+        "direct nba game-outcome market",
+    )
+    if any(prefix in lowered for prefix in neutral_prefixes):
+        return False
+    tokens = eq.tokenize(text)
+    noisy_phrases = {
+        "top traders",
+        "betting big",
+        "most popular bets",
+        "stop missing out",
+        "keep cashing",
+        "signal room",
+        "vip picks",
+        "daily winners",
+    }
+    if any(phrase in lowered for phrase in noisy_phrases):
+        return True
+    if {"parlay", "lock", "tail", "vip", "cashing", "sportsbook", "draftkings", "fanduel"} & tokens:
+        return True
+    if "breaking" in tokens and _looks_like_alert_spam(text):
+        return True
+    return False
+
+
+def _existing_pick_rows(
+    venue_market_key: str,
+    *,
+    open_only: bool = False,
+    window_days: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    if not venue_market_key:
+        return []
+    conn = store._connect()
+    try:
+        query = "SELECT * FROM paper_picks WHERE venue_market_key = ?"
+        params: List[Any] = [venue_market_key]
+        if open_only:
+            query += " AND status IN ('open', 'unknown')"
+        if window_days is not None:
+            query += " AND created_at >= datetime('now', ?)"
+            params.append(f"-{max(1, int(window_days))} days")
+        query += " ORDER BY created_at DESC"
+        return [dict(row) for row in conn.execute(query, params).fetchall()]
+    finally:
+        conn.close()
 
 
 def _market_map(items: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -382,14 +525,77 @@ def _store_picks(run_id: int, picks: List[Dict[str, Any]]) -> List[int]:
     return ids
 
 
-def _run_last24hours(topic: str, quick: bool) -> Dict[str, Any]:
+def _run_last24hours(topic: str, quick: bool, extra_args: Optional[List[str]] = None) -> Dict[str, Any]:
     cmd = [sys.executable, str(SCRIPT_DIR / "last24hours.py"), topic, "--emit=json", "--no-native-web"]
     if quick:
         cmd.append("--quick")
+    for arg in extra_args or []:
+        cmd.append(str(arg))
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=180, check=False)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"last24hours exited {result.returncode}")
     return json.loads(result.stdout)
+
+
+def _filter_picks_by_policy(picks: List[Dict[str, Any]], pick_policy: str) -> List[Dict[str, Any]]:
+    policy = str(pick_policy or "default").strip().lower()
+    if policy == "default":
+        return picks
+    if policy == "forecast_only":
+        return [pick for pick in picks if pick.get("pick_type") == "forecast"]
+    if policy == "watchlist_only":
+        return [pick for pick in picks if pick.get("pick_type") == "watchlist"]
+    if policy == "bundle_only":
+        return [pick for pick in picks if pick.get("pick_type") == "bundle"]
+    return picks
+
+
+def _pick_types(picks: List[Dict[str, Any]]) -> List[str]:
+    return sorted({str(pick.get("pick_type") or "") for pick in picks if pick.get("pick_type")})
+
+
+def _validate_expected_pick_types(entry: Dict[str, Any], picks: List[Dict[str, Any]]) -> List[str]:
+    expected = [str(value) for value in entry.get("expected_pick_types", []) if value]
+    if not expected:
+        return []
+    actual = _pick_types(picks)
+    if not actual:
+        return [f"{entry['topic']}: expected pick types {', '.join(expected)} but extracted no paper picks"]
+    if not any(pick_type in expected for pick_type in actual):
+        return [f"{entry['topic']}: expected pick types {', '.join(expected)} but extracted {', '.join(actual)}"]
+    return []
+
+
+def _apply_dedupe_policy(
+    entry: Dict[str, Any],
+    picks: List[Dict[str, Any]],
+    warnings: List[str],
+    debug_counters: Optional[Dict[str, int]] = None,
+) -> List[Dict[str, Any]]:
+    policy = str(entry.get("dedupe_policy") or "allow").strip().lower()
+    if policy == "allow":
+        return picks
+    window_days = int(entry.get("dedupe_window_days") or 7)
+    kept: List[Dict[str, Any]] = []
+    for pick in picks:
+        key = str(pick.get("venue_market_key") or "")
+        if not key:
+            kept.append(pick)
+            continue
+        duplicates = []
+        if policy == "skip_if_open_duplicate":
+            duplicates = _existing_pick_rows(key, open_only=True)
+        elif policy == "skip_if_recent_duplicate":
+            duplicates = _existing_pick_rows(key, window_days=window_days)
+        if duplicates:
+            warnings.append(
+                f"{entry['topic']}: skipped duplicate {pick.get('pick_type', 'pick')} for {key} under {policy} ({len(duplicates)} existing row(s))"
+            )
+            if debug_counters is not None:
+                debug_counters["skipped_duplicate_paper_rows"] = int(debug_counters.get("skipped_duplicate_paper_rows", 0) or 0) + 1
+            continue
+        kept.append(pick)
+    return kept
 
 
 def _resolve_manual(pick_id: int, outcome: str) -> Dict[str, Any]:
@@ -680,9 +886,16 @@ def resolve_open_picks(limit: int = 200) -> List[Dict[str, Any]]:
 
 
 def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
-    resolved = [p for p in picks if p.get("status") == "resolved" and p.get("resolution_value") is not None]
+    resolved_all = [p for p in picks if p.get("status") == "resolved" and p.get("resolution_value") is not None]
+    legacy_noisy_count = sum(1 for pick in resolved_all if _is_legacy_noisy_rationale(pick))
+    resolved = [pick for pick in resolved_all if not _is_legacy_noisy_rationale(pick)]
     if not resolved:
-        return {"count": 0, "groups": {}}
+        return {
+            "count": 0,
+            "raw_resolved_count": len(resolved_all),
+            "excluded_legacy_noisy_count": legacy_noisy_count,
+            "groups": {},
+        }
     avg_brier = sum(float(p.get("brier_score") or 0) for p in resolved) / len(resolved)
     avg_log_loss = sum(float(p.get("log_loss") or 0) for p in resolved) / len(resolved)
     avg_prob = sum(float(p.get("model_probability") or 0) for p in resolved) / len(resolved)
@@ -719,6 +932,8 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         }
     return {
         "count": len(resolved),
+        "raw_resolved_count": len(resolved_all),
+        "excluded_legacy_noisy_count": legacy_noisy_count,
         "avg_brier": avg_brier,
         "avg_log_loss": avg_log_loss,
         "avg_probability": avg_prob,
@@ -737,16 +952,46 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     manual_only = 0
     missing_version = 0
     model_implied = 0
+    paper_bundle_count = 0
+    legacy_noisy_rationale_count = 0
+    by_skill_version: Dict[str, int] = {}
+    by_pick_type: Dict[str, int] = {}
+    by_domain: Dict[str, int] = {}
+    by_age_bucket: Dict[str, int] = {}
+    duplicate_keys: Dict[str, int] = {}
+    now = datetime.now()
     for pick in open_picks:
+        is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
+        if is_paper_bundle:
+            paper_bundle_count += 1
         probability = _prob(pick.get("model_probability"))
         mix[_pick_probability_class(probability)] += 1
-        if not pick.get("skill_version"):
+        if _is_legacy_noisy_rationale(pick):
+            legacy_noisy_rationale_count += 1
+        skill_version = str(pick.get("skill_version") or "")
+        if not skill_version:
             missing_version += 1
+            skill_bucket = "legacy_unversioned"
+        else:
+            skill_bucket = skill_version
+        by_skill_version[skill_bucket] = by_skill_version.get(skill_bucket, 0) + 1
+        pick_type = str(pick.get("pick_type") or "unknown")
+        by_pick_type[pick_type] = by_pick_type.get(pick_type, 0) + 1
+        domain = _domain(str(pick.get("topic") or ""))
+        by_domain[domain] = by_domain.get(domain, 0) + 1
+        age_bucket = _age_bucket(pick.get("created_at"), now=now)
+        by_age_bucket[age_bucket] = by_age_bucket.get(age_bucket, 0) + 1
+        key = str(pick.get("venue_market_key") or "")
+        if key:
+            duplicate_keys[key] = duplicate_keys.get(key, 0) + 1
         if pick.get("venue") == "model_implied" or pick.get("anchor_source") == "model_implied":
             model_implied += 1
         has_auto_resolver = pick.get("venue") in {"kalshi", "polymarket", "weather_api"} or pick.get("resolution_source") in {"kalshi", "polymarket", "nws_observations", "espn_nba"}
-        if pick.get("status") == "unknown" or not has_auto_resolver:
+        if not is_paper_bundle and (pick.get("status") == "unknown" or not has_auto_resolver):
             manual_only += 1
+    duplicate_market_key_count = sum(1 for count in duplicate_keys.values() if count > 1)
+    duplicate_row_count = sum(count - 1 for count in duplicate_keys.values() if count > 1)
+    duplicate_clusters = {key: count for key, count in sorted(duplicate_keys.items()) if count > 1}
     warnings = []
     total = len(open_picks)
     if total and mix["favorite"] / total >= 0.70:
@@ -757,12 +1002,28 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         warnings.append(f"{manual_only} open/unknown picks do not currently have a reliable automatic resolver.")
     if missing_version:
         warnings.append(f"{missing_version} open/unknown picks were created before skill-version tracking and should be treated as legacy samples.")
+    if legacy_noisy_rationale_count:
+        warnings.append(f"{legacy_noisy_rationale_count} open/unknown picks contain legacy rationale text that would fail the current paper-safe filters.")
+    if duplicate_market_key_count:
+        warnings.append(
+            f"{duplicate_row_count} open paper rows overlap with an already-open market key across {duplicate_market_key_count} repeated market key(s); broader sampling should avoid redundant duplicates."
+        )
     return {
         "open_count": total,
         "mix": mix,
         "manual_or_unknown_resolution_count": manual_only,
+        "paper_bundle_count": paper_bundle_count,
+        "paper_only_bundle_count": paper_bundle_count,
         "model_implied_count": model_implied,
         "legacy_unversioned_count": missing_version,
+        "legacy_noisy_rationale_count": legacy_noisy_rationale_count,
+        "by_skill_version": dict(sorted(by_skill_version.items())),
+        "by_pick_type": dict(sorted(by_pick_type.items())),
+        "by_domain": dict(sorted(by_domain.items())),
+        "by_age_bucket": dict(sorted(by_age_bucket.items())),
+        "duplicate_market_key_count": duplicate_market_key_count,
+        "duplicate_open_row_count": duplicate_row_count,
+        "duplicate_clusters": duplicate_clusters,
         "warnings": warnings,
     }
 
@@ -800,6 +1061,7 @@ def _write_daily_report(
     resolved: List[Dict[str, Any]],
     errors: List[str],
     warnings: Optional[List[str]] = None,
+    debug_counters: Optional[Dict[str, int]] = None,
 ) -> Path:
     PAPER_DIR.mkdir(parents=True, exist_ok=True)
     path = PAPER_DIR / f"paper-daily-{_now_slug()}.json"
@@ -809,6 +1071,7 @@ def _write_daily_report(
         "resolved": resolved,
         "errors": errors,
         "warnings": warnings or [],
+        "debug_counters": debug_counters or {},
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -825,18 +1088,22 @@ def cmd_daily(args) -> None:
     created: List[int] = []
     errors: List[str] = []
     warnings: List[str] = []
+    debug_counters: Dict[str, int] = {}
     for entry in entries:
         try:
-            report = _run_last24hours(entry["topic"], quick=args.quick)
+            report = _run_last24hours(entry["topic"], quick=args.quick, extra_args=entry.get("last24hours_args", []))
             picks = extract_paper_picks(report)
+            picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
+            picks = _apply_dedupe_policy(entry, picks, warnings, debug_counters)
             if not picks:
                 warnings.append(f"{entry['topic']}: no usable paper pick found")
+            warnings.extend(_validate_expected_pick_types(entry, picks))
             warnings.extend(f"{entry['topic']}: {warning}" for warning in pick_quality_warnings(picks))
             created.extend(_store_picks(run_id, picks))
         except Exception as exc:
             errors.append(f"{entry['topic']}: {type(exc).__name__}: {exc}")
     resolved = resolve_open_picks()
-    report_path = _write_daily_report(run_id, created, resolved, errors, warnings)
+    report_path = _write_daily_report(run_id, created, resolved, errors, warnings, debug_counters)
     store.update_paper_run(
         run_id,
         status="completed" if not errors else "partial",
@@ -846,7 +1113,7 @@ def cmd_daily(args) -> None:
         error_message="; ".join(errors)[:500],
         duration_seconds=time.time() - started,
     )
-    print(json.dumps({"paper_run_id": run_id, "picks_created": len(created), "resolved": resolved, "report_path": str(report_path), "errors": errors, "warnings": warnings}, indent=2))
+    print(json.dumps({"paper_run_id": run_id, "picks_created": len(created), "resolved": resolved, "report_path": str(report_path), "errors": errors, "warnings": warnings, "debug_counters": debug_counters}, indent=2))
 
 
 def cmd_resolve(args) -> None:

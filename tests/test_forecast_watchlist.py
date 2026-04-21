@@ -326,6 +326,130 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertNotIn("Daily winners", items[0].catalyst_summary)
         self.assertIn("fresh catalyst context", items[0].why_ranks)
 
+    def test_nba_watchlist_rejects_ticket_available_as_catalyst(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Lakers vs. Rockets",
+                question="Lakers vs. Rockets",
+                url="https://polymarket.com/event/nba-lal-hou-2026-04-20",
+                outcome_prices=[("Rockets", 0.58), ("Lakers", 0.42)],
+                engagement=_engagement(volume=100_000, liquidity=100_000),
+                market_type="game_outcome",
+                market_signal_quality=0.80,
+                volume_24h=100_000,
+                spread=0.01,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="I have Lakers Rockets tickets available section 117 row 6, DM if interested.",
+                url="https://x.com/tickets/status/1",
+                author_handle="tickets",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+        self.assertNotIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_nba_watchlist_rejects_promotional_picks_chatter_as_catalyst(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Raptors vs. Cavaliers",
+                question="Raptors vs. Cavaliers",
+                url="https://polymarket.com/event/nba-tor-cle-2026-04-20",
+                outcome_prices=[("Cavaliers", 0.79), ("Raptors", 0.21)],
+                engagement=_engagement(volume=100_000, liquidity=100_000),
+                market_type="game_outcome",
+                market_signal_quality=0.80,
+                volume_24h=100_000,
+                spread=0.01,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Tomorrow NBA most popular bets: Cavaliers Raptors. Stop missing out, VIP picks keep cashing.",
+                url="https://x.com/promo/status/1",
+                author_handle="promo",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+        self.assertNotIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_nba_watchlist_accepts_clean_exact_date_line_movement_catalyst(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Raptors vs. Cavaliers",
+                question="Raptors vs. Cavaliers",
+                url="https://polymarket.com/event/nba-tor-cle-2026-04-20",
+                outcome_prices=[("Cavaliers", 0.79), ("Raptors", 0.21)],
+                engagement=_engagement(volume=100_000, liquidity=100_000),
+                market_type="game_outcome",
+                market_signal_quality=0.80,
+                volume_24h=100_000,
+                spread=0.01,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Raptors vs Cavaliers April 20 moneyline moved toward Cleveland after the injury report listed Toronto starters questionable.",
+                url="https://x.com/reporter/status/1",
+                author_handle="reporter",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertIn("moneyline moved", items[0].catalyst_summary)
+        self.assertIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_nba_watchlist_accepts_clean_availability_catalyst(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Raptors vs. Cavaliers",
+                question="Raptors vs. Cavaliers",
+                url="https://polymarket.com/event/nba-tor-cle-2026-04-20",
+                outcome_prices=[("Cavaliers", 0.79), ("Raptors", 0.21)],
+                engagement=_engagement(volume=100_000, liquidity=100_000),
+                market_type="game_outcome",
+                market_signal_quality=0.80,
+                volume_24h=100_000,
+                spread=0.01,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Raptors vs Cavaliers April 20 injury report: Cleveland starter is available and Toronto starter remains questionable.",
+                url="https://x.com/reporter/status/2",
+                author_handle="reporter",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertIn("starter is available", items[0].catalyst_summary)
+        self.assertIn("fresh catalyst context", items[0].why_ranks)
+
     def test_weather_market_requires_location_specific_forecast_evidence(self):
         report = _report("Polymarket markets closing soon")
         report.planning_notes = ["closing_soon"]
@@ -372,6 +496,193 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("Shanghai weather forecast", items[0].catalyst_summary)
         self.assertNotIn("Beijing", items[0].catalyst_summary)
 
+    def test_tech_watchlist_requires_company_specific_entity_match(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Best Chinese AI Company end of April?",
+                question="Will DeepSeek have the best AI model at the end of April 2026?",
+                url="https://polymarket.com/event/best-chinese-ai-company-end-of-april",
+                outcome_prices=[("Alibaba", 0.69), ("DeepSeek", 0.23)],
+                engagement=_engagement(volume=24_000, liquidity=41_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=24_000,
+                relevance=0.95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Claude Opus 4.7 launched April 16, 2026 and remains Anthropic's top coding model.",
+                url="https://x.com/grok/status/1",
+                author_handle="grok",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+
+    def test_tech_watchlist_keeps_matching_company_specific_catalyst(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Which company has the best Coding AI model end of April?",
+                question="Will Anthropic have the best Coding AI model at the end of April 2026?",
+                url="https://polymarket.com/event/which-company-has-the-best-coding-ai-model-end-of-april",
+                outcome_prices=[("Anthropic", 0.94), ("OpenAI", 0.06)],
+                engagement=_engagement(volume=93_000, liquidity=115_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=93_000,
+                relevance=0.95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Claude Opus 4.7 launched April 16, 2026 and remains Anthropic's top model for coding benchmarks.",
+                url="https://x.com/grok/status/2",
+                author_handle="grok",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertIn("Anthropic", items[0].catalyst_summary)
+        self.assertIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_tech_watchlist_rejects_mixed_competitor_catalyst(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Which company has the best Coding AI model end of April?",
+                question="Will Anthropic have the best Coding AI model at the end of April 2026?",
+                url="https://polymarket.com/event/which-company-has-the-best-coding-ai-model-end-of-april",
+                outcome_prices=[("Anthropic", 0.94), ("OpenAI", 0.06)],
+                engagement=_engagement(volume=93_000, liquidity=115_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=93_000,
+                relevance=0.95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="China's Anthropic--Zhipu comparison still points to Zhipu's model momentum in coding benchmarks.",
+                url="https://x.com/example/status/3",
+                author_handle="example",
+                score=95,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
+
+    def test_long_dated_zero_volume_tech_market_is_suppressed_when_stronger_rows_exist(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Which company has the best Coding AI model end of April?",
+                question="Will Anthropic have the best Coding AI model at the end of April 2026?",
+                url="https://polymarket.com/event/coding-ai-april",
+                outcome_prices=[("Anthropic", 0.94), ("OpenAI", 0.06)],
+                engagement=_engagement(volume=93_000, liquidity=115_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=93_000,
+                end_date="2026-04-30",
+                relevance=0.95,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Will any AI model reach 1550 Coding Arena Score by June 30, 2026?",
+                question="Will any AI model reach 1550 Coding Arena Score by June 30, 2026?",
+                url="https://polymarket.com/event/coding-ai-june",
+                outcome_prices=[("Yes", 0.86), ("No", 0.14)],
+                engagement=_engagement(volume=3_000, liquidity=6_000),
+                market_type="threshold",
+                market_signal_quality=0.44,
+                volume_24h=3_000,
+                end_date="2026-06-30",
+                relevance=0.95,
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Best Chinese AI Company end of April?",
+                question="Will DeepSeek have the best AI model at the end of April 2026?",
+                url="https://polymarket.com/event/china-ai-april",
+                outcome_prices=[("Alibaba", 0.69), ("DeepSeek", 0.23)],
+                engagement=_engagement(volume=24_000, liquidity=41_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=24_000,
+                end_date="2026-04-30",
+                relevance=0.95,
+            ),
+            schema.PolymarketItem(
+                id="PM4",
+                title="Will any AI model reach 1560 Coding Arena Score by December 31, 2026?",
+                question="Will any AI model reach 1560 Coding Arena Score by December 31, 2026?",
+                url="https://polymarket.com/event/coding-ai-december",
+                outcome_prices=[("Yes", 0.93), ("No", 0.07)],
+                engagement=_engagement(volume=0, liquidity=8_000),
+                market_type="threshold",
+                market_signal_quality=0.40,
+                volume_24h=0,
+                end_date="2026-12-31",
+                relevance=0.95,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertNotIn("December 31, 2026", " ".join(item.question for item in items))
+
+    def test_near_term_company_market_outranks_long_dated_threshold_row(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Which company has the best Coding AI model end of April?",
+                question="Will Anthropic have the best Coding AI model at the end of April 2026?",
+                url="https://polymarket.com/event/coding-ai-april",
+                outcome_prices=[("Anthropic", 0.72), ("OpenAI", 0.28)],
+                engagement=_engagement(volume=93_000, liquidity=115_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=93_000,
+                end_date="2026-04-30",
+                relevance=0.95,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Will any AI model reach 1560 Coding Arena Score by December 31, 2026?",
+                question="Will any AI model reach 1560 Coding Arena Score by December 31, 2026?",
+                url="https://polymarket.com/event/coding-ai-december",
+                outcome_prices=[("Yes", 0.63), ("No", 0.37)],
+                engagement=_engagement(volume=0, liquidity=8_000),
+                market_type="threshold",
+                market_signal_quality=0.40,
+                volume_24h=0,
+                end_date="2026-12-31",
+                relevance=0.95,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].source_item_id, "PM1")
+
     def test_fused_watchlist_driver_uses_same_market_specific_filter(self):
         report = _report("Polymarket markets closing soon")
         report.planning_notes = ["closing_soon"]
@@ -412,6 +723,32 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(items[0].catalyst_summary, "Catalyst context is thin; ranking is mostly market-signal driven.")
         self.assertNotIn("fresh catalyst context", items[0].why_ranks)
+
+    def test_render_uses_neutral_game_status_for_scheduled_watch_rows(self):
+        report = _report("NBA markets to watch today")
+        report.market_watchlist = [
+            schema.MarketWatchItem(
+                id="MW1",
+                title="Lakers vs. Rockets",
+                question="Lakers vs. Rockets",
+                venue="Polymarket",
+                url="https://polymarket.com/event/lakers-rockets",
+                outcome_label="Lakers",
+                probability=0.58,
+                market_type="game_outcome",
+                rank_score=62,
+                why_ranks="strong market signal",
+                market_signal="Polymarket; 58% implied",
+                catalyst_summary="Catalyst context is thin; ranking is mostly market-signal driven.",
+                risk="Fresh news or market repricing could change the ranking.",
+                live_game_context="NBA Scheduled; start 2026-04-21T23:30:00Z",
+            )
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("Game status: NBA Scheduled", output)
+        self.assertNotIn("Live game: NBA Scheduled", output)
 
 
 if __name__ == "__main__":

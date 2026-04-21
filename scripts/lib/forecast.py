@@ -163,6 +163,187 @@ _CRYPTO_ENTITY_ALIASES = {
     "solana": {"solana", "sol"},
     "dogecoin": {"dogecoin", "doge"},
 }
+_CRYPTO_ENTITY_TOKENS = set().union(*_CRYPTO_ENTITY_ALIASES.values())
+_MACRO_LOW_SIGNAL_PHRASES = {
+    "top traders",
+    "betting big",
+    "stop missing out",
+    "keep cashing",
+    "signal room",
+    "vip picks",
+    "regime alert",
+    "most popular bets",
+    "free picks",
+    "daily winners",
+}
+_CRYPTO_LOW_SIGNAL_PHRASES = {
+    "betting big",
+    "market manipulation",
+    "holding it down",
+    "vote a or b",
+    "quick btc poll",
+    "should be above",
+    "most popular bets",
+    "free picks",
+    "top traders",
+}
+_CRYPTO_STRONG_SIGNAL_TERMS = {
+    "spot", "etf", "flow", "flows", "liquidity", "liquidation", "liquidations",
+    "support", "resistance", "breakout", "repricing", "exchange", "exchanges",
+    "momentum", "volume",
+}
+_MACRO_STRONG_CONTEXT_TERMS = {
+    "official", "officials", "governor", "chair", "statement", "statements",
+    "remarks", "meeting", "minutes", "data", "release", "releases", "payrolls",
+    "jobs", "inflation", "cpi", "yield", "yields", "treasury", "treasuries",
+}
+_SOCIAL_SOURCES = {"x", "reddit"}
+_SOCIAL_PROMO_TOKENS = {
+    "alert", "alerts", "vip", "bets", "bet", "betting", "pick", "picks",
+    "tail", "lock", "locks", "parlay", "parlays", "cashing", "winner",
+    "winners", "poll", "polls", "vote", "votes", "trader", "traders",
+    "followers", "subscribe",
+}
+_OFFICIAL_MACRO_DOMAINS = {
+    "federalreserve.gov",
+    "bls.gov",
+    "bea.gov",
+    "treasury.gov",
+    "census.gov",
+    "fred.stlouisfed.org",
+}
+_MARKET_CONTEXT_DOMAINS = {
+    "polymarket.com",
+    "kalshi.com",
+    "cmegroup.com",
+}
+_QUALITY_WEB_DOMAINS = {
+    "reuters.com",
+    "bloomberg.com",
+    "wsj.com",
+    "ft.com",
+    "apnews.com",
+}
+
+
+def _is_crypto_query(text: str) -> bool:
+    tokens = _tokenize(text)
+    return bool(_threshold_entity(text) or (tokens & _CRYPTO_ENTITY_TOKENS))
+
+
+def _looks_like_alert_spam(text: str) -> bool:
+    raw = (text or "").strip()
+    letters = [char for char in raw if char.isalpha()]
+    uppercase = [char for char in letters if char.isupper()]
+    upper_ratio = (len(uppercase) / len(letters)) if letters else 0.0
+    tokens = raw.split()
+    loud_tokens = sum(1 for token in tokens if len(token) >= 4 and token.isupper())
+    return upper_ratio >= 0.45 or loud_tokens >= 4
+
+
+def _source_kind(source: str) -> str:
+    return str(source or "generic").strip().lower()
+
+
+def _source_context_bonus(source: str, source_context: str = "") -> float:
+    source_name = _source_kind(source)
+    context = str(source_context or "").lower()
+    if any(domain in context for domain in _OFFICIAL_MACRO_DOMAINS):
+        return 18.0
+    if any(domain in context for domain in _MARKET_CONTEXT_DOMAINS):
+        return 12.0
+    if any(domain in context for domain in _QUALITY_WEB_DOMAINS):
+        return 8.0
+    if source_name == "web":
+        return 6.0
+    if source_name == "hackernews":
+        return 3.0
+    if source_name == "reddit":
+        return -6.0
+    if source_name == "x":
+        return -10.0
+    return 0.0
+
+
+def _social_macro_context_ok(tokens: set[str], title_tokens: set[str]) -> bool:
+    macro_overlap = len((title_tokens - {"will", "have", "us", "usa", "by", "in", "end", "next", "month", "year"}) & tokens)
+    anchor_terms = tokens & {"fed", "fomc", "powell"}
+    support_terms = tokens & {
+        "cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries",
+        "pricing", "priced", "market", "markets", "statement", "statements",
+        "remarks", "minutes", "official", "officials", "governor",
+    }
+    strong_terms = tokens & (MACRO_STRONG_TERMS | _MACRO_STRONG_CONTEXT_TERMS)
+    return macro_overlap >= 2 and bool(anchor_terms) and bool(support_terms) and len(strong_terms) >= 2
+
+
+def _social_crypto_context_ok(tokens: set[str], title_tokens: set[str]) -> bool:
+    topic_entities = title_tokens & _CRYPTO_ENTITY_TOKENS
+    if topic_entities and not (topic_entities & tokens):
+        return False
+    strong_terms = tokens & (_CRYPTO_STRONG_SIGNAL_TERMS | {"spot", "price", "prices"})
+    if {"poll", "polls", "vote", "votes"} & tokens:
+        return False
+    if topic_entities:
+        return len(strong_terms) >= 2
+    overlap = len((title_tokens - {"this", "week", "month", "year", "price"}) & tokens)
+    return overlap >= 2 and len(strong_terms) >= 2
+
+
+def _social_noise_tokens(tokens: set[str]) -> bool:
+    return bool(tokens & _SOCIAL_PROMO_TOKENS)
+
+
+def _allow_macro_evidence(title: str, text: str, source_context: str = "") -> bool:
+    combined = f"{text} {source_context}".strip()
+    lowered = combined.lower()
+    tokens = _tokenize(combined)
+    title_tokens = _topic_tokens(title)
+    overlap = len((title_tokens - {"june", "april", "may"}) & tokens)
+    if any(phrase in lowered for phrase in _MACRO_LOW_SIGNAL_PHRASES):
+        return False
+    if "breaking" in tokens and _looks_like_alert_spam(combined):
+        return False
+    if MACRO_BAD_CONTEXT_TERMS & tokens:
+        return False
+    if not (tokens & MACRO_SIGNAL_TERMS):
+        return False
+    if overlap < 1 and not (tokens & {"fed", "fomc", "powell"}):
+        return False
+    if not ((tokens & MACRO_STRONG_TERMS) or (tokens & _MACRO_STRONG_CONTEXT_TERMS)):
+        return False
+    return True
+
+
+def _allow_crypto_evidence(title: str, text: str, source_context: str = "") -> bool:
+    combined = f"{text} {source_context}".strip()
+    lowered = combined.lower()
+    tokens = _tokenize(combined)
+    topic_tokens = _tokenize(title)
+    topic_entities = topic_tokens & _CRYPTO_ENTITY_TOKENS
+    topic_spec = _threshold_spec(title)
+    evidence_spec = _threshold_spec(text)
+    if topic_entities and not (topic_entities & tokens):
+        return False
+    if any(phrase in lowered for phrase in _CRYPTO_LOW_SIGNAL_PHRASES):
+        return False
+    if {"poll", "vote"} & tokens:
+        return False
+    if "predictions" in tokens and not (tokens & {"spot", "etf", "flows", "flow", "exchange", "liquidity"}):
+        return False
+    if "breaking" in tokens and _looks_like_alert_spam(combined):
+        return False
+    if not (tokens & _CRYPTO_ENTITY_TOKENS):
+        return False
+    if not ((tokens & _CRYPTO_STRONG_SIGNAL_TERMS) or ("spot" in tokens and "price" in tokens)):
+        return False
+    if topic_spec.threshold is not None and evidence_spec.threshold is not None:
+        tolerance = max(500.0, topic_spec.threshold * 0.05)
+        if abs(topic_spec.threshold - evidence_spec.threshold) > tolerance:
+            return False
+    if topic_spec.window and evidence_spec.window and topic_spec.window != evidence_spec.window:
+        return False
+    return True
 
 
 def _threshold_entity(text: str) -> Optional[str]:
@@ -531,11 +712,14 @@ def _generic_candidate_score(
     weather_query: bool = False,
     macro_query: bool = False,
     source_context: str = "",
+    source: str = "generic",
 ) -> Optional[_EvidenceCandidate]:
     context = f"{text} {source_context}".strip()
     tokens = _tokenize(context)
     title_tokens = _topic_tokens(title)
     overlap = len(title_tokens & tokens)
+    crypto_query = _is_crypto_query(title)
+    source_name = _source_kind(source)
 
     if overlap == 0:
         return None
@@ -565,13 +749,31 @@ def _generic_candidate_score(
             return None
         if "recession" in title_tokens and "recession" in tokens and not (RECESSION_SUPPORT_TERMS & tokens):
             return None
+        if not _allow_macro_evidence(title, text, source_context):
+            return None
+        if source_name in _SOCIAL_SOURCES:
+            if _social_noise_tokens(tokens):
+                return None
+            if not _social_macro_context_ok(tokens, title_tokens):
+                return None
+
+    if crypto_query:
+        if not _allow_crypto_evidence(title, text, source_context):
+            return None
+        if source_name in _SOCIAL_SOURCES:
+            if _social_noise_tokens(tokens):
+                return None
+            if not _social_crypto_context_ok(tokens, title_tokens):
+                return None
 
     if LOW_SIGNAL_SOCIAL_TERMS & tokens and not DRIVER_TERMS & tokens:
+        return None
+    if source_name in _SOCIAL_SOURCES and _social_noise_tokens(tokens) and not ((tokens & MACRO_SIGNAL_TERMS) or (tokens & _CRYPTO_STRONG_SIGNAL_TERMS)):
         return None
     if overlap < 2 and not DRIVER_TERMS & tokens:
         return None
 
-    score = base_score + overlap * 4
+    score = base_score + overlap * 4 + _source_context_bonus(source_name, source_context)
     if DRIVER_TERMS & tokens:
         score += 8
     if weather_query and WEATHER_SIGNAL_TERMS & tokens:
@@ -580,14 +782,55 @@ def _generic_candidate_score(
         score += len(MACRO_SIGNAL_TERMS & tokens) * 4
         if MACRO_STRONG_TERMS & tokens:
             score += 8
+        if source_name not in _SOCIAL_SOURCES:
+            score += 6
+    if crypto_query:
+        score += len(_CRYPTO_STRONG_SIGNAL_TERMS & tokens) * 3
+        if source_name not in _SOCIAL_SOURCES:
+            score += 4
     return _EvidenceCandidate(
         score=score,
         text=text.strip(),
         tokens=tokens,
-        source="generic",
+        source=source_name or "generic",
         team_hits=0,
         signal_hits=len(DRIVER_TERMS & tokens),
     )
+
+
+def _degraded_source_item_score(item, source: str, topic: str) -> float:
+    text = getattr(item, "text", "") or getattr(item, "title", "") or getattr(item, "snippet", "") or ""
+    context = getattr(item, "author_handle", "") or getattr(item, "subreddit", "") or getattr(item, "source_domain", "")
+    base_score = float(getattr(item, "score", 0) or 0)
+    macro_query = _is_macro_query(topic)
+    crypto_query = _is_crypto_query(topic)
+    candidate = _generic_candidate_score(
+        text,
+        topic,
+        base_score,
+        macro_query=macro_query,
+        source_context=context,
+        source=source,
+    )
+    if candidate:
+        return 1_000.0 + candidate.score
+    tokens = _tokenize(f"{text} {context}")
+    overlap = len(_topic_tokens(topic) & tokens)
+    penalty = 120.0 if source in _SOCIAL_SOURCES else 40.0
+    return base_score + overlap - penalty
+
+
+def _rerank_degraded_source_items(report: schema.Report, topic: str) -> None:
+    if not (_is_macro_query(topic) or _is_crypto_query(topic)):
+        return
+    report.x.sort(key=lambda item: _degraded_source_item_score(item, "x", topic), reverse=True)
+    report.reddit.sort(key=lambda item: _degraded_source_item_score(item, "reddit", topic), reverse=True)
+    report.web.sort(key=lambda item: _degraded_source_item_score(item, "web", topic), reverse=True)
+
+
+def _bump_debug_counter(report: schema.Report, key: str, amount: int = 1) -> None:
+    debug = report.evidence_fusion_stats.setdefault("debug_counters", {})
+    debug[key] = int(debug.get(key, 0) or 0) + amount
 
 
 def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_EvidenceCandidate]:
@@ -595,24 +838,23 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
     sports_query = _is_sports_query(title) or _is_sports_query(report.topic)
     weather_query = _is_weather_query(title) or _is_weather_query(report.topic)
     macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
+    debug_domain = "crypto" if _is_crypto_query(title) else "macro" if macro_query else ""
     candidates: list[_EvidenceCandidate] = []
 
     fused = evidence_fusion.fuse_evidence(report, title, "prediction", limit=4)
     if fused.candidate_count:
-        report.evidence_fusion_stats = {
-            "candidate_count": max(
-                int(report.evidence_fusion_stats.get("candidate_count", 0) or 0),
-                fused.candidate_count,
-            ),
-            "driver_count": max(
-                int(report.evidence_fusion_stats.get("driver_count", 0) or 0),
-                len(fused.drivers),
-            ),
-            "cluster_count": max(
-                int(report.evidence_fusion_stats.get("cluster_count", 0) or 0),
-                fused.cluster_count,
-            ),
-        }
+        report.evidence_fusion_stats["candidate_count"] = max(
+            int(report.evidence_fusion_stats.get("candidate_count", 0) or 0),
+            fused.candidate_count,
+        )
+        report.evidence_fusion_stats["driver_count"] = max(
+            int(report.evidence_fusion_stats.get("driver_count", 0) or 0),
+            len(fused.drivers),
+        )
+        report.evidence_fusion_stats["cluster_count"] = max(
+            int(report.evidence_fusion_stats.get("cluster_count", 0) or 0),
+            fused.cluster_count,
+        )
     title_sides = _matchup_side_tokens(title)
     sports_target_date = _sports_target_date(report) if sports_query else None
     for driver in fused.drivers:
@@ -634,16 +876,27 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
                 continue
             candidates.append(candidate)
             continue
-        candidates.append(
-            _EvidenceCandidate(
-                score=driver.score * 100.0,
-                text=driver.text,
-                tokens=tokens,
-                source=driver.source,
-                team_hits=team_hits,
-                signal_hits=signal_hits,
-            )
+        candidate = _generic_candidate_score(
+            driver.text,
+            title,
+            driver.score * 100.0,
+            weather_query=weather_query,
+            macro_query=macro_query,
+            source=driver.source,
         )
+        if candidate:
+            candidates.append(
+                _EvidenceCandidate(
+                    score=max(candidate.score, driver.score * 100.0),
+                    text=driver.text,
+                    tokens=tokens,
+                    source=driver.source,
+                    team_hits=team_hits,
+                    signal_hits=signal_hits,
+                )
+            )
+        elif debug_domain and len(_topic_tokens(title) & tokens) >= 1:
+            _bump_debug_counter(report, f"rejected_low_signal_evidence:{debug_domain}")
 
     for item in report.x[:12]:
         text = getattr(item, "text", "") or ""
@@ -670,10 +923,13 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
                 weather_query=weather_query,
                 macro_query=macro_query,
                 source_context=getattr(item, "author_handle", ""),
+                source="x",
             )
         )
         if candidate:
             candidates.append(candidate)
+        elif debug_domain and len(_topic_tokens(title) & _tokenize(text)) >= 1:
+            _bump_debug_counter(report, f"rejected_low_signal_evidence:{debug_domain}")
 
     for item in report.reddit[:10]:
         text = getattr(item, "title", "") or ""
@@ -700,10 +956,13 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
                 weather_query=weather_query,
                 macro_query=macro_query,
                 source_context=getattr(item, "subreddit", ""),
+                source="reddit",
             )
         )
         if candidate:
             candidates.append(candidate)
+        elif debug_domain and len(_topic_tokens(title) & _tokenize(text)) >= 1:
+            _bump_debug_counter(report, f"rejected_low_signal_evidence:{debug_domain}")
 
     for item in report.web[:8]:
         text = f"{getattr(item, 'title', '')} {getattr(item, 'snippet', '')}".strip()
@@ -730,10 +989,13 @@ def _collect_evidence_candidates(report: schema.Report, title: str) -> list[_Evi
                 weather_query=weather_query,
                 macro_query=macro_query,
                 source_context=getattr(item, "source_domain", ""),
+                source="web",
             )
         )
         if candidate:
             candidates.append(candidate)
+        elif debug_domain and len(_topic_tokens(title) & _tokenize(text)) >= 1:
+            _bump_debug_counter(report, f"rejected_low_signal_evidence:{debug_domain}")
 
     candidates.sort(key=lambda item: item.score, reverse=True)
     return candidates
@@ -1212,6 +1474,7 @@ def _build_forecast_item(
         forecast.degraded_warning = _degraded_forecast_warning(report)
         forecast.confidence_level = _confidence_label(None, 0.0, evidence_count, has_market=False)
         forecast.uncertainty = _uncertainty_text(forecast.confidence_level, None, False, False, evidence_count)
+        _rerank_degraded_source_items(report, title)
 
     if _is_sports_query(title) or _is_sports_query(report.topic):
         forecast.upside_catalysts, forecast.downside_catalysts = _sports_catalysts(evidence_candidates, forecast.favorite_label)

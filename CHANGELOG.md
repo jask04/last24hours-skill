@@ -9,6 +9,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 
+## [1.0.23] - 2026-04-20
+
+### Added
+- Paper daily fixtures can now declare duplicate-suppression policy without a schema migration, and the shipped 10-topic paper portfolio defaults to skipping already-open duplicate market keys
+- Open paper diagnostics now break out age buckets, duplicate clusters, and legacy noisy-rationale counts for audit passes
+
+### Fixed
+- Degraded macro and crypto forecasts now prefer official, market, and clean web/data context over thin social snippets, and model-implied fallbacks stay neutral when no clean evidence survives
+- Tech watchlists now boost near-term company/model rows ahead of long-dated low-signal thresholds, while company-comparison catalysts stay entity-specific
+- NBA watchlists now label scheduled ESPN rows as game status instead of live games, and paper bundle legs must be scheduled direct-game markets rather than already-live rows
+- Adapter self-report text for Bird/X and YouTube now matches the current release version
+
+### Tested
+- Added regressions for degraded source reranking, tech actionability ranking, scheduled-vs-live ESPN labels, bundle scheduled-only gating, duplicate-skip behavior, open-paper diagnostics, and adapter version consistency
+
+## [1.0.20] - 2026-04-20
+
+### Added
+- Daily paper portfolio entries can now declare `last24hours_args`, `pick_policy`, and `expected_pick_types` so one fixture can seed broader paper coverage without a second command path
+- Expanded the default paper portfolio with recurring NBA watchlist, NBA paper-bundle, closing-soon, and crypto closing-soon calibration prompts
+
+### Fixed
+- Model-implied macro and crypto forecasts now reject more alert-spam, promo, betting, poll, and threshold-mismatched chatter before selecting `why_line` evidence
+- Tech watchlists now require company/model-specific entity overlap, so Chinese AI rows no longer inherit Anthropic/Claude catalyst snippets
+- Long-dated low-signal tech watchlist rows with zero volume are suppressed when stronger same-run rows already exist
+- Open paper diagnostics now break out skill versions, pick types, domains, and repeated market keys so broader sampling is easier to audit
+
+### Tested
+- Added paper-ledger coverage for portfolio entry normalization, forwarded args, pick-policy filtering, expected-pick-type warnings, and duplicate open-row diagnostics
+- Added forecast regressions for macro alert spam rejection, crypto promo rejection, and clean macro/crypto context acceptance
+- Added watchlist regressions for company-specific tech catalyst matching and long-dated low-signal tech suppression
+
+## [1.0.19] - 2026-04-20
+
+### Fixed
+- Sports forecast rationale now rejects generic sportsbook odds/betting copy even when it names the exact matchup and date
+- Clean exact-date line-movement snippets remain eligible sports context when they avoid promotional or execution-style language
+- Terminal progress messages now use probability/market-attention wording instead of betting-action phrasing
+- Watchlist rendering now uses neutral `Market Watchlist` and `Outcome` labels instead of pick/action-adjacent wording
+
+### Tested
+- Added planner-fusion regressions for sportsbook-copy rejection and clean line-movement rationale eligibility
+
+## [1.0.18] - 2026-04-20
+
+### Fixed
+- NBA paper bundle watchlists now only rank direct ESPN-matched game-outcome markets, excluding series, futures, totals, props, and unmatched game-looking markets from the surrounding watchlist as well as bundle construction
+- Sports catalyst filtering now rejects ticket-availability chatter and promotional picks/bets posts while preserving clean exact-match injury, lineup, rest, playoff-incentive, and line-movement context
+- Pregame ESPN context now omits placeholder 0-0 score, period 0, and 0.0 clock text while retaining live/final score and clock details
+
+### Changed
+- Paper bundle leg keys now use normalized unique NBA team tokens, and bundle legs require trusted ESPN matchup context before qualifying
+- Paper ledger open-portfolio diagnostics now report paper-only bundle rows separately without counting them as missing automatic resolvers
+- Bundle-intent progress and compact output now reuse paper-safe topic wording for user prompts that use parlay language
+
 ## [1.0.17] - 2026-04-20
 
 ### Added

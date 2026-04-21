@@ -46,10 +46,15 @@ class EvalFixtureTests(unittest.TestCase):
             topics,
             [
                 ("tomorrows nba games", "prediction"),
+                ("NBA markets to watch today", "market_watchlist"),
+                ("NBA paper bundle today", "market_watchlist"),
+                ("NBA paper bundle tomorrow", "market_watchlist"),
                 ("Bitcoin above 100k this week", "prediction"),
                 ("Fed rate cut by June", "prediction"),
                 ("NYC rain tomorrow", "prediction"),
                 ("AI coding tools markets to watch today", "market_watchlist"),
+                ("Polymarket markets closing soon", "market_watchlist"),
+                ("crypto markets closing soon tonight", "market_watchlist"),
             ],
         )
 
@@ -272,6 +277,15 @@ class VersionConsistencyTests(unittest.TestCase):
         ui_text = (ROOT / "scripts" / "lib" / "ui.py").read_text(encoding="utf-8")
         self.assertIn(f"/last24hours v{version} — Source Status", ui_text)
         self.assertEqual(ui_text.count(f"/last24hours v{version} — Source Status"), 2)
+
+    def test_adapter_version_strings_match_skill_frontmatter(self):
+        version = self._skill_version()
+
+        for relative in ("scripts/lib/bird_x.py", "scripts/lib/youtube_yt.py"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            match = re.search(r"v(\d+\.\d+\.\d+)", text)
+            self.assertIsNotNone(match, relative)
+            self.assertEqual(match.group(1), version)
 
 
 if __name__ == "__main__":

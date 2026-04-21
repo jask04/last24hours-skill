@@ -349,7 +349,7 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertNotIn("bettorbot", forecasts[0].why_line.lower())
         self.assertIn("Mostly market-driven", forecasts[0].why_line)
 
-    def test_exact_date_sportsbook_odds_can_explain_matching_game(self):
+    def test_exact_date_sportsbook_odds_copy_is_rejected_from_sports_rationale(self):
         report = _report("Lakers vs Rockets April 21 2026 Game 2")
         report.polymarket = [
             schema.PolymarketItem(
@@ -379,7 +379,133 @@ class PlannerFusionTests(unittest.TestCase):
 
         self.assertEqual(forecasts[0].polymarket_market_id, "PM1")
         self.assertAlmostEqual(forecasts[0].forecast_probability, 0.62)
-        self.assertIn("odds", forecasts[0].why_line)
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+        self.assertNotIn("betting", forecasts[0].why_line.lower())
+        self.assertNotIn("odds", forecasts[0].why_line.lower())
+
+    def test_exact_date_line_movement_can_explain_matching_game(self):
+        report = _report("Lakers vs Rockets April 21 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Rockets vs. Lakers",
+                question="Rockets vs. Lakers",
+                url="https://polymarket.com/event/nba-hou-lal-2026-04-21",
+                outcome_prices=[("Rockets", 0.62), ("Lakers", 0.38)],
+                engagement=schema.Engagement(volume=94_000, liquidity=324_000),
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                score=91,
+                relevance=0.91,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Los Angeles Lakers vs Houston Rockets Game 2 line moved toward Houston after Tuesday, April 21, 2026 lineup news.",
+                url="https://x.com/reporter/status/1",
+                author_handle="linewatch",
+                score=75,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(forecasts[0].polymarket_market_id, "PM1")
+        self.assertIn("line moved", forecasts[0].why_line)
+        self.assertNotIn("betting", forecasts[0].why_line.lower())
+
+    def test_macro_alert_spam_does_not_become_why_line(self):
+        report = _report("Fed rate cut by June")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="🚨 BREAKING: FED HOLDS RATES HIGHER FOR LONGER AND TOP TRADERS ARE ALL OVER THIS MOVE RIGHT NOW.",
+                url="https://x.com/spam/status/1",
+                author_handle="spamdesk",
+                score=95,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("no high-signal macro or policy evidence", forecasts[0].why_line.lower())
+        self.assertNotIn("breaking", forecasts[0].why_line.lower())
+        self.assertNotIn("top traders", forecasts[0].why_line.lower())
+
+    def test_clean_macro_context_still_passes(self):
+        report = _report("Fed rate cut by June")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Fed Governor remarks after CPI and jobs data kept June cut pricing soft in Treasury yields.",
+                url="https://x.com/macro/status/1",
+                author_handle="macrodesk",
+                score=72,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("Fed Governor remarks", forecasts[0].why_line)
+
+    def test_crypto_betting_big_and_poll_chatter_do_not_become_why_line(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Six months ago most people were betting big on Bitcoin hitting $100K this year odds were above 60%. Quick BTC poll: vote A or B.",
+                url="https://x.com/crypto/status/1",
+                author_handle="cryptopromo",
+                score=90,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("supporting evidence is thin", forecasts[0].why_line.lower())
+        self.assertNotIn("betting big", forecasts[0].why_line.lower())
+        self.assertNotIn("poll", forecasts[0].why_line.lower())
+
+    def test_clean_crypto_market_context_still_passes(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Bitcoin spot price stayed below 100k as ETF flows cooled and exchange liquidity thinned into the weekly close.",
+                url="https://x.com/crypto/status/2",
+                author_handle="flowdesk",
+                score=78,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("ETF flows", forecasts[0].why_line)
+
+    def test_degraded_crypto_reranks_clean_source_rows_ahead_of_promo_noise(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Most popular bets keep cashing and this quick BTC poll is everywhere.",
+                url="https://x.com/crypto/status/3",
+                author_handle="cryptopromo",
+                score=95,
+            ),
+            schema.XItem(
+                id="X2",
+                text="Bitcoin spot price stayed below 100k as ETF flows cooled and exchange liquidity thinned into the weekly close.",
+                url="https://x.com/crypto/status/4",
+                author_handle="flowdesk",
+                score=78,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("ETF flows", forecasts[0].why_line)
+        self.assertEqual(report.x[0].id, "X2")
 
     def test_date_specific_macro_forecast_prefers_matching_month_market(self):
         report = _report("Will the Fed cut rates by June")

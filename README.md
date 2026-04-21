@@ -1,4 +1,4 @@
-# /last24hours v1.0.17
+# /last24hours v1.0.23
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -12,7 +12,7 @@ Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and
 
 Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Live-sports scans only surface direct matching game-outcome markets; series, futures, totals, props, and wrong-matchup markets are rejected with diagnostics. Catalyst snippets must match the specific market domain and entity; when no clean external catalyst clears the filter, rankings are labeled as market-signal driven. Fast-moving lines must be verified in the Polymarket UI before relying on them.
 
-NBA date-window scans can expand prompts such as `NBA games April 20 2026 through April 22 2026` into ESPN-backed matchup searches. Bundle-intent prompts such as `NBA paper bundle ideas April 20 through April 22` produce paper-only multi-leg watchlists from direct game-outcome markets, with independence-baseline probability math, correlation warnings, and fragility notes.
+NBA date-window scans can expand prompts such as `NBA games April 20 2026 through April 22 2026` into ESPN-backed matchup searches. Bundle-intent prompts such as `NBA paper bundle ideas April 20 through April 22` produce paper-only multi-leg watchlists from direct ESPN-matched game-outcome markets, with independence-baseline probability math, correlation warnings, and fragility notes.
 
 Paper forecast tracking is available for calibration work. The paper ledger records hypothetical daily forecasts, resolves them later when public market outcomes are available, scores calibration, tracks whether the portfolio is leaning on easy favorites or longshots, and prints suggested system improvements for review. New paper records include the skill version so calibration can be compared across forecast-engine changes. It does not place trades, size positions, recommend stakes, or automatically change forecast weights.
 
@@ -62,7 +62,7 @@ Current notable capabilities:
 - Threshold-aware forecast matching, so `Bitcoin above 100k this week` does not anchor to unrelated `$70k` or range markets.
 - Official National Weather Service anchoring for supported U.S. weather prompts such as `NYC rain tomorrow`.
 - ESPN-backed NBA slate and paper-pick resolution, plus live/starting-soon detection for NBA, MLB, NHL, and NFL watchlists.
-- ESPN-backed NBA date-window expansion and paper-only multi-leg bundle output for direct game-outcome markets.
+- ESPN-backed NBA date-window expansion and paper-only multi-leg bundle output for direct ESPN-matched game-outcome markets.
 - Closing-soon Polymarket scanning with full close datetimes, minutes-to-close, liquidity/spread, 24h movement, and resolvability notes.
 - Market-watchlist catalyst filtering that rejects unrelated promo posts, picks/parlay chatter, and domain-mismatched snippets.
 - Paper-only calibration loop with Brier score, log loss, probability buckets, favorite/longshot diagnostics, and conservative suggestions.

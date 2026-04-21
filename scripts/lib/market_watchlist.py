@@ -5,7 +5,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from . import evidence_fusion, evidence_quality as eq, market_types, schema
+from . import evidence_fusion, evidence_quality as eq, market_types, paper_bundles, schema
 
 
 _WATCHLIST_PHRASES = re.compile(
@@ -67,15 +67,38 @@ _TECH_SIGNAL_TERMS = {
     "release", "released", "launch", "launched", "eval", "leaderboard",
     "score", "scores", "claude", "openai", "anthropic", "google", "gemini",
 }
+_TECH_GENERIC_TOKENS = {
+    "ai", "model", "models", "coding", "code", "arena", "score", "scores",
+    "benchmark", "benchmarks", "best", "company", "april", "end",
+}
+_TECH_ENTITY_ALIASES = {
+    "anthropic": {"anthropic", "claude", "opus"},
+    "openai": {"openai", "gpt", "chatgpt"},
+    "google": {"google", "gemini", "deepmind"},
+    "deepseek": {"deepseek"},
+    "alibaba": {"alibaba", "qwen"},
+    "zhipu": {"zhipu", "glm"},
+    "moonshot": {"moonshot", "kimi"},
+}
+_TECH_ENTITY_TOKENS = set().union(*_TECH_ENTITY_ALIASES.values())
 _MARKET_WATCHLIST_SPAM_PHRASES = {
     "daily winners", "stocks are on a tear", "need this in your feed",
     "signal room", "vip", "pump group", "free picks", "guaranteed",
+    "most popular bets", "stop missing out", "keep cashing", "keeps cashing",
+    "all my picks", "dm for picks",
 }
 _MARKET_WATCHLIST_SPAM_TOKENS = {
     "airdrop", "airdrops", "giveaway", "rewards", "reward", "claim",
     "mint", "lock", "locks", "parlay", "picks", "pick", "tail", "sprinkle",
-    "vip", "signals", "promo", "promote", "winners", "winner",
+    "vip", "signals", "promo", "promote", "winners", "winner", "cashing",
+    "bets", "bet",
 }
+_SPORTS_PROMO_TOKENS = {
+    "vip", "parlay", "parlays", "lock", "locks", "tail", "sprinkle", "cashing",
+    "guaranteed", "promo", "picks", "pick", "bets", "bet", "winners", "winner",
+}
+_SPORTSBOOK_TOKENS = {"sportsbook", "sportsbooks", "draftkings", "fanduel", "betting"}
+_SPORTS_RECAP_TOKENS = {"highlight", "highlights", "recap", "recaps"}
 
 _META_MARKET_TERMS = {
     "law banning", "ban sports prediction", "sports prediction markets enacted",
@@ -89,6 +112,11 @@ def _tokens(text: str) -> set[str]:
         for token in re.sub(r"[^\w\s-]", " ", (text or "").lower()).split()
         if len(token) > 2 and token not in _STOPWORDS
     }
+
+
+def _bump_debug_counter(report: schema.Report, key: str, amount: int = 1) -> None:
+    debug = report.evidence_fusion_stats.setdefault("debug_counters", {})
+    debug[key] = int(debug.get(key, 0) or 0) + amount
 
 
 def _domain(topic: str) -> str:
@@ -106,6 +134,8 @@ def _domain(topic: str) -> str:
         return "macro"
     if tokens & {"election", "elections", "approval", "senate", "house", "president", "governor"}:
         return "elections"
+    if tokens & {"ai", "coding", "model", "models", "anthropic", "openai", "claude", "gemini", "deepseek", "alibaba", "qwen"}:
+        return "tech"
     return "broad"
 
 
@@ -184,6 +214,9 @@ def _topic_relevance(topic: str, item) -> float:
             relevance += 0.30
     elif domain == "elections":
         if market_tokens & {"election", "elections", "approval", "senate", "house", "president", "governor"}:
+            relevance += 0.35
+    elif domain == "tech":
+        if market_tokens & (_TECH_SIGNAL_TERMS | _TECH_ENTITY_TOKENS):
             relevance += 0.35
     return max(0.0, min(1.0, relevance))
 
@@ -283,7 +316,7 @@ def _market_evidence_domain(prompt_domain: str, market_type: str, market_tokens:
         return "weather"
     if market_type in {"game_outcome", "player_prop", "team_prop"}:
         return "sports"
-    if re.search(r"\b[a-z0-9]+-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}\b", lowered) or " vs" in lowered or " at " in lowered:
+    if " vs" in lowered or ((market_tokens & eq.SPORTS_TEAM_TOKENS) and " at " in lowered):
         return "sports"
     if market_tokens & (eq.MACRO_SIGNAL_TERMS | {"macro", "fed", "fomc", "cpi", "inflation", "recession"}):
         return "macro"
@@ -297,10 +330,20 @@ def _market_evidence_domain(prompt_domain: str, market_type: str, market_tokens:
 def _is_spammy_market_evidence(text: str) -> bool:
     lowered = (text or "").lower()
     tokens = _tokens(text)
+    ticket_tokens = {"ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat"}
+    if tokens & ticket_tokens and not (tokens & (eq.SPORTS_HIGH_SIGNAL_TERMS - {"available"})):
+        return True
     if any(phrase in lowered for phrase in _MARKET_WATCHLIST_SPAM_PHRASES):
+        return True
+    clean_sports_market_context = bool(tokens & eq.SPORTS_MARKET_CONTEXT_TERMS and tokens & (eq.SPORTS_TEAM_TOKENS | {"nba", "nfl", "mlb", "nhl"}))
+    if tokens & _SPORTS_RECAP_TOKENS and not (tokens & eq.SPORTS_HIGH_SIGNAL_TERMS):
+        return True
+    if tokens & _SPORTSBOOK_TOKENS and not clean_sports_market_context:
         return True
     if tokens & _MARKET_WATCHLIST_SPAM_TOKENS:
         useful = tokens & (_CRYPTO_SIGNAL_TERMS | eq.SPORTS_HIGH_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS | eq.MACRO_SIGNAL_TERMS | _TECH_SIGNAL_TERMS)
+        if tokens & _SPORTS_PROMO_TOKENS and not clean_sports_market_context:
+            return True
         if not useful:
             return True
     return False
@@ -308,6 +351,22 @@ def _is_spammy_market_evidence(text: str) -> bool:
 
 def _market_entity_overlap(market_tokens: set[str], evidence_tokens: set[str]) -> int:
     return len((market_tokens - _GENERIC_MARKET_TOKENS) & evidence_tokens)
+
+
+def _canonical_tech_entities(text: str) -> set[str]:
+    normalized_tokens = set(re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split())
+    canonical = set()
+    for name, aliases in _TECH_ENTITY_ALIASES.items():
+        if normalized_tokens & aliases:
+            canonical.add(name)
+    return canonical
+
+
+def _tech_market_entities(item, market_specific_tokens: set[str]) -> set[str]:
+    market_entities = _canonical_tech_entities(" ".join(market_specific_tokens))
+    outcome_label, _ = _market_probability(item)
+    market_entities |= _canonical_tech_entities(outcome_label)
+    return market_entities
 
 
 def _is_market_specific_evidence(
@@ -368,6 +427,16 @@ def _is_market_specific_evidence(
         return bool(evidence_tokens & {"poll", "polls", "approval", "vote", "election", "campaign", "primary", "debate"})
 
     if effective_domain == "tech":
+        market_entities = _tech_market_entities(item, market_specific_tokens)
+        evidence_entities = _canonical_tech_entities(f"{text} {context}")
+        if not market_entities and len(evidence_entities) > 1:
+            return False
+        if market_entities and not evidence_entities:
+            return False
+        if market_entities and not (market_entities & evidence_entities):
+            return False
+        if market_entities and (evidence_entities - market_entities):
+            return False
         if overlap < 1:
             return False
         return bool(evidence_tokens & _TECH_SIGNAL_TERMS)
@@ -412,26 +481,26 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
     scored = []
     fused = evidence_fusion.fuse_evidence(report, _market_text(item), "market_watchlist", limit=3)
     if fused.candidate_count:
-        report.evidence_fusion_stats = {
-            "candidate_count": max(
-                int(report.evidence_fusion_stats.get("candidate_count", 0) or 0),
-                fused.candidate_count,
-            ),
-            "driver_count": max(
-                int(report.evidence_fusion_stats.get("driver_count", 0) or 0),
-                len(fused.drivers),
-            ),
-            "cluster_count": max(
-                int(report.evidence_fusion_stats.get("cluster_count", 0) or 0),
-                fused.cluster_count,
-            ),
-        }
+        report.evidence_fusion_stats["candidate_count"] = max(
+            int(report.evidence_fusion_stats.get("candidate_count", 0) or 0),
+            fused.candidate_count,
+        )
+        report.evidence_fusion_stats["driver_count"] = max(
+            int(report.evidence_fusion_stats.get("driver_count", 0) or 0),
+            len(fused.drivers),
+        )
+        report.evidence_fusion_stats["cluster_count"] = max(
+            int(report.evidence_fusion_stats.get("cluster_count", 0) or 0),
+            fused.cluster_count,
+        )
     for driver in fused.drivers:
         driver_tokens = _tokens(driver.text)
         overlap = len(market_specific_tokens & driver_tokens)
         catalyst = len(driver_tokens & _CATALYST_TERMS)
         if (overlap or catalyst) and _is_market_specific_evidence(report.topic, item, market_type, driver.text):
             scored.append((driver.score + min(0.20, overlap * 0.04), driver, driver.text))
+        elif overlap or catalyst:
+            _bump_debug_counter(report, f"rejected_low_signal_evidence:{domain}")
 
     evidence_items = list(report.x[:12]) + list(report.reddit[:10]) + list(report.web[:10]) + list(report.hackernews[:5])
     for evidence in evidence_items:
@@ -458,6 +527,7 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
         if overlap < 1 and catalyst < 1:
             continue
         if not _is_market_specific_evidence(report.topic, item, market_type, text, context):
+            _bump_debug_counter(report, f"rejected_low_signal_evidence:{domain}")
             continue
         base_score = getattr(evidence, "score", 0) / 100.0
         scored.append((base_score + min(0.35, overlap * 0.06) + min(0.25, catalyst * 0.05), evidence, text))
@@ -618,6 +688,22 @@ def _has_closing_soon_note(report: schema.Report) -> bool:
     return any(note == "closing_soon" or note.startswith("live-games:") for note in getattr(report, "planning_notes", []))
 
 
+def _is_nba_bundle_intent(report: schema.Report) -> bool:
+    return _domain(report.topic) == "nba" and paper_bundles.wants_paper_bundles(report.topic)
+
+
+def _is_direct_espn_game_market(report: schema.Report, item, market_type: str) -> bool:
+    if not _is_nba_bundle_intent(report):
+        return True
+    text = _market_text(item).lower()
+    if market_type != "game_outcome":
+        return False
+    if any(term in text for term in ("series", "total games", "player", "points o/u", "assists o/u", "rebounds o/u")):
+        return False
+    confidence = getattr(item, "live_match_confidence", None)
+    return bool(getattr(item, "live_game_context", "")) and confidence is not None and confidence >= 0.70
+
+
 def _closing_score(minutes_to_close: Optional[float], reason: str) -> float:
     if minutes_to_close is None:
         return 0.0
@@ -641,8 +727,54 @@ def _closing_score(minutes_to_close: Optional[float], reason: str) -> float:
     return min(1.0, base)
 
 
+def _days_to_end(end_date: Optional[str]) -> Optional[int]:
+    if not end_date:
+        return None
+    try:
+        return (date.fromisoformat(str(end_date)[:10]) - date.today()).days
+    except ValueError:
+        return None
+
+
+def _tech_has_company_focus(title: str, question: str) -> bool:
+    return bool(_canonical_tech_entities(f"{title} {question}"))
+
+
+def _tech_actionability_score(item, market_type: str) -> float:
+    days_to_end = _days_to_end(getattr(item, "end_date", None))
+    has_company_focus = _tech_has_company_focus(getattr(item, "title", ""), getattr(item, "question", ""))
+    if has_company_focus and days_to_end is not None and days_to_end <= 45:
+        return 1.0
+    if has_company_focus and days_to_end is not None and days_to_end <= 90:
+        return 0.80
+    if has_company_focus:
+        return 0.60
+    if market_type == "threshold":
+        if days_to_end is not None and days_to_end > 90:
+            return 0.05
+        if days_to_end is not None and days_to_end > 45:
+            return 0.18
+        return 0.28
+    return 0.35
+
+
+def _is_long_dated_threshold_watch(item: schema.MarketWatchItem) -> bool:
+    days_to_end = _days_to_end(item.end_date)
+    return bool(item.market_type == "threshold" and days_to_end is not None and days_to_end > 90)
+
+
+def _is_preferred_tech_company_watch(item: schema.MarketWatchItem) -> bool:
+    days_to_end = _days_to_end(item.end_date)
+    return _tech_has_company_focus(item.title, item.question) and days_to_end is not None and days_to_end <= 45
+
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     if _is_bad_candidate(report.topic, item):
+        return None
+
+    domain = _domain(report.topic)
+    market_type = _candidate_market_type(item)
+    if not _is_direct_espn_game_market(report, item, market_type):
         return None
 
     relevance = _topic_relevance(report.topic, item)
@@ -650,7 +782,6 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
 
     outcome_label, probability = _market_probability(item)
-    market_type = _candidate_market_type(item)
     volume, liquidity, open_interest = _depth_values(item)
     movement_pct = getattr(item, "movement_24h", None)
     if movement_pct is None:
@@ -671,6 +802,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     live_match_reason = getattr(item, "live_match_reason", "") or ""
     resolvability = getattr(item, "resolvability", "") or ""
     closing_signal = _closing_score(minutes_to_close, closing_reason)
+    tech_actionability = _tech_actionability_score(item, market_type) if domain == "tech" else 0.0
     if (
         market_type == "threshold"
         and probability is not None
@@ -704,6 +836,26 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
     if rank_score < 24 and _domain(report.topic) != "broad":
         return None
+    if domain == "tech":
+        days_to_end = _days_to_end(getattr(item, "end_date", None))
+        if _tech_has_company_focus(getattr(item, "title", ""), getattr(item, "question", "")) and days_to_end is not None and days_to_end <= 45:
+            rank_score += 18
+        rank_score = int(max(0, min(100, rank_score + round(14 * tech_actionability))))
+        if (
+            market_type == "threshold"
+            and days_to_end is not None
+            and days_to_end > 45
+        ):
+            rank_score = max(0, rank_score - 14)
+        if (
+            market_type == "threshold"
+            and days_to_end is not None
+            and days_to_end > 90
+            and (volume or 0) <= 0
+            and (getattr(item, "volume_24h", None) or 0) <= 0
+            and quality < 0.50
+        ):
+            rank_score = max(0, rank_score - 12)
 
     why_bits = []
     if closing_reason == "live_sports":
@@ -807,6 +959,28 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     )
 
 
+def _should_suppress_low_signal_candidate(
+    report: schema.Report,
+    item: schema.MarketWatchItem,
+    stronger_items: list[schema.MarketWatchItem],
+) -> bool:
+    domain = _domain(report.topic)
+    if domain not in {"tech", "crypto"}:
+        return False
+    if len(stronger_items) < 2:
+        return False
+    days_to_end = _days_to_end(item.end_date)
+    long_dated = days_to_end is not None and days_to_end >= 90
+    low_volume = (item.volume or 0) <= 0 and (item.volume_24h or 0) <= 0
+    low_signal = (item.market_signal_quality or 0) < 0.45
+    preferred_near_term = domain == "tech" and any(_is_preferred_tech_company_watch(candidate) for candidate in stronger_items[:5])
+    if domain == "tech" and _is_long_dated_threshold_watch(item) and preferred_near_term:
+        return True
+    if not (long_dated and low_volume and low_signal):
+        return False
+    return any((candidate.rank_score - item.rank_score) >= 5 for candidate in stronger_items[:3])
+
+
 def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[schema.MarketWatchItem]:
     """Rank topic-scoped Polymarket/Kalshi candidates for market-watchlist mode."""
     candidates = []
@@ -834,6 +1008,9 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
     results = []
     seen = set()
     for candidate in candidates:
+        if _should_suppress_low_signal_candidate(report, candidate, results):
+            _bump_debug_counter(report, "suppressed_long_dated_watchlist_candidates")
+            continue
         key = re.sub(r"\W+", " ", f"{candidate.title} {candidate.question}").lower().strip()
         if key in seen:
             continue

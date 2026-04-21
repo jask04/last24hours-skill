@@ -6,6 +6,24 @@
     "acceptance_notes": "Output should preserve NBA matchup names and avoid anchoring slate forecasts on player props, futures, or unrelated leagues."
   },
   {
+    "topic": "NBA markets to watch today",
+    "query_type": "market_watchlist",
+    "rationale": "NBA watchlists should surface direct game-outcome rows with ESPN context and neutral game-status labels.",
+    "acceptance_notes": "Output should avoid series/futures/props for bundle-intent runs and should not label scheduled rows as live."
+  },
+  {
+    "topic": "NBA paper bundle today",
+    "query_type": "market_watchlist",
+    "rationale": "Paper bundles should only use scheduled direct-game NBA legs with trusted ESPN context.",
+    "acceptance_notes": "Output should stay paper-only, use bundle wording, and reject already-live bundle legs."
+  },
+  {
+    "topic": "NBA paper bundle tomorrow",
+    "query_type": "market_watchlist",
+    "rationale": "Next-day bundle prompts should build from scheduled slate context rather than live-game spillover.",
+    "acceptance_notes": "Output should remain a paper-only multi-leg watchlist with scheduled-only legs."
+  },
+  {
     "topic": "Bitcoin above 100k this week",
     "query_type": "prediction",
     "rationale": "Crypto threshold forecast should only anchor to compatible BTC threshold markets.",
@@ -27,6 +45,18 @@
     "topic": "AI coding tools markets to watch today",
     "query_type": "market_watchlist",
     "rationale": "Market-watchlist mode should rank topic-scoped Polymarket/Kalshi candidates instead of forcing a single forecast.",
-    "acceptance_notes": "Output should render market picks with venue, signal quality, catalysts, and risk notes."
+    "acceptance_notes": "Output should prefer near-term company/model rows over long-dated zero-volume thresholds and keep catalyst snippets entity-specific."
+  },
+  {
+    "topic": "Polymarket markets closing soon",
+    "query_type": "market_watchlist",
+    "rationale": "Closing-soon scans should prefer liquid, unresolved markets with domain-matched catalysts.",
+    "acceptance_notes": "Output should render bounded close windows and fall back to market-signal-driven wording when catalyst evidence is thin."
+  },
+  {
+    "topic": "crypto markets closing soon tonight",
+    "query_type": "market_watchlist",
+    "rationale": "Crypto closing-soon scans should stay market-specific and reject promo or poll chatter.",
+    "acceptance_notes": "Output should favor clean crypto market context and avoid betting/poll language in catalyst summaries."
   }
 ]

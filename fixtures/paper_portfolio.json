@@ -3,35 +3,92 @@
     "topic": "tomorrows nba games",
     "query_type": "prediction",
     "enabled": true,
-    "expected_pick_type": "forecast",
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Daily NBA slate calibration sample; should prefer direct game-outcome markets."
+  },
+  {
+    "topic": "NBA markets to watch today",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "Daily NBA watchlist sample; should store only a direct game-outcome watchlist row."
+  },
+  {
+    "topic": "NBA paper bundle today",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["bundle"],
+    "pick_policy": "bundle_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "Same-day NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
+  },
+  {
+    "topic": "NBA paper bundle tomorrow",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["bundle"],
+    "pick_policy": "bundle_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "Next-day NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
   },
   {
     "topic": "Bitcoin above 100k this week",
     "query_type": "prediction",
     "enabled": true,
-    "expected_pick_type": "forecast",
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Crypto threshold calibration sample; incompatible lower-threshold markets should not anchor."
   },
   {
     "topic": "Fed rate cut by June",
     "query_type": "prediction",
     "enabled": true,
-    "expected_pick_type": "forecast",
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Macro policy calibration sample; should avoid adjacent-month and non-Fed markets."
   },
   {
     "topic": "NYC rain tomorrow",
     "query_type": "prediction",
     "enabled": true,
-    "expected_pick_type": "forecast",
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Weather calibration sample; NWS-led forecasts may require manual/public resolution."
   },
   {
     "topic": "AI coding tools markets to watch today",
     "query_type": "market_watchlist",
     "enabled": true,
-    "expected_pick_type": "watchlist",
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Tech/product market-watchlist sample; stores the top ranked paper pick."
+  },
+  {
+    "topic": "Polymarket markets closing soon",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "last24hours_args": ["--closing-window-hours", "6"],
+    "notes": "Closing-soon market sample; should store a bounded paper watchlist row with resolvability notes."
+  },
+  {
+    "topic": "crypto markets closing soon tonight",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "last24hours_args": ["--closing-window-hours", "6"],
+    "notes": "Crypto closing-soon sample; should widen paper coverage without creating a second command path."
   }
 ]

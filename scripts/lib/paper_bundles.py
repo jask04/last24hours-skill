@@ -17,6 +17,16 @@ def wants_paper_bundles(topic: str) -> bool:
     return bool(_BUNDLE_INTENT_RE.search(topic or ""))
 
 
+def display_topic(topic: str) -> str:
+    """Return paper-safe topic text for user-facing bundle output."""
+    text = topic or ""
+    text = re.sub(r"\bpaper\s+parlays?\b", "paper bundles", text, flags=re.I)
+    text = re.sub(r"\bparlay\s+ideas?\b", "bundle ideas", text, flags=re.I)
+    text = re.sub(r"\bparlays?\b", "bundles", text, flags=re.I)
+    text = re.sub(r"\bmulti[-\s]?leg\b(?!\s+watchlist)", "multi-leg watchlist", text, flags=re.I)
+    return text
+
+
 def _prob(value) -> Optional[float]:
     if value is None:
         return None
@@ -41,15 +51,11 @@ def _team_tokens(item: schema.MarketWatchItem) -> List[str]:
 
 
 def _game_key(item: schema.MarketWatchItem) -> str:
-    text = re.sub(r"\s+", " ", f"{item.title} {item.question}".lower()).strip()
-    for separator in (" vs. ", " vs ", " at "):
-        if separator in text:
-            left, right = text.split(separator, 1)
-            left_tokens = sorted((_tokens(left) & eq.NBA_TEAM_TOKENS) or {left.strip()[:32]})
-            right_tokens = sorted((_tokens(right) & eq.NBA_TEAM_TOKENS) or {right.strip()[:32]})
-            return "|".join(sorted([" ".join(left_tokens), " ".join(right_tokens)]))
     teams = _team_tokens(item)
-    return "|".join(teams[:2]) if len(teams) >= 2 else re.sub(r"\W+", "-", text)[:80]
+    if len(teams) >= 2:
+        return "|".join(sorted(set(teams)))
+    text = re.sub(r"\s+", " ", f"{item.title} {item.question}".lower()).strip()
+    return re.sub(r"\W+", "-", text)[:80]
 
 
 def _is_final_context(context: str) -> bool:
@@ -57,9 +63,27 @@ def _is_final_context(context: str) -> bool:
     return "final" in lowered or "postponed" in lowered or "canceled" in lowered or "cancelled" in lowered
 
 
+def _is_live_context(context: str) -> bool:
+    lowered = (context or "").lower()
+    if _is_final_context(context):
+        return False
+    return any(term in lowered for term in ("period ", "quarter", "halftime", "overtime", " inning"))
+
+
+def _is_scheduled_context(context: str) -> bool:
+    lowered = (context or "").lower()
+    if _is_final_context(context) or _is_live_context(context):
+        return False
+    return "scheduled" in lowered or "start " in lowered
+
+
 def _eligible_leg(item: schema.MarketWatchItem) -> Tuple[Optional[schema.BundleLeg], str]:
     if item.market_type != "game_outcome":
         return None, "non_game_outcome"
+    if not item.live_game_context:
+        return None, "missing_espn_context"
+    if item.live_match_confidence is None or item.live_match_confidence < 0.70:
+        return None, "weak_espn_match"
     text = f"{item.title} {item.question}".lower()
     if any(term in text for term in ("series", "total games", "player", "points o/u", "assists o/u")):
         return None, "not_direct_game_market"
@@ -74,10 +98,12 @@ def _eligible_leg(item: schema.MarketWatchItem) -> Tuple[Optional[schema.BundleL
         return None, "wide_spread"
     if _is_final_context(item.live_game_context):
         return None, "game_final"
+    if not _is_scheduled_context(item.live_game_context):
+        return None, "game_not_scheduled"
     teams = _team_tokens(item)
     if len(teams) < 2:
         return None, "missing_team_match"
-    rationale = "direct NBA game-outcome market with usable depth and non-extreme probability"
+    rationale = "direct scheduled NBA game-outcome market with usable depth and non-extreme probability"
     if item.live_game_context:
         rationale += "; ESPN context attached"
     return schema.BundleLeg(
@@ -147,6 +173,10 @@ def synthesize_paper_bundles(report: schema.Report, limit: int = 3) -> Tuple[Lis
             legs.append(leg)
         elif reason:
             reject_reasons[reason] = reject_reasons.get(reason, 0) + 1
+    if reject_reasons:
+        debug = report.evidence_fusion_stats.setdefault("debug_counters", {})
+        debug["bundle_leg_rejection_count"] = sum(reject_reasons.values())
+        report.evidence_fusion_stats["bundle_leg_rejection_counts"] = dict(sorted(reject_reasons.items()))
 
     if len(legs) < 2:
         if reject_reasons.get("missing_probability"):
@@ -155,6 +185,10 @@ def synthesize_paper_bundles(report: schema.Report, limit: int = 3) -> Tuple[Lis
             return [], "too few direct NBA game markets with positive liquidity."
         if reject_reasons.get("game_final"):
             return [], "too few eligible games remain because ESPN context marks them final."
+        if reject_reasons.get("game_not_scheduled"):
+            return [], "too few eligible games remain because bundle legs must be scheduled and not already live."
+        if reject_reasons.get("missing_espn_context") or reject_reasons.get("weak_espn_match"):
+            return [], "too few direct NBA game markets had trusted ESPN matchup context."
         return [], "too few direct NBA game-outcome markets qualified for a paper bundle."
 
     candidates: List[List[schema.BundleLeg]] = []

@@ -3,6 +3,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from unittest import mock
 
@@ -60,8 +61,36 @@ class PaperStoreTests(unittest.TestCase):
         self.assertEqual(len(paper.store.list_recent_paper_picks()), 2)
         self.assertEqual(paper.store.list_recent_paper_picks()[0]["skill_version"], "1.0.test")
 
+    def test_load_portfolio_normalizes_entry_schema(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "AI coding tools markets to watch today",
+                "enabled": True,
+                "expected_pick_type": "watchlist",
+            }
+        ]), encoding="utf-8")
+
+        entries = paper._load_portfolio(portfolio_path)
+
+        self.assertEqual(entries[0]["expected_pick_types"], ["watchlist"])
+        self.assertEqual(entries[0]["last24hours_args"], [])
+        self.assertEqual(entries[0]["pick_policy"], "default")
+        self.assertEqual(entries[0]["dedupe_policy"], "allow")
+        self.assertEqual(entries[0]["dedupe_window_days"], 7)
+
 
 class PaperExtractionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.previous_override = paper.store._db_override
+        paper.store._db_override = Path(self.tmp.name) / "research.db"
+        paper.store.init_db()
+
+    def tearDown(self):
+        paper.store._db_override = self.previous_override
+        self.tmp.cleanup()
+
     def test_prediction_json_extracts_forecast_pick(self):
         report = {
             "topic": "Bitcoin above 100k this week",
@@ -204,6 +233,107 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(len(picks), 1)
         self.assertEqual(picks[0]["title"], "Balanced market")
         self.assertAlmostEqual(picks[0]["model_probability"], 0.58)
+
+    def test_filter_picks_by_policy(self):
+        picks = [
+            {"pick_type": "forecast", "title": "F"},
+            {"pick_type": "watchlist", "title": "W"},
+            {"pick_type": "bundle", "title": "B"},
+        ]
+
+        self.assertEqual([pick["title"] for pick in paper._filter_picks_by_policy(picks, "forecast_only")], ["F"])
+        self.assertEqual([pick["title"] for pick in paper._filter_picks_by_policy(picks, "watchlist_only")], ["W"])
+        self.assertEqual([pick["title"] for pick in paper._filter_picks_by_policy(picks, "bundle_only")], ["B"])
+        self.assertEqual(len(paper._filter_picks_by_policy(picks, "default")), 3)
+
+    def test_validate_expected_pick_types_warns_on_mismatch(self):
+        warnings = paper._validate_expected_pick_types(
+            {"topic": "NBA paper bundle today", "expected_pick_types": ["bundle"]},
+            [{"pick_type": "watchlist"}],
+        )
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("expected pick types bundle", warnings[0])
+
+    def test_cmd_daily_forwards_entry_args_and_pick_policy(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "Polymarket markets closing soon",
+                "enabled": True,
+                "last24hours_args": ["--closing-window-hours", "6"],
+                "pick_policy": "watchlist_only",
+                "expected_pick_types": ["watchlist"],
+            }
+        ]), encoding="utf-8")
+        captured = []
+        report = {
+            "topic": "Polymarket markets closing soon",
+            "query_type": "market_watchlist",
+            "forecasts": [{"title": "Ignored forecast", "forecast_probability": 0.5, "anchor_source": "model_implied"}],
+            "market_watchlist": [{"pick_type": "watchlist", "venue": "polymarket", "title": "Stored watchlist", "question": "Stored watchlist", "outcome_label": "Yes", "probability": 0.61, "url": "https://polymarket.com/event/stored-watchlist"}],
+        }
+
+        def fake_run(topic, quick, extra_args=None):
+            captured.append((topic, quick, list(extra_args or [])))
+            return report
+
+        with mock.patch("scripts.paper._run_last24hours", side_effect=fake_run), \
+             mock.patch("scripts.paper._write_daily_report", return_value=Path(self.tmp.name) / "paper-report.json"), \
+             mock.patch("scripts.paper.resolve_open_picks", return_value=[]):
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=False))
+
+        recent = paper.store.list_recent_paper_picks()
+        self.assertEqual(captured, [("Polymarket markets closing soon", True, ["--closing-window-hours", "6"])])
+        self.assertEqual(len(recent), 1)
+        self.assertEqual(recent[0]["pick_type"], "watchlist")
+
+    def test_cmd_daily_skips_open_duplicates_under_entry_policy(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "Bitcoin above 100k this week",
+                "enabled": True,
+                "pick_policy": "forecast_only",
+                "expected_pick_types": ["forecast"],
+                "dedupe_policy": "skip_if_open_duplicate",
+            }
+        ]), encoding="utf-8")
+        existing_run = paper.store.record_paper_run("existing")
+        paper.store.add_paper_pick({
+            "paper_run_id": existing_run,
+            "topic": "Bitcoin above 100k this week",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "model_implied",
+            "venue_market_key": "model_implied|Bitcoin above 100k this week|Bitcoin above 100k this week|2026-04-20",
+            "title": "BTC above 100k",
+            "model_probability": 0.42,
+            "status": "unknown",
+            "skill_version": "1.0.20",
+        })
+        report = {
+            "topic": "Bitcoin above 100k this week",
+            "query_type": "prediction",
+            "generated_at": "2026-04-20T08:00:00",
+            "forecasts": [
+                {
+                    "title": "Bitcoin above 100k this week",
+                    "forecast_probability": 0.44,
+                    "anchor_source": "model_implied",
+                    "favorite_label": "Yes",
+                    "confidence_level": "low",
+                }
+            ],
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("scripts.paper._write_daily_report", return_value=Path(self.tmp.name) / "paper-report.json"), \
+             mock.patch("scripts.paper.resolve_open_picks", return_value=[]):
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=False))
+
+        recent = paper.store.list_recent_paper_picks()
+        self.assertEqual(len(recent), 1)
 
 
 class ResolverTests(unittest.TestCase):
@@ -468,6 +598,136 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["legacy_unversioned_count"], 1)
         self.assertTrue(any("favorite-heavy" in warning for warning in diagnostics["warnings"]))
         self.assertTrue(any("legacy" in warning for warning in diagnostics["warnings"]))
+
+    def test_open_pick_diagnostics_tracks_bundles_without_manual_warning(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "unknown",
+                "pick_type": "bundle",
+                "venue": "paper_bundle",
+                "model_probability": 0.42,
+                "resolution_source": "",
+                "skill_version": "1.0.18",
+            },
+            {
+                "status": "unknown",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "model_probability": 0.55,
+                "resolution_source": "",
+                "skill_version": "1.0.18",
+            },
+        ])
+
+        self.assertEqual(diagnostics["paper_bundle_count"], 1)
+        self.assertEqual(diagnostics["paper_only_bundle_count"], 1)
+        self.assertEqual(diagnostics["manual_or_unknown_resolution_count"], 1)
+        self.assertTrue(any("model-implied" in warning for warning in diagnostics["warnings"]))
+
+    def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "open",
+                "topic": "Bitcoin above 100k this week",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "venue_market_key": "model_implied|btc-100k",
+                "model_probability": 0.12,
+                "resolution_source": "",
+                "skill_version": "1.0.20",
+                "created_at": "2026-04-20T08:00:00",
+            },
+            {
+                "status": "open",
+                "topic": "Bitcoin above 100k this week",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "venue_market_key": "model_implied|btc-100k",
+                "model_probability": 0.14,
+                "resolution_source": "",
+                "skill_version": "1.0.20",
+                "created_at": "2026-04-18T08:00:00",
+            },
+            {
+                "status": "unknown",
+                "topic": "NBA paper bundle today",
+                "pick_type": "bundle",
+                "venue": "paper_bundle",
+                "venue_market_key": "paper_bundle|nba|1",
+                "model_probability": 0.44,
+                "resolution_source": "",
+                "skill_version": "",
+                "created_at": "2026-04-10T08:00:00",
+            },
+        ])
+
+        self.assertEqual(diagnostics["by_skill_version"]["1.0.20"], 2)
+        self.assertEqual(diagnostics["by_skill_version"]["legacy_unversioned"], 1)
+        self.assertEqual(diagnostics["by_pick_type"]["forecast"], 2)
+        self.assertEqual(diagnostics["by_pick_type"]["bundle"], 1)
+        self.assertEqual(diagnostics["by_domain"]["crypto"], 2)
+        self.assertEqual(diagnostics["by_domain"]["nba"], 1)
+        self.assertEqual(sum(diagnostics["by_age_bucket"].values()), 3)
+        self.assertEqual(diagnostics["duplicate_market_key_count"], 1)
+        self.assertEqual(diagnostics["duplicate_open_row_count"], 1)
+        self.assertEqual(diagnostics["duplicate_clusters"]["model_implied|btc-100k"], 2)
+        self.assertTrue(any("redundant duplicates" in warning for warning in diagnostics["warnings"]))
+
+    def test_open_pick_diagnostics_tracks_legacy_noisy_rationale(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "open",
+                "topic": "Fed rate cut by June",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "model_probability": 0.52,
+                "resolution_source": "",
+                "skill_version": "1.0.18",
+                "evidence_json": json.dumps({"why_line": "BREAKING: top traders say this VIP macro call keeps cashing."}),
+            }
+        ])
+
+        self.assertEqual(diagnostics["legacy_noisy_rationale_count"], 1)
+        self.assertTrue(any("legacy rationale text" in warning for warning in diagnostics["warnings"]))
+
+    def test_calibration_summary_excludes_legacy_noisy_rationale_by_default(self):
+        summary = paper.calibration_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.04,
+                "log_loss": 0.22,
+                "model_probability": 0.80,
+                "venue": "kalshi",
+                "anchor_source": "kalshi",
+                "pick_type": "forecast",
+                "market_type": "macro_binary",
+                "confidence": "moderate",
+                "topic": "Fed rate cut by June",
+                "evidence_json": json.dumps({"why_line": "Official data release kept rate-cut pricing soft."}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 0.0,
+                "brier_score": 0.64,
+                "log_loss": 1.60,
+                "model_probability": 0.80,
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "pick_type": "forecast",
+                "market_type": "model_implied",
+                "confidence": "low",
+                "topic": "Fed rate cut by June",
+                "evidence_json": json.dumps({"why_line": "BREAKING: top traders say this VIP macro call keeps cashing."}),
+            },
+        ])
+
+        self.assertEqual(summary["raw_resolved_count"], 2)
+        self.assertEqual(summary["excluded_legacy_noisy_count"], 1)
+        self.assertEqual(summary["count"], 1)
 
 
 class LaunchdTests(unittest.TestCase):

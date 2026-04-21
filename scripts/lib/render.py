@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from . import evidence_quality as eq, market_types, query_type as qt, schema
+from . import evidence_quality as eq, market_types, paper_bundles, query_type as qt, schema
 
 OUTPUT_DIR = Path.home() / ".local" / "share" / "last24hours" / "out"
 
@@ -163,6 +163,8 @@ def _prediction_domain(topic: str) -> Optional[str]:
         return "weather"
     if eq.is_macro_query(topic_lower):
         return "macro"
+    if {"bitcoin", "btc", "ethereum", "eth", "crypto"} & set(re.sub(r"[^\w\s-]", " ", topic_lower).split()):
+        return "crypto"
     return None
 
 
@@ -375,13 +377,13 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
     if qt.detect_query_type(report.topic) != "market_watchlist":
         return []
 
-    lines = ["### Market Picks To Watch", ""]
+    lines = ["### Market Watchlist", ""]
     lines.append("*Informational market-monitoring output, not trade execution or allocation advice.*")
     if any(item.closing_soon_reason for item in report.market_watchlist):
-        lines.append("*Fast-moving markets can reprice before action is possible; verify the displayed line, liquidity, and settlement terms in the Polymarket UI.*")
+        lines.append("*Fast-moving markets can reprice quickly; verify the displayed line, liquidity, and settlement terms in the Polymarket UI.*")
     lines.append("")
     if not report.market_watchlist:
-        lines.append("No high-quality market picks found.")
+        lines.append("No high-quality watchlist markets found.")
         live_games_count = _planning_note_int(report, "live-games:")
         live_matches_count = _planning_note_int(report, "live-polymarket-matches:")
         if "live-games-error" in getattr(report, "planning_notes", []):
@@ -401,12 +403,12 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
 
     for item in report.market_watchlist:
         lines.append(f"**{item.id}. {item.title or item.question}**")
-        lines.append(f"Pick: {item.venue} {_format_market_type(item.market_type)} - {_format_watch_probability(item)}")
+        lines.append(f"Outcome: {item.venue} {_format_market_type(item.market_type)} - {_format_watch_probability(item)}")
         close_line = _format_close_line(item)
         if close_line:
             lines.append(f"Timing: {close_line}")
         if item.live_game_context:
-            lines.append(f"Live game: {item.live_game_context}")
+            lines.append(f"{_game_context_label(item.live_game_context)}: {item.live_game_context}")
         if item.live_match_reason:
             confidence = f" ({item.live_match_confidence:.0%})" if item.live_match_confidence is not None else ""
             lines.append(f"Live match: {item.live_match_reason.replace('_', ' ')}{confidence}")
@@ -682,7 +684,7 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
     if qt.detect_query_type(report.topic) != "prediction":
         return items[:limit]
     domain = _prediction_domain(report.topic)
-    if domain not in {"weather", "macro"}:
+    if domain not in {"weather", "macro", "crypto"}:
         return items[:limit]
 
     topic_tokens = eq.tokenize(report.topic)
@@ -694,11 +696,33 @@ def _compact_weather_macro_items(items: list, source: str, report: schema.Report
             context = getattr(item, "subreddit", "")
         if source == "web":
             context = getattr(item, "source_domain", "")
+        lowered = f"{text} {context}".lower()
+        tokens = eq.tokenize(f"{text} {context}")
         if domain == "weather":
             if not eq.is_weather_signal(text, topic_tokens, context):
                 continue
         if domain == "macro":
+            if source in {"x", "reddit"} and (
+                {"bet", "bets", "betting", "poll", "polls", "vip", "pick", "picks", "tail", "lock"} & tokens
+                or any(phrase in lowered for phrase in ("top traders", "most popular bets", "signal room"))
+            ):
+                continue
+            if source in {"x", "reddit"} and (
+                not (tokens & {"fed", "fomc", "powell"})
+                or not (tokens & {"cpi", "jobs", "payrolls", "yield", "yields", "treasury", "treasuries", "pricing", "priced", "market", "markets", "statement", "statements", "remarks", "minutes", "official", "officials", "governor"})
+            ):
+                continue
             if not eq.is_macro_signal(text, topic_tokens, context):
+                continue
+        if domain == "crypto":
+            if not (tokens & {"bitcoin", "btc", "ethereum", "eth", "crypto", "etf"}):
+                continue
+            if not (tokens & {"spot", "price", "prices", "etf", "flow", "flows", "liquidity", "exchange", "repricing", "support", "resistance", "breakout"}):
+                continue
+            if source in {"x", "reddit"} and (
+                {"bet", "bets", "betting", "poll", "polls", "vip", "pick", "picks", "tail", "lock"} & tokens
+                or any(phrase in lowered for phrase in ("betting big", "most popular bets", "quick btc poll"))
+            ):
                 continue
         results.append(item)
         if len(results) >= limit:
@@ -711,12 +735,16 @@ def _render_nba_slate_board(report: schema.Report) -> list[str]:
 
 
 def _display_topic(topic: str) -> str:
-    text = topic or ""
-    text = re.sub(r"\bpaper\s+parlays?\b", "paper bundles", text, flags=re.I)
-    text = re.sub(r"\bparlay\s+ideas?\b", "bundle ideas", text, flags=re.I)
-    text = re.sub(r"\bparlays?\b", "bundles", text, flags=re.I)
-    text = re.sub(r"\bmulti[-\s]?leg\b", "multi-leg", text, flags=re.I)
-    return text
+    return paper_bundles.display_topic(topic)
+
+
+def _game_context_label(context: str) -> str:
+    lowered = (context or "").lower()
+    if any(term in lowered for term in ("final", "postponed", "canceled", "cancelled")):
+        return "Final game"
+    if any(term in lowered for term in ("period ", "quarter", "halftime", "overtime", " inning")):
+        return "Live game"
+    return "Game status"
 
 
 def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "none") -> str:
@@ -833,7 +861,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
             lines.append(f"*No high-signal Reddit threads found for this {domain} forecast.*")
             lines.append("")
         elif not compact_reddit and qt.detect_query_type(report.topic) == "market_watchlist":
-            lines.append("*Raw Reddit snippets suppressed in market-watchlist mode; catalyst snippets are included in the ranked picks when they clear quality filters.*")
+            lines.append("*Raw Reddit snippets suppressed in market-watchlist mode; catalyst snippets are included in the ranked markets when they clear quality filters.*")
             lines.append("")
         for item in compact_reddit:
             eng_str = ""
@@ -893,7 +921,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
             lines.append(f"*No high-signal X posts found for this {domain} forecast.*")
             lines.append("")
         elif not compact_x and qt.detect_query_type(report.topic) == "market_watchlist":
-            lines.append("*Raw X snippets suppressed in market-watchlist mode; catalyst snippets are included in the ranked picks when they clear quality filters.*")
+            lines.append("*Raw X snippets suppressed in market-watchlist mode; catalyst snippets are included in the ranked markets when they clear quality filters.*")
             lines.append("")
         for item in compact_x:
             eng_str = ""
@@ -1588,21 +1616,21 @@ def render_full_report(report: schema.Report) -> str:
             lines.append("")
 
     if report.market_watchlist:
-        lines.append("## Market Picks To Watch")
+        lines.append("## Market Watchlist")
         lines.append("")
         lines.append("*Informational market-monitoring output, not trade execution or allocation advice.*")
         if any(item.closing_soon_reason for item in report.market_watchlist):
-            lines.append("*Fast-moving markets can reprice before action is possible; verify the displayed line, liquidity, and settlement terms in the Polymarket UI.*")
+            lines.append("*Fast-moving markets can reprice quickly; verify the displayed line, liquidity, and settlement terms in the Polymarket UI.*")
         lines.append("")
         for item in report.market_watchlist:
             lines.append(f"### {item.id}: {item.title or item.question}")
             lines.append("")
-            lines.append(f"- **Pick:** {item.venue} - {_format_watch_probability(item)}")
+            lines.append(f"- **Outcome:** {item.venue} - {_format_watch_probability(item)}")
             close_line = _format_close_line(item)
             if close_line:
                 lines.append(f"- **Timing:** {close_line}")
             if item.live_game_context:
-                lines.append(f"- **Live game:** {item.live_game_context}")
+                lines.append(f"- **{_game_context_label(item.live_game_context)}:** {item.live_game_context}")
             lines.append(f"- **Why it ranks:** {item.why_ranks} (rank score {item.rank_score}/100)")
             lines.append(f"- **Market signal:** {item.market_signal}")
             lines.append(f"- **Catalyst / evidence:** {item.catalyst_summary}")

@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from scripts import paper
-from scripts.lib import forecast_plan, paper_bundles, query_type, render, schema, sports_schedule
+from scripts.lib import forecast_plan, market_watchlist, paper_bundles, query_type, render, schema, sports_schedule
 
 
 def _espn_event(name: str, home: str, away: str, date_value: str, state: str = "pre"):
@@ -47,6 +47,8 @@ def _watch_item(idx: int, title: str, outcome: str, probability: float, *, teams
         source_item_id=f"PM{idx}",
         live_game_context=teams_context,
         live_game_league="nba" if teams_context else "",
+        live_match_confidence=0.85 if teams_context else None,
+        live_match_reason="direct_match" if teams_context else "",
     )
 
 
@@ -82,6 +84,27 @@ class PaperBundleTests(unittest.TestCase):
         self.assertEqual((start, end), ("20260420", "20260421"))
         self.assertEqual([game.matchup for game in games], ["Los Angeles Lakers at Houston Rockets", "Boston Celtics at New York Knicks"])
         self.assertIn("start 2026-04-20T23:30:00Z", games[0].context)
+        self.assertNotIn(" 0, ", games[0].context)
+        self.assertNotIn("period 0", games[0].context)
+        self.assertNotIn("0.0", games[0].context)
+
+    def test_espn_live_context_keeps_score_and_clock(self):
+        game = sports_schedule.LiveGame(
+            league="nba",
+            matchup="Los Angeles Lakers at Houston Rockets",
+            home_team="Houston Rockets",
+            away_team="Los Angeles Lakers",
+            start_time="2026-04-20T23:30:00Z",
+            status_state="in",
+            status_detail="3rd Quarter",
+            period=3,
+            clock="04:12",
+            home_score=82,
+            away_score=78,
+        )
+
+        self.assertIn("Los Angeles Lakers 78, Houston Rockets 82", game.context)
+        self.assertIn("period 3 04:12", game.context)
 
     def test_planner_preserves_quick_window_topics_up_to_cap(self):
         topics = [f"Team {idx} at Other {idx}" for idx in range(8)]
@@ -133,6 +156,7 @@ class PaperBundleTests(unittest.TestCase):
         self.assertEqual(len(bundles[0].legs), 2)
         self.assertAlmostEqual(bundles[0].combined_probability_independence, 0.319, places=3)
         self.assertIn("independence baseline", bundles[0].correlation_warning.lower())
+        self.assertEqual(bundles[0].legs[0].game_key, "lakers|rockets")
 
     def test_bundle_generation_rejects_favorite_only_and_team_overlap(self):
         favorite_report = schema.Report(
@@ -143,8 +167,8 @@ class PaperBundleTests(unittest.TestCase):
             mode="both",
         )
         favorite_report.market_watchlist = [
-            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.91),
-            _watch_item(2, "Celtics vs. Knicks", "Celtics", 0.92),
+            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.91, teams_context="NBA Scheduled"),
+            _watch_item(2, "Celtics vs. Knicks", "Celtics", 0.92, teams_context="NBA Scheduled"),
         ]
         bundles, reason = paper_bundles.synthesize_paper_bundles(favorite_report)
         self.assertEqual(bundles, [])
@@ -158,12 +182,102 @@ class PaperBundleTests(unittest.TestCase):
             mode="both",
         )
         overlap_report.market_watchlist = [
-            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.58),
-            _watch_item(2, "Lakers vs. Warriors", "Warriors", 0.57),
+            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.58, teams_context="NBA Scheduled"),
+            _watch_item(2, "Lakers vs. Warriors", "Warriors", 0.57, teams_context="NBA Scheduled"),
         ]
         bundles, reason = paper_bundles.synthesize_paper_bundles(overlap_report)
         self.assertEqual(bundles, [])
         self.assertIn("same-game or same-team overlap", reason)
+
+    def test_bundle_generation_requires_trusted_espn_context(self):
+        report = schema.Report(
+            topic="NBA paper parlay ideas April 20 through April 22",
+            range_from="2026-04-19",
+            range_to="2026-04-20",
+            generated_at="2026-04-20T12:00:00Z",
+            mode="both",
+        )
+        report.market_watchlist = [
+            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.58),
+            _watch_item(2, "Celtics vs. Knicks", "Celtics", 0.55, teams_context="NBA Scheduled"),
+        ]
+
+        bundles, reason = paper_bundles.synthesize_paper_bundles(report)
+
+        self.assertEqual(bundles, [])
+        self.assertIn("trusted ESPN", reason)
+
+    def test_bundle_generation_rejects_live_games(self):
+        report = schema.Report(
+            topic="NBA paper parlay ideas April 20 through April 22",
+            range_from="2026-04-19",
+            range_to="2026-04-20",
+            generated_at="2026-04-20T12:00:00Z",
+            mode="both",
+        )
+        report.market_watchlist = [
+            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.58, teams_context="NBA 3rd Quarter; Los Angeles Lakers 78, Houston Rockets 82; period 3 04:12"),
+            _watch_item(2, "Celtics vs. Knicks", "Celtics", 0.55, teams_context="NBA Scheduled; start 2026-04-21T23:30:00Z"),
+            _watch_item(3, "Nuggets vs. Timberwolves", "Nuggets", 0.60, teams_context="NBA Scheduled; start 2026-04-21T01:00:00Z"),
+        ]
+
+        bundles, reason = paper_bundles.synthesize_paper_bundles(report)
+
+        self.assertTrue(bundles)
+        self.assertTrue(all("3rd Quarter" not in leg.live_game_context for leg in bundles[0].legs))
+        self.assertNotIn("already live", reason)
+
+    def test_bundle_intent_watchlist_only_keeps_direct_espn_game_markets(self):
+        report = schema.Report(
+            topic="NBA paper parlay ideas April 20 through April 22",
+            range_from="2026-04-19",
+            range_to="2026-04-20",
+            generated_at="2026-04-20T12:00:00Z",
+            mode="both",
+        )
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Raptors vs. Cavaliers",
+                question="Raptors vs. Cavaliers",
+                url="https://polymarket.com/event/nba-tor-cle-2026-04-20",
+                outcome_prices=[("Cavaliers", 0.79), ("Raptors", 0.21)],
+                engagement=schema.Engagement(volume=100_000, liquidity=100_000),
+                market_signal_quality=0.80,
+                spread=0.01,
+                market_type="game_outcome",
+                live_game_context="NBA Scheduled; start 2026-04-20T23:00Z",
+                live_game_league="nba",
+                live_match_confidence=0.85,
+                live_match_reason="direct_match",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers",
+                question="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers",
+                url="https://polymarket.com/event/nba-playoffs-who-will-win-series-spurs-vs-trail-blazers",
+                outcome_prices=[("Spurs", 0.96), ("Blazers", 0.04)],
+                engagement=schema.Engagement(volume=100_000, liquidity=100_000),
+                market_signal_quality=0.90,
+                spread=0.01,
+                market_type="futures",
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="NBA Playoffs: Spurs vs. Trail Blazers Total Games O/U 4.5",
+                question="NBA Playoffs: Spurs vs. Trail Blazers Total Games O/U 4.5",
+                url="https://polymarket.com/event/nba-playoffs-trail-blazers-vs-spurs-total-games-ou-4pt5",
+                outcome_prices=[("Over 4.5", 0.59), ("Under 4.5", 0.41)],
+                engagement=schema.Engagement(volume=100_000, liquidity=100_000),
+                market_signal_quality=0.90,
+                spread=0.01,
+                market_type="player_prop",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual([item.source_item_id for item in items], ["PM1"])
 
     def test_bundle_rendering_and_schema_round_trip(self):
         report = schema.Report(
@@ -174,8 +288,8 @@ class PaperBundleTests(unittest.TestCase):
             mode="both",
         )
         report.market_watchlist = [
-            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.58),
-            _watch_item(2, "Celtics vs. Knicks", "Celtics", 0.55),
+            _watch_item(1, "Lakers vs. Rockets", "Lakers", 0.58, teams_context="NBA Scheduled"),
+            _watch_item(2, "Celtics vs. Knicks", "Celtics", 0.55, teams_context="NBA Scheduled"),
         ]
         report.paper_bundles, report.paper_bundle_reason = paper_bundles.synthesize_paper_bundles(report)
 
@@ -185,8 +299,10 @@ class PaperBundleTests(unittest.TestCase):
         self.assertEqual(restored.paper_bundles[0].legs[0].outcome_label, "Lakers")
         self.assertIn("Paper Bundles", output)
         self.assertIn("Independence baseline", output)
+        self.assertIn("Game status: NBA Scheduled", output)
+        self.assertNotIn("Live game: NBA Scheduled", output)
         lowered = output.lower()
-        for banned in ("stake", "lock", "tail", "guaranteed", "you should bet", "parlay"):
+        for banned in ("stake", "lock", "tail", "guaranteed", "you should bet", "parlay", "market picks", "pick:"):
             self.assertNotIn(banned, lowered)
 
     def test_paper_extraction_records_bundle_notes_json(self):
