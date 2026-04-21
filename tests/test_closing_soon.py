@@ -263,6 +263,74 @@ class ClosingSoonTests(unittest.TestCase):
 
         self.assertEqual(items[0].source_item_id, "PM2")
 
+    def test_broad_closing_soon_drops_weak_manual_rule_soccer_rows(self):
+        report = schema.Report(
+            topic="Polymarket markets closing soon",
+            range_from="2026-04-19",
+            range_to="2026-04-19",
+            generated_at="2026-04-19T21:00:00-07:00",
+            mode="both",
+            planning_notes=["closing_soon"],
+        )
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="XRP Up or Down on April 21?",
+                question="XRP Up or Down on April 21?",
+                url="https://polymarket.com/event/xrp-up-or-down-on-april-21-2026",
+                outcome_prices=[("Up", 0.40), ("Down", 0.60)],
+                engagement=schema.Engagement(volume=40_000, liquidity=50_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.74,
+                volume_24h=40_000,
+                best_bid=0.39,
+                best_ask=0.40,
+                spread=0.01,
+                relevance=0.8,
+                minutes_to_close=680.0,
+                closing_soon_reason="closing_soon",
+                resolvability="crypto reference-price market; verify Polymarket rules and live reference price",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Highest temperature in Shanghai on April 21?",
+                question="Will the highest temperature in Shanghai be 19C on April 21?",
+                url="https://polymarket.com/event/shanghai-temp-april-21",
+                outcome_prices=[("Yes", 0.56), ("No", 0.44)],
+                engagement=schema.Engagement(volume=75_000, liquidity=44_000),
+                market_type="weather_binary",
+                market_signal_quality=0.70,
+                volume_24h=75_000,
+                best_bid=0.55,
+                best_ask=0.56,
+                spread=0.01,
+                relevance=0.82,
+                minutes_to_close=660.0,
+                closing_soon_reason="closing_soon",
+                resolvability="weather market",
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Shanghai Haigang FC vs. Chongqing Tonglianglong FC",
+                question="Will Shanghai Haigang FC win on 2026-04-21?",
+                url="https://polymarket.com/event/chi-shp-ton-2026-04-21",
+                outcome_prices=[("Shanghai Haigang FC", 0.50), ("Chongqing Tonglianglong FC", 0.24)],
+                engagement=schema.Engagement(volume=30_000, liquidity=69_000),
+                market_type="game_outcome",
+                market_signal_quality=0.56,
+                volume_24h=30_000,
+                relevance=0.60,
+                minutes_to_close=440.0,
+                closing_soon_reason="closing_soon",
+                resolvability="manual rule check required",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual([item.source_item_id for item in items], ["PM1", "PM2"])
+        self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_manual_rule_watchlist_candidates"], 1)
+
     def test_espn_live_game_parser_handles_major_leagues(self):
         now = datetime(2026, 4, 20, 2, 0, tzinfo=timezone.utc)
         games = [

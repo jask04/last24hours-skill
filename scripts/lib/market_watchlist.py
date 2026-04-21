@@ -306,12 +306,12 @@ def _near_certain_penalty(probability: Optional[float], movement: float, signal_
 
 def _source_text(item) -> str:
     if isinstance(item, schema.XItem):
-        return item.text
+        return f"{item.text} {item.why_relevant}".strip()
     if isinstance(item, schema.RedditItem):
         comment_excerpts = " ".join(comment.excerpt for comment in (item.top_comments or [])[:2] if getattr(comment, "excerpt", ""))
-        return f"{item.title} r/{item.subreddit} {' '.join(item.comment_insights[:2])} {comment_excerpts}".strip()
+        return f"{item.title} r/{item.subreddit} {' '.join(item.comment_insights[:3])} {comment_excerpts} {item.why_relevant}".strip()
     if isinstance(item, schema.WebSearchItem):
-        return f"{item.title} {item.snippet} {item.source_domain}"
+        return f"{item.title} {item.snippet} {item.source_domain} {item.why_relevant}"
     if isinstance(item, schema.HackerNewsItem):
         return item.title
     return getattr(item, "title", "") or getattr(item, "text", "")
@@ -782,16 +782,16 @@ def _tech_actionability_score(item, market_type: str) -> float:
         return 0.60
     if market_type == "threshold":
         if days_to_end is not None and days_to_end > 90:
-            return 0.05
+            return 0.0
         if days_to_end is not None and days_to_end > 45:
-            return 0.18
-        return 0.28
+            return 0.10
+        return 0.22
     return 0.35
 
 
 def _is_long_dated_threshold_watch(item: schema.MarketWatchItem) -> bool:
     days_to_end = _days_to_end(item.end_date)
-    return bool(item.market_type == "threshold" and days_to_end is not None and days_to_end > 90)
+    return bool(item.market_type == "threshold" and days_to_end is not None and days_to_end > 45)
 
 
 def _is_preferred_tech_company_watch(item: schema.MarketWatchItem) -> bool:
@@ -999,6 +999,7 @@ def _should_suppress_low_signal_candidate(
     report: schema.Report,
     item: schema.MarketWatchItem,
     stronger_items: list[schema.MarketWatchItem],
+    all_candidates: list[schema.MarketWatchItem],
 ) -> bool:
     domain = _domain(report.topic)
     if domain not in {"tech", "crypto"}:
@@ -1012,6 +1013,10 @@ def _should_suppress_low_signal_candidate(
     preferred_near_term = domain == "tech" and any(_is_preferred_tech_company_watch(candidate) for candidate in stronger_items[:5])
     if domain == "tech" and _is_long_dated_threshold_watch(item) and preferred_near_term:
         return True
+    if domain == "tech" and _is_long_dated_threshold_watch(item):
+        available_company_rows = sum(1 for candidate in all_candidates if _is_preferred_tech_company_watch(candidate))
+        if available_company_rows >= 2:
+            return True
     if not (long_dated and low_volume and low_signal):
         return False
     return any((candidate.rank_score - item.rank_score) >= 5 for candidate in stronger_items[:3])
@@ -1048,6 +1053,16 @@ def _should_delay_duplicate_domain_candidate(
     )
 
 
+def _should_drop_broad_manual_rule_candidate(report: schema.Report, candidate: schema.MarketWatchItem) -> bool:
+    if _domain(report.topic) != "broad" or not _has_closing_soon_note(report):
+        return False
+    if candidate.resolvability != "manual rule check required":
+        return False
+    if candidate.rank_score >= 26 and (candidate.market_signal_quality or 0.0) >= 0.60:
+        return False
+    return True
+
+
 def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[schema.MarketWatchItem]:
     """Rank topic-scoped Polymarket/Kalshi candidates for market-watchlist mode."""
     candidates = []
@@ -1075,8 +1090,11 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
     results = []
     seen = set()
     for idx, candidate in enumerate(candidates):
-        if _should_suppress_low_signal_candidate(report, candidate, results):
+        if _should_suppress_low_signal_candidate(report, candidate, results, candidates):
             _bump_debug_counter(report, "suppressed_long_dated_watchlist_candidates")
+            continue
+        if _should_drop_broad_manual_rule_candidate(report, candidate):
+            _bump_debug_counter(report, "suppressed_manual_rule_watchlist_candidates")
             continue
         if _should_delay_duplicate_domain_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_domain_watchlist_candidates")

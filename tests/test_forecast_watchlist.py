@@ -715,6 +715,55 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(items[0].source_item_id, "PM1")
 
+    def test_long_dated_tech_threshold_drops_when_two_near_term_company_rows_exist(self):
+        report = _report("AI coding tools markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Which company has the best Coding AI model end of April?",
+                question="Will Anthropic have the best Coding AI model at the end of April 2026?",
+                url="https://polymarket.com/event/coding-ai-april",
+                outcome_prices=[("Anthropic", 0.72), ("OpenAI", 0.28)],
+                engagement=_engagement(volume=93_000, liquidity=115_000),
+                market_type="unknown",
+                market_signal_quality=0.55,
+                volume_24h=93_000,
+                end_date="2026-04-30",
+                relevance=0.95,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Best Chinese AI Company end of April?",
+                question="Will DeepSeek have the best AI model at the end of April 2026?",
+                url="https://polymarket.com/event/best-chinese-ai-company-end-of-april",
+                outcome_prices=[("Alibaba", 0.68), ("DeepSeek", 0.22)],
+                engagement=_engagement(volume=60_000, liquidity=40_000),
+                market_type="unknown",
+                market_signal_quality=0.54,
+                volume_24h=60_000,
+                end_date="2026-04-30",
+                relevance=0.93,
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Will any AI model reach 1560 Coding Arena Score by December 31, 2026?",
+                question="Will any AI model reach 1560 Coding Arena Score by December 31, 2026?",
+                url="https://polymarket.com/event/coding-ai-december",
+                outcome_prices=[("Yes", 0.63), ("No", 0.37)],
+                engagement=_engagement(volume=0, liquidity=8_000),
+                market_type="threshold",
+                market_signal_quality=0.40,
+                volume_24h=0,
+                end_date="2026-12-31",
+                relevance=0.95,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual([item.source_item_id for item in items], ["PM1", "PM2"])
+        self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_long_dated_watchlist_candidates"], 1)
+
     def test_fused_watchlist_driver_uses_same_market_specific_filter(self):
         report = _report("Polymarket markets closing soon")
         report.planning_notes = ["closing_soon"]

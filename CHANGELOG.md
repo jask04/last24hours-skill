@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.27] - 2026-04-20
+
+### Added
+- Tech watchlist evidence matching now considers broader existing local text fields, including Reddit-derived insight text and relevance summaries, before deciding whether a catalyst snippet is truly entity-specific
+
+### Fixed
+- Long-dated tech threshold rows now drop out of the top set when enough stronger near-term company/model markets already exist
+- Broad closing-soon watchlists now suppress weak low-actionability manual-rule rows instead of letting sparse soccer/curiosity markets survive by default
+- Broad watchlist ranking keeps existing crypto/NBA-specific behavior intact while applying stronger actionability pressure to general scans
+
+### Tested
+- Added regressions for long-dated tech threshold suppression and broad closing-soon manual-rule row suppression
+
 ## [1.0.26] - 2026-04-20
 
 ### Added
