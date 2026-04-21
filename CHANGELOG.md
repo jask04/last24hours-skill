@@ -31,6 +31,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Tested
 - Added crypto forecast regressions for threshold-mismatch social chatter and threshold-matched ETF opinion chatter that still lacks real market-structure context
 
+## [1.0.30] - 2026-04-21
+
+### Changed
+- Degraded crypto threshold forecasts now synthesize a threshold-aware `why_line` from clean X/web market context instead of quoting raw social posts directly
+- Crypto threshold summaries now call out when the best evidence is still materially below the requested target, which makes sparse model-implied forecasts more informative without overstating conviction
+
+### Tested
+- Added regressions for threshold-aware crypto summaries built from lower-price market context and from social market-color that mentions the target but is still better handled as a synthesized summary
+
 ## [1.0.27] - 2026-04-20
 
 ### Added

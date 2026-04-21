@@ -1243,6 +1243,137 @@ def _context_threshold_reference(report: schema.Report, threshold: float) -> Opt
     return max(plausible) if plausible else None
 
 
+def _format_threshold_value(value: float) -> str:
+    if value >= 1_000_000:
+        formatted = f"{value / 1_000_000:.2f}".rstrip("0").rstrip(".")
+        return f"${formatted}M"
+    if value >= 1_000:
+        formatted = f"{value / 1_000:.0f}" if value % 1_000 == 0 else f"{value / 1_000:.1f}".rstrip("0").rstrip(".")
+        return f"${formatted}k"
+    return f"${value:.0f}"
+
+
+def _threshold_window_phrase(window: Optional[str]) -> str:
+    if window == "this_week":
+        return "this week"
+    if window == "this_month":
+        return "this month"
+    if window == "this_year":
+        return "this year"
+    return "on the current horizon"
+
+
+def _crypto_context_phrase(tokens: set[str]) -> str:
+    if (tokens & {"etf", "etfs"}) and (tokens & {"flow", "flows"}) and (tokens & {"liquidity", "exchange", "exchanges"}):
+        return "ETF flows and exchange-liquidity context"
+    if (tokens & {"etf", "etfs"}) and (tokens & {"flow", "flows"}):
+        return "ETF flow context"
+    if tokens & {"liquidity", "exchange", "exchanges", "repricing"}:
+        return "liquidity and repricing context"
+    if "spot" in tokens and tokens & {"price", "prices", "support", "resistance", "volume", "momentum", "breakout"}:
+        return "spot-price market structure"
+    return "market-structure context"
+
+
+def _crypto_threshold_why_line(
+    report: schema.Report,
+    title: str,
+    evidence_candidates: list[_EvidenceCandidate],
+) -> str:
+    topic_spec = _threshold_spec(title)
+    if topic_spec.entity not in _CRYPTO_ENTITY_ALIASES or topic_spec.threshold is None:
+        return ""
+    target_text = _format_threshold_value(topic_spec.threshold)
+    entity_text = (topic_spec.entity or "Crypto").capitalize()
+    window_text = _threshold_window_phrase(topic_spec.window)
+
+    preferred_non_social = next(
+        (
+            candidate
+            for candidate in evidence_candidates
+            if candidate.source not in _SOCIAL_SOURCES and _allow_crypto_evidence(title, candidate.text)
+        ),
+        None,
+    )
+    if preferred_non_social:
+        return preferred_non_social.text
+
+    preferred_social = next(
+        (
+            candidate
+            for candidate in evidence_candidates
+            if candidate.source in _SOCIAL_SOURCES and _social_crypto_context_ok(candidate.tokens, _topic_tokens(title))
+        ),
+        None,
+    )
+    if not preferred_social:
+        preferred_social = _crypto_threshold_context_candidate(report, title)
+    if not preferred_social:
+        return ""
+
+    candidate_values = [value for value in _threshold_numbers(preferred_social.text) if 1_000 <= value < topic_spec.threshold]
+    reference = max(candidate_values) if candidate_values else _context_threshold_reference(report, topic_spec.threshold)
+    context_phrase = _crypto_context_phrase(preferred_social.tokens)
+    if reference:
+        reference_text = _format_threshold_value(reference)
+        return (
+            f"{entity_text} is still trading closer to {reference_text} than {target_text}; "
+            f"the clean evidence is mostly {context_phrase}, not a direct move through {target_text} {window_text}."
+        )
+    return (
+        f"{entity_text} is still below the {target_text} target; "
+        f"the clean evidence is mostly {context_phrase}, not a direct break through {target_text} {window_text}."
+    )
+
+
+def _crypto_threshold_context_candidate(report: schema.Report, title: str) -> Optional[_EvidenceCandidate]:
+    title_tokens = _topic_tokens(title)
+    topic_spec = _threshold_spec(title)
+    topic_entities = title_tokens & _CRYPTO_ENTITY_TOKENS
+    best: Optional[_EvidenceCandidate] = None
+    primary_market_terms = {"flow", "flows", "liquidity", "exchange", "exchanges", "repricing"}
+    secondary_market_terms = {"spot", "price", "prices", "volume", "momentum", "support", "resistance", "breakout", "etf", "etfs"}
+
+    for source_name, items in (("x", report.x[:12]), ("reddit", report.reddit[:10]), ("web", report.web[:8])):
+        for item in items:
+            text = (
+                getattr(item, "text", "")
+                or getattr(item, "title", "")
+                or getattr(item, "snippet", "")
+                or ""
+            )
+            if not text:
+                continue
+            context = getattr(item, "author_handle", "") or getattr(item, "subreddit", "") or getattr(item, "source_domain", "")
+            tokens = _tokenize(f"{text} {context}")
+            if topic_entities and not (topic_entities & tokens):
+                continue
+            if _social_noise_tokens(tokens):
+                continue
+            if not ((tokens & primary_market_terms) or (tokens & secondary_market_terms)):
+                continue
+            score = float(getattr(item, "score", 0) or 0)
+            if tokens & primary_market_terms:
+                score += 12
+            if topic_spec.threshold is not None:
+                numbers = [value for value in _threshold_numbers(text) if value >= 1_000]
+                if any(abs(value - topic_spec.threshold) <= max(500.0, topic_spec.threshold * 0.05) for value in numbers):
+                    score += 8
+                elif any(value < topic_spec.threshold for value in numbers):
+                    score += 4
+            candidate = _EvidenceCandidate(
+                score=score,
+                text=text.strip(),
+                tokens=tokens,
+                source=source_name,
+                team_hits=0,
+                signal_hits=len(tokens & (_CRYPTO_STRONG_SIGNAL_TERMS | primary_market_terms | secondary_market_terms)),
+            )
+            if best is None or candidate.score > best.score:
+                best = candidate
+    return best
+
+
 def _model_implied_range(report: schema.Report) -> tuple[float, float]:
     topic_spec = _threshold_spec(report.topic)
     if topic_spec.entity in _CRYPTO_ENTITY_ALIASES and topic_spec.direction == "above" and topic_spec.threshold:
@@ -1439,6 +1570,7 @@ def _build_forecast_item(
             break
     evidence_count = len(evidence)
     macro_query = _is_macro_query(title) or _is_macro_query(report.topic)
+    crypto_threshold_query = _is_crypto_query(title) and _threshold_spec(title).threshold is not None
 
     poly_label, poly_probability = (None, None)
     if polymarket_item:
@@ -1470,6 +1602,8 @@ def _build_forecast_item(
                 None,
             )
             forecast.why_line = strong_social.text if strong_social else ""
+    elif crypto_threshold_query:
+        forecast.why_line = _crypto_threshold_why_line(report, title, evidence_candidates)
     else:
         forecast.why_line = evidence[0] if evidence else ""
     forecast.polymarket_market_id = polymarket_item.id if polymarket_item else None

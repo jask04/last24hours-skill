@@ -482,6 +482,7 @@ class PlannerFusionTests(unittest.TestCase):
         forecasts = forecast.synthesize_forecasts(report)
 
         self.assertIn("ETF flows", forecasts[0].why_line)
+        self.assertIn("100k", forecasts[0].why_line)
 
     def test_macro_social_pricing_color_does_not_lead_model_implied_why_line(self):
         report = _report("Fed rate cut by June")
@@ -603,6 +604,42 @@ class PlannerFusionTests(unittest.TestCase):
         forecast.synthesize_forecasts(report)
 
         self.assertEqual(report.x[0].id, "X2")
+
+    def test_crypto_threshold_social_context_becomes_threshold_aware_summary(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="@HodlMagoo @saylor Bitcoin does billions in volume every day. Even though $2.54B is a lot for a single entity to buy, it doesn't necessarily move the needle. Personally, I think it's great that Strategy is able to acquire more BTC below $100k.",
+                url="https://x.com/crypto/status/9",
+                author_handle="marketcolor",
+                score=45,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("below the $100k target", forecasts[0].why_line)
+        self.assertIn("market-structure context", forecasts[0].why_line)
+        self.assertNotIn("@HodlMagoo", forecasts[0].why_line)
+
+    def test_crypto_threshold_social_context_uses_lower_reference_when_available(self):
+        report = _report("Bitcoin above 100k this week")
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Bitcoin just broke above $76k. ETF flows are the clearest bullish driver, with strong demand across the last 5 trading sessions.",
+                url="https://x.com/crypto/status/10",
+                author_handle="flowdesk",
+                score=45,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("$76k", forecasts[0].why_line)
+        self.assertIn("$100k", forecasts[0].why_line)
+        self.assertIn("ETF flow context", forecasts[0].why_line)
 
     def test_date_specific_macro_forecast_prefers_matching_month_market(self):
         report = _report("Will the Fed cut rates by June")
