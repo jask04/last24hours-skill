@@ -238,10 +238,10 @@ def _looks_like_alert_spam(text: str) -> bool:
     return upper_ratio >= 0.45 or loud_tokens >= 4
 
 
-def _is_legacy_noisy_rationale(pick: Dict[str, Any]) -> bool:
+def _legacy_noisy_rationale_reason(pick: Dict[str, Any]) -> Optional[str]:
     text = _stored_rationale_text(pick)
     if not text:
-        return False
+        return None
     lowered = text.lower()
     neutral_prefixes = (
         "mostly market-driven right now",
@@ -252,7 +252,7 @@ def _is_legacy_noisy_rationale(pick: Dict[str, Any]) -> bool:
         "direct nba game-outcome market",
     )
     if any(prefix in lowered for prefix in neutral_prefixes):
-        return False
+        return None
     tokens = eq.tokenize(text)
     noisy_phrases = {
         "top traders",
@@ -265,12 +265,71 @@ def _is_legacy_noisy_rationale(pick: Dict[str, Any]) -> bool:
         "daily winners",
     }
     if any(phrase in lowered for phrase in noisy_phrases):
-        return True
+        return "promo_macro_or_crypto"
     if {"parlay", "lock", "tail", "vip", "cashing", "sportsbook", "draftkings", "fanduel"} & tokens:
-        return True
+        return "promo_or_sportsbook"
     if "breaking" in tokens and _looks_like_alert_spam(text):
-        return True
-    return False
+        return "alert_spam"
+
+    status_terms = {
+        "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
+        "probable", "available", "inactive", "scratch", "scratched", "status",
+        "report", "listed",
+    }
+    rest_terms = {"rest", "resting", "minutes", "restriction", "restricted", "back-to-back", "b2b"}
+    lineup_terms = {"lineup", "lineups", "starter", "starters", "starting", "confirmed", "announced", "expected"}
+    elimination_terms = {"elimination", "eliminated", "clinch", "clinched", "must-win"}
+    line_move_terms = {"movement", "moved", "steam", "shift", "shifted", "shortened", "drifted"}
+    sportsbook_phrases = {
+        "ats angle",
+        "point spread",
+        "moneyline",
+        "over/under",
+        "market & probabilities",
+        "market and probabilities",
+        "best bets",
+        "predictions for all games",
+    }
+    media_guide_phrases = {
+        "how to watch",
+        "live stream",
+        "stream it online",
+        "tv, live stream",
+        "tv and stream",
+        "tv channel",
+    }
+    sports_recap_phrases = {
+        "statement win",
+        "dominant showing",
+        "roll past",
+        "rolled past",
+        "take down",
+        "took down",
+        "not backing down",
+        "lived up to the hype",
+        "game preview",
+        "[highlights]",
+    }
+    has_status_signal = bool(tokens & status_terms)
+    has_rest_signal = bool(tokens & rest_terms)
+    has_lineup_signal = bool(tokens & lineup_terms and tokens & (status_terms | {"confirmed", "announced", "expected"}))
+    has_elimination_signal = bool(tokens & elimination_terms)
+    has_line_move_signal = bool(tokens & eq.SPORTS_MARKET_CONTEXT_TERMS and tokens & line_move_terms)
+    has_clean_sports_signal = has_status_signal or has_rest_signal or has_lineup_signal or has_elimination_signal or has_line_move_signal
+    if not has_clean_sports_signal:
+        if any(phrase in lowered for phrase in sportsbook_phrases):
+            return "sportsbook_copy"
+        if any(phrase in lowered for phrase in media_guide_phrases):
+            return "media_guide"
+        if any(phrase in lowered for phrase in sports_recap_phrases):
+            return "sports_recap"
+        if {"ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat"} & tokens:
+            return "ticket_chatter"
+    return None
+
+
+def _is_legacy_noisy_rationale(pick: Dict[str, Any]) -> bool:
+    return _legacy_noisy_rationale_reason(pick) is not None
 
 
 def _existing_pick_rows(
@@ -1020,6 +1079,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     legacy_noisy_by_skill_version: Dict[str, int] = {}
     legacy_noisy_by_pick_type: Dict[str, int] = {}
     legacy_noisy_by_domain: Dict[str, int] = {}
+    legacy_noisy_by_reason: Dict[str, int] = {}
+    legacy_noisy_examples: List[Dict[str, Any]] = []
     source_health_status_rollup: Dict[str, Dict[str, int]] = {}
     now = datetime.now()
     for pick in open_picks:
@@ -1028,7 +1089,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             paper_bundle_count += 1
         probability = _prob(pick.get("model_probability"))
         mix[_pick_probability_class(probability)] += 1
-        if _is_legacy_noisy_rationale(pick):
+        noisy_reason = _legacy_noisy_rationale_reason(pick)
+        if noisy_reason:
             legacy_noisy_rationale_count += 1
         skill_version = str(pick.get("skill_version") or "")
         if not skill_version:
@@ -1043,10 +1105,22 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         by_pick_type[pick_type] = by_pick_type.get(pick_type, 0) + 1
         domain = _domain(str(pick.get("topic") or ""))
         by_domain[domain] = by_domain.get(domain, 0) + 1
-        if _is_legacy_noisy_rationale(pick):
+        if noisy_reason:
             legacy_noisy_by_skill_version[skill_bucket] = legacy_noisy_by_skill_version.get(skill_bucket, 0) + 1
             legacy_noisy_by_pick_type[pick_type] = legacy_noisy_by_pick_type.get(pick_type, 0) + 1
             legacy_noisy_by_domain[domain] = legacy_noisy_by_domain.get(domain, 0) + 1
+            legacy_noisy_by_reason[noisy_reason] = legacy_noisy_by_reason.get(noisy_reason, 0) + 1
+            if len(legacy_noisy_examples) < 8:
+                legacy_noisy_examples.append({
+                    "id": pick.get("id"),
+                    "skill_version": skill_bucket,
+                    "domain": domain,
+                    "pick_type": pick_type,
+                    "reason": noisy_reason,
+                    "title": pick.get("title") or pick.get("topic") or "",
+                    "created_at": pick.get("created_at"),
+                    "why_line_excerpt": _stored_rationale_text(pick)[:180],
+                })
         age_bucket = _age_bucket(pick.get("created_at"), now=now)
         by_age_bucket[age_bucket] = by_age_bucket.get(age_bucket, 0) + 1
         key = str(pick.get("venue_market_key") or "")
@@ -1100,6 +1174,9 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         warnings.append(f"{missing_version} open/unknown picks were created before skill-version tracking and should be treated as legacy samples.")
     if legacy_noisy_rationale_count:
         warnings.append(f"{legacy_noisy_rationale_count} open/unknown picks contain legacy rationale text that would fail the current paper-safe filters.")
+    if legacy_noisy_by_reason:
+        top_reason = max(sorted(legacy_noisy_by_reason.items()), key=lambda row: row[1])[0]
+        warnings.append(f"Top legacy rationale failure mode: {top_reason.replace('_', ' ')}.")
     if duplicate_market_key_count:
         warnings.append(
             f"{duplicate_row_count} open paper rows overlap with an already-open market key across {duplicate_market_key_count} repeated market key(s); broader sampling should avoid redundant duplicates."
@@ -1127,6 +1204,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_noisy_by_skill_version": dict(sorted(legacy_noisy_by_skill_version.items())),
         "legacy_noisy_by_pick_type": dict(sorted(legacy_noisy_by_pick_type.items())),
         "legacy_noisy_by_domain": dict(sorted(legacy_noisy_by_domain.items())),
+        "legacy_noisy_by_reason": dict(sorted(legacy_noisy_by_reason.items())),
+        "legacy_noisy_examples": legacy_noisy_examples,
         "source_health_status_rollup": {key: dict(sorted(value.items())) for key, value in sorted(source_health_status_rollup.items())},
         "warnings": warnings,
     }

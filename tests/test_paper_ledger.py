@@ -709,7 +709,46 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["legacy_noisy_by_skill_version"]["1.0.18"], 1)
         self.assertEqual(diagnostics["legacy_noisy_by_pick_type"]["forecast"], 1)
         self.assertEqual(diagnostics["legacy_noisy_by_domain"]["macro"], 1)
+        self.assertEqual(diagnostics["legacy_noisy_by_reason"]["promo_macro_or_crypto"], 1)
+        self.assertEqual(diagnostics["legacy_noisy_examples"][0]["reason"], "promo_macro_or_crypto")
         self.assertTrue(any("legacy rationale text" in warning for warning in diagnostics["warnings"]))
+
+    def test_open_pick_diagnostics_flags_legacy_sportsbook_and_recap_rationale(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "id": 50,
+                "status": "open",
+                "topic": "NBA matchups April 21 through April 23",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "title": "Trail Blazers vs. Spurs",
+                "model_probability": 0.86,
+                "resolution_source": "espn_nba",
+                "skill_version": "1.0.30",
+                "created_at": "2026-04-21 07:35:37",
+                "evidence_json": json.dumps({"why_line": "NBA Playoffs: Trail Blazers vs. Spurs. The ATS Angle. Line: Spurs -11.5. Total: 220.0"}),
+            },
+            {
+                "id": 51,
+                "status": "open",
+                "topic": "NBA matchups April 21 through April 23",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "title": "Magic vs. Pistons",
+                "model_probability": 0.78,
+                "resolution_source": "espn_nba",
+                "skill_version": "1.0.30",
+                "created_at": "2026-04-21 07:35:37",
+                "evidence_json": json.dumps({"why_line": "Huge statement win Orlando Magic take down the No. 1 seed Detroit Pistons on Sunday. Orlando not backing down."}),
+            },
+        ])
+
+        self.assertEqual(diagnostics["legacy_noisy_rationale_count"], 2)
+        self.assertEqual(diagnostics["legacy_noisy_by_domain"]["nba"], 2)
+        self.assertEqual(diagnostics["legacy_noisy_by_reason"]["sportsbook_copy"], 1)
+        self.assertEqual(diagnostics["legacy_noisy_by_reason"]["sports_recap"], 1)
+        self.assertEqual([row["id"] for row in diagnostics["legacy_noisy_examples"]], [50, 51])
+        self.assertTrue(any("top legacy rationale failure mode" in warning.lower() for warning in diagnostics["warnings"]))
 
     def test_calibration_summary_excludes_legacy_noisy_rationale_by_default(self):
         summary = paper.calibration_summary([
@@ -740,6 +779,42 @@ class CalibrationTests(unittest.TestCase):
                 "confidence": "low",
                 "topic": "Fed rate cut by June",
                 "evidence_json": json.dumps({"why_line": "BREAKING: top traders say this VIP macro call keeps cashing."}),
+            },
+        ])
+
+        self.assertEqual(summary["raw_resolved_count"], 2)
+        self.assertEqual(summary["excluded_legacy_noisy_count"], 1)
+        self.assertEqual(summary["count"], 1)
+
+    def test_calibration_summary_excludes_legacy_sportsbook_rationale(self):
+        summary = paper.calibration_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.04,
+                "log_loss": 0.22,
+                "model_probability": 0.80,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "forecast",
+                "market_type": "game_outcome",
+                "confidence": "moderate-low",
+                "topic": "NBA matchups April 21 through April 23",
+                "evidence_json": json.dumps({"why_line": "NBA Playoffs: Trail Blazers vs. Spurs. The ATS Angle. Line: Spurs -11.5. Total: 220.0"}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.01,
+                "log_loss": 0.10,
+                "model_probability": 0.90,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "forecast",
+                "market_type": "game_outcome",
+                "confidence": "moderate-low",
+                "topic": "NBA matchups April 21 through April 23",
+                "evidence_json": json.dumps({"why_line": "Mostly market-driven right now; no clean injury, lineup, rest, or market-moving team signal surfaced in the last 24 hours."}),
             },
         ])
 

@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.32] - 2026-04-21
+
+### Added
+- `paper.py report` now breaks legacy noisy open rows out by failure reason and includes compact example rows so older sportsbook, media-guide, recap, and promo rationale is visible without rewriting ledger history
+
+### Fixed
+- Historical paper-ledger audit logic now flags legacy sports rationale noise, including ATS-style sportsbook copy, how-to-watch text, ticket chatter, and prior-game recap phrasing, instead of only catching macro/crypto-style spam
+
+### Tested
+- Added ledger regressions for legacy sports rationale detection, noisy-reason rollups, example-row surfacing, and comparable-summary exclusion of sportsbook-style resolved rows
+
 ## [1.0.31] - 2026-04-21
 
 ### Fixed
