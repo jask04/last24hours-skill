@@ -115,6 +115,10 @@ _META_MARKET_TERMS = {
     "prediction markets", "market regulation", "banning sports",
 }
 
+_NBA_SERIES_PROMPT_TERMS = {
+    "series", "playoff series", "who will win series", "win series",
+}
+
 
 def _tokens(text: str) -> set[str]:
     return {
@@ -194,6 +198,31 @@ def _market_probability(item) -> tuple[str, Optional[float]]:
 
 def _market_text(item) -> str:
     return f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+
+
+def _is_nba_watchlist_topic(topic: str) -> bool:
+    return _domain(topic) == "nba"
+
+
+def _is_explicit_nba_series_prompt(topic: str) -> bool:
+    lowered = (topic or "").lower()
+    return _is_nba_watchlist_topic(topic) and any(term in lowered for term in _NBA_SERIES_PROMPT_TERMS)
+
+
+def _watchlist_scope(report: schema.Report, item, market_type: str) -> str:
+    text = _market_text(item).lower()
+    if _is_nba_watchlist_topic(report.topic):
+        if market_type == "game_outcome":
+            return "game"
+        if market_type == "futures" and "series" in text:
+            return "series"
+    return ""
+
+
+def _same_matchup_signature(text: str) -> str:
+    tokens = _tokens(text)
+    teams = sorted(tokens & eq.NBA_TEAM_TOKENS)
+    return "|".join(teams[:2]) if len(teams) >= 2 else ""
 
 
 def _topic_relevance(topic: str, item) -> float:
@@ -805,6 +834,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
 
     domain = _domain(report.topic)
     market_type = _candidate_market_type(item)
+    watchlist_scope = _watchlist_scope(report, item, market_type)
+    if _is_nba_watchlist_topic(report.topic) and not watchlist_scope:
+        return None
     if not _is_direct_espn_game_market(report, item, market_type):
         return None
 
@@ -890,6 +922,19 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             and quality < 0.50
         ):
             rank_score = max(0, rank_score - 12)
+    if _is_nba_watchlist_topic(report.topic):
+        if watchlist_scope == "game":
+            rank_score += 8 if not _is_explicit_nba_series_prompt(report.topic) else 2
+            if getattr(item, "live_game_context", ""):
+                rank_score += 4
+        elif watchlist_scope == "series":
+            if _is_explicit_nba_series_prompt(report.topic):
+                rank_score += 6
+            else:
+                rank_score -= 6
+                if quality < 0.55 and movement < 0.20:
+                    rank_score -= 8
+        rank_score = max(0, min(100, rank_score))
 
     why_bits = []
     if closing_reason == "live_sports":
@@ -930,6 +975,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.insert(0, "team prop")
     elif market_type == "threshold":
         why_bits.insert(0, "threshold market")
+    elif watchlist_scope == "series":
+        why_bits.insert(0, "playoff series")
+    elif watchlist_scope == "game":
+        why_bits.insert(0, "day-of-game watch")
 
     return schema.MarketWatchItem(
         id=f"MW{idx}",
@@ -992,6 +1041,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         live_match_confidence=live_match_confidence,
         live_match_reason=live_match_reason,
         resolvability=resolvability,
+        watchlist_scope=watchlist_scope,
     )
 
 
@@ -1063,6 +1113,26 @@ def _should_drop_broad_manual_rule_candidate(report: schema.Report, candidate: s
     return True
 
 
+def _should_suppress_nba_series_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    stronger_items: list[schema.MarketWatchItem],
+    all_candidates: list[schema.MarketWatchItem],
+) -> bool:
+    if not _is_nba_watchlist_topic(report.topic) or _is_explicit_nba_series_prompt(report.topic):
+        return False
+    if candidate.watchlist_scope != "series":
+        return False
+    stronger_games = [item for item in all_candidates if item.watchlist_scope == "game" and item.rank_score >= candidate.rank_score - 4]
+    if len(stronger_games) >= 3 and (
+        (candidate.market_signal_quality or 0.0) < 0.58
+        or ((candidate.volume or 0) < 100_000 and (candidate.volume_24h or 0) < 100_000)
+        or candidate.rank_score < 50
+    ):
+        return True
+    return False
+
+
 def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[schema.MarketWatchItem]:
     """Rank topic-scoped Polymarket/Kalshi candidates for market-watchlist mode."""
     candidates = []
@@ -1076,6 +1146,7 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
             candidates.append(candidate)
 
     closing_mode = _has_closing_soon_note(report)
+    explicit_series_prompt = _is_explicit_nba_series_prompt(report.topic)
     if closing_mode:
         candidates.sort(
             key=lambda item: (
@@ -1086,10 +1157,22 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
             reverse=True,
         )
     else:
-        candidates.sort(key=lambda item: item.rank_score, reverse=True)
+        candidates.sort(
+            key=lambda item: (
+                2 if (item.watchlist_scope == "series" and explicit_series_prompt) else
+                1 if item.watchlist_scope == "game" else
+                0 if item.watchlist_scope == "series" else -1,
+                item.rank_score,
+                item.market_signal_quality or 0.0,
+            ),
+            reverse=True,
+        )
     results = []
     seen = set()
     for idx, candidate in enumerate(candidates):
+        if _should_suppress_nba_series_candidate(report, candidate, results, candidates):
+            _bump_debug_counter(report, "suppressed_nba_series_watchlist_candidates")
+            continue
         if _should_suppress_low_signal_candidate(report, candidate, results, candidates):
             _bump_debug_counter(report, "suppressed_long_dated_watchlist_candidates")
             continue

@@ -1,4 +1,4 @@
-# /last24hours v1.0.32
+# /last24hours v1.0.33
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -9,6 +9,8 @@ Forecasts are now market-anchored by default. When Polymarket and Kalshi both ex
 When no clean market or official source can anchor a forecast, the output now marks the run as degraded so model-implied probabilities are not mistaken for market-backed edges.
 
 Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
+
+For mixed NBA watchlist prompts such as `NBA markets to watch today`, the board can now intentionally include both direct same-day game markets and playoff series markets. Direct games still anchor the board when they are clean and relevant, while series rows stay labeled separately as broader series-state monitoring instead of blending into the game board silently.
 
 Closing-soon watchlist mode is available for prompts such as `Polymarket markets closing soon`, `crypto markets closing soon tonight`, or `live sports games on Polymarket right now`. It scans near-expiry Polymarket markets, preserves close datetimes, ranks by minutes to close plus market quality, and can label matching NBA/MLB/NHL/NFL games as live or starting soon from ESPN public scoreboards. Live-sports scans only surface direct matching game-outcome markets; series, futures, totals, props, and wrong-matchup markets are rejected with diagnostics. Catalyst snippets must match the specific market domain and entity; when no clean external catalyst clears the filter, rankings are labeled as market-signal driven. Fast-moving lines must be verified in the Polymarket UI before relying on them.
 
@@ -63,6 +65,7 @@ Current notable capabilities:
 - Official National Weather Service anchoring for supported U.S. weather prompts such as `NYC rain tomorrow`.
 - ESPN-backed NBA slate and paper-pick resolution, plus live/starting-soon detection for NBA, MLB, NHL, and NFL watchlists.
 - ESPN-backed NBA date-window expansion and paper-only multi-leg bundle output for direct ESPN-matched game-outcome markets.
+- Mixed NBA watchlists that label direct rows as `Game outcome` and series rows as `Playoff series`, with paper-ledger scope metadata so NBA watchlist calibration can be split cleanly between game and series monitoring.
 - Closing-soon Polymarket scanning with full close datetimes, minutes-to-close, liquidity/spread, 24h movement, and resolvability notes.
 - Market-watchlist catalyst filtering that rejects unrelated promo posts, picks/parlay chatter, and domain-mismatched snippets.
 - Paper-only calibration loop with Brier score, log loss, probability buckets, favorite/longshot diagnostics, and conservative suggestions.

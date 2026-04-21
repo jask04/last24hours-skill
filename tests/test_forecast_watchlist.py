@@ -162,7 +162,7 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(forecast.synthesize_forecasts(report), [])
 
-    def test_nba_watchlist_labels_player_props_explicitly(self):
+    def test_nba_watchlist_suppresses_player_props_for_generic_day_of_game_prompt(self):
         report = _report("NBA markets to watch today")
         report.polymarket = [
             schema.PolymarketItem(
@@ -186,10 +186,7 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         items = market_watchlist.synthesize_market_watchlist(report)
 
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0].market_type, "player_prop")
-        self.assertIn("player prop", items[0].why_ranks)
-        self.assertEqual(items[0].title, "Christian Braun: Assists O/U 0.5")
+        self.assertEqual(items, [])
 
     def test_near_certain_threshold_market_is_suppressed_without_strong_unresolved_signal(self):
         report = _report("crypto prediction markets to watch today")
@@ -955,6 +952,204 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertIn("Game status: NBA Scheduled", output)
         self.assertNotIn("Live game: NBA Scheduled", output)
+
+    def test_nba_watchlist_keeps_mixed_board_but_prefers_direct_game_over_same_matchup_series(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-21",
+                outcome_prices=[("Trail Blazers", 0.16), ("Spurs", 0.84)],
+                engagement=_engagement(volume=1_600_000, liquidity=4_700_000),
+                market_type="game_outcome",
+                market_signal_quality=0.86,
+                volume_24h=1_600_000,
+                spread=0.01,
+                relevance=0.95,
+                end_date="2026-04-22",
+                live_game_context="NBA Tue, April 21st at 8:00 PM EDT; start 2026-04-22T00:00Z",
+                live_match_confidence=0.72,
+                live_match_reason="direct_match",
+                resolvability="sports game outcome; verify live score and market rules",
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Spread: Spurs (-11.5)",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-spread",
+                outcome_prices=[("Spurs", 0.52), ("Blazers", 0.48)],
+                engagement=_engagement(volume=900_000, liquidity=1_400_000),
+                market_type="team_prop",
+                market_signal_quality=0.84,
+                volume_24h=900_000,
+                spread=0.01,
+                relevance=0.95,
+                end_date="2026-04-22",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                question="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                url="https://polymarket.com/event/nba-playoffs-who-will-win-series-spurs-vs-trail-blazers",
+                outcome_prices=[("Spurs", 0.96), ("Blazers", 0.04)],
+                engagement=_engagement(volume=23_000, liquidity=29_000),
+                market_type="futures",
+                market_signal_quality=0.64,
+                volume_24h=23_000,
+                spread=0.02,
+                relevance=0.95,
+                end_date="2026-05-04",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].source_item_id, "PM1")
+        self.assertEqual(items[0].watchlist_scope, "game")
+        self.assertEqual(items[1].source_item_id, "PM2")
+        self.assertEqual(items[1].watchlist_scope, "series")
+
+    def test_nba_watchlist_series_label_renders_explicitly(self):
+        report = _report("NBA markets to watch today")
+        report.market_watchlist = [
+            schema.MarketWatchItem(
+                id="MW1",
+                title="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                question="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                venue="Polymarket",
+                url="https://polymarket.com/event/nba-playoffs-who-will-win-series-spurs-vs-trail-blazers",
+                outcome_label="Spurs",
+                probability=0.96,
+                market_type="futures",
+                watchlist_scope="series",
+                rank_score=53,
+                why_ranks="playoff series, strong market signal",
+                market_signal="Polymarket; 96% implied",
+                catalyst_summary="Catalyst context is thin; ranking is mostly market-signal driven.",
+                risk="Fresh news or market repricing could change the ranking.",
+            )
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("Outcome: Polymarket Playoff series - Spurs 96%", output)
+
+    def test_explicit_nba_series_prompt_can_be_series_heavy(self):
+        report = _report("NBA playoff series markets to watch")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="NBA Playoffs: Who Will Win Series? - Lakers vs. Rockets ",
+                question="NBA Playoffs: Who Will Win Series? - Lakers vs. Rockets ",
+                url="https://polymarket.com/event/nba-playoffs-who-will-win-series-lakers-vs-rockets",
+                outcome_prices=[("Rockets", 0.68), ("Lakers", 0.32)],
+                engagement=_engagement(volume=51_000, liquidity=23_000),
+                market_type="futures",
+                market_signal_quality=0.67,
+                volume_24h=51_000,
+                spread=0.03,
+                relevance=0.95,
+                end_date="2026-05-04",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-21",
+                outcome_prices=[("Trail Blazers", 0.16), ("Spurs", 0.84)],
+                engagement=_engagement(volume=1_600_000, liquidity=4_700_000),
+                market_type="game_outcome",
+                market_signal_quality=0.86,
+                volume_24h=1_600_000,
+                spread=0.01,
+                relevance=0.92,
+                end_date="2026-04-22",
+                live_game_context="NBA Tue, April 21st at 8:00 PM EDT; start 2026-04-22T00:00Z",
+                live_match_confidence=0.72,
+                live_match_reason="direct_match",
+                resolvability="sports game outcome; verify live score and market rules",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items[0].watchlist_scope, "series")
+
+    def test_weak_nba_series_row_is_suppressed_when_multiple_clean_game_rows_exist(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-21",
+                outcome_prices=[("Trail Blazers", 0.16), ("Spurs", 0.84)],
+                engagement=_engagement(volume=1_600_000, liquidity=4_700_000),
+                market_type="game_outcome",
+                market_signal_quality=0.86,
+                volume_24h=1_600_000,
+                spread=0.01,
+                relevance=0.95,
+                end_date="2026-04-22",
+                live_game_context="NBA Tue, April 21st at 8:00 PM EDT; start 2026-04-22T00:00Z",
+                live_match_confidence=0.72,
+                live_match_reason="direct_match",
+                resolvability="sports game outcome; verify live score and market rules",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="76ers vs. Celtics",
+                question="76ers vs. Celtics",
+                url="https://polymarket.com/event/nba-phi-bos-2026-04-21",
+                outcome_prices=[("76ers", 0.12), ("Celtics", 0.88)],
+                engagement=_engagement(volume=1_800_000, liquidity=4_300_000),
+                market_type="game_outcome",
+                market_signal_quality=0.85,
+                volume_24h=1_800_000,
+                spread=0.01,
+                relevance=0.95,
+                end_date="2026-04-21",
+                live_game_context="NBA Tue, April 21st at 7:00 PM EDT; start 2026-04-21T23:00Z",
+                live_match_confidence=0.85,
+                live_match_reason="direct_match",
+                resolvability="sports game outcome; verify live score and market rules",
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Lakers vs. Rockets",
+                question="Lakers vs. Rockets",
+                url="https://polymarket.com/event/nba-lal-hou-2026-04-24",
+                outcome_prices=[("Lakers", 0.26), ("Rockets", 0.74)],
+                engagement=_engagement(volume=20_000, liquidity=19_000),
+                market_type="game_outcome",
+                market_signal_quality=0.63,
+                volume_24h=20_000,
+                spread=0.01,
+                relevance=0.92,
+                end_date="2026-04-25",
+                resolvability="sports game outcome; verify live score and market rules",
+            ),
+            schema.PolymarketItem(
+                id="PM4",
+                title="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                question="NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                url="https://polymarket.com/event/nba-playoffs-who-will-win-series-spurs-vs-trail-blazers",
+                outcome_prices=[("Spurs", 0.96), ("Blazers", 0.04)],
+                engagement=_engagement(volume=3_000, liquidity=29_000),
+                market_type="futures",
+                market_signal_quality=0.52,
+                volume_24h=3_000,
+                spread=0.02,
+                relevance=0.95,
+                end_date="2026-05-04",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual([item.source_item_id for item in items], ["PM1", "PM2", "PM3"])
 
 
 if __name__ == "__main__":

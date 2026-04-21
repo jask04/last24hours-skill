@@ -370,7 +370,11 @@ def _format_watch_probability(item: schema.MarketWatchItem) -> str:
     return f"{item.outcome_label or 'Top outcome'} {item.probability * 100:.0f}%"
 
 
-def _format_market_type(market_type: str) -> str:
+def _format_market_type(market_type: str, watchlist_scope: str = "") -> str:
+    if watchlist_scope == "series":
+        return "Playoff series"
+    if watchlist_scope == "game":
+        return "Game outcome"
     labels = {
         "game_outcome": "Game outcome",
         "player_prop": "Player prop",
@@ -442,7 +446,7 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
 
     for item in report.market_watchlist:
         lines.append(f"**{item.id}. {item.title or item.question}**")
-        lines.append(f"Outcome: {item.venue} {_format_market_type(item.market_type)} - {_format_watch_probability(item)}")
+        lines.append(f"Outcome: {item.venue} {_format_market_type(item.market_type, item.watchlist_scope)} - {_format_watch_probability(item)}")
         close_line = _format_close_line(item)
         if close_line:
             lines.append(f"Timing: {close_line}")

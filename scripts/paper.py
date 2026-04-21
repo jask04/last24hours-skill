@@ -391,6 +391,22 @@ def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, An
     """Prefer calibration-useful watchlist items when the top item is an extreme favorite."""
     if not items:
         return None
+    nba_mixed_watchlist = any(str(item.get("watchlist_scope") or "") in {"game", "series"} for item in items)
+    if nba_mixed_watchlist:
+        top = items[0]
+        top_scope = str(top.get("watchlist_scope") or "")
+        top_rank = float(top.get("rank_score") or 0)
+        if top_scope == "series":
+            preferred_game = next(
+                (
+                    item for item in items[1:]
+                    if str(item.get("watchlist_scope") or "") == "game"
+                    and float(item.get("rank_score") or 0) >= top_rank - 6
+                ),
+                None,
+            )
+            if preferred_game:
+                return preferred_game
     top_probability = _prob(items[0].get("probability") or items[0].get("implied_probability"))
     if top_probability is None or top_probability < 0.85:
         return items[0]
@@ -399,6 +415,11 @@ def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, An
         if probability is not None and 0.35 <= probability <= 0.80:
             return item
     return items[0]
+
+
+def _pick_watchlist_scope(pick: Dict[str, Any]) -> str:
+    notes = _safe_json_loads(pick.get("notes_json"))
+    return str(notes.get("watchlist_scope") or "")
 
 
 def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -583,6 +604,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "notes_json": json.dumps({
                     "domain": _domain(topic),
                     "paper_only": True,
+                    "watchlist_scope": item.get("watchlist_scope", ""),
                     "rank_score": item.get("rank_score"),
                     "minutes_to_close": item.get("minutes_to_close"),
                     "closing_soon_reason": item.get("closing_soon_reason", ""),
@@ -1013,6 +1035,15 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
             "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
         }
+    watchlist_scopes = sorted({_pick_watchlist_scope(p) for p in resolved if _pick_watchlist_scope(p)})
+    for value in watchlist_scopes:
+        rows = [p for p in resolved if _pick_watchlist_scope(p) == value]
+        groups[f"watchlist_scope:{value}"] = {
+            "count": len(rows),
+            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
+            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
+            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
+        }
     return {
         "count": len(resolved),
         "raw_resolved_count": len(resolved_all),
@@ -1061,6 +1092,27 @@ def current_skill_comparable_summary(
     return summary
 
 
+def post_1_0_30_nba_watchlist_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    minimum = _parse_skill_version_value("1.0.30")
+    filtered = []
+    for pick in picks:
+        if pick.get("status") != "resolved" or pick.get("resolution_value") is None:
+            continue
+        version = _parse_skill_version_value(pick.get("skill_version"))
+        if version is None or version < minimum:
+            continue
+        if pick.get("pick_type") != "watchlist" or _domain(str(pick.get("topic") or "")) != "nba":
+            continue
+        if _is_legacy_noisy_rationale(pick):
+            continue
+        filtered.append(pick)
+    summary = calibration_summary(filtered)
+    summary["min_skill_version"] = "1.0.30"
+    summary["pick_type"] = "watchlist"
+    summary["domain"] = "nba"
+    return summary
+
+
 def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     open_picks = [p for p in picks if p.get("status") in {"open", "unknown"}]
     mix = {"favorite": 0, "balanced": 0, "longshot": 0, "unknown": 0}
@@ -1072,10 +1124,12 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_skill_version: Dict[str, int] = {}
     by_pick_type: Dict[str, int] = {}
     by_domain: Dict[str, int] = {}
+    by_watchlist_scope: Dict[str, int] = {}
     by_age_bucket: Dict[str, int] = {}
     by_version_era: Dict[str, int] = {}
     duplicate_keys: Dict[str, int] = {}
     duplicate_rows: Dict[str, List[Dict[str, Any]]] = {}
+    mixed_scope_clusters = []
     legacy_noisy_by_skill_version: Dict[str, int] = {}
     legacy_noisy_by_pick_type: Dict[str, int] = {}
     legacy_noisy_by_domain: Dict[str, int] = {}
@@ -1105,6 +1159,9 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         by_pick_type[pick_type] = by_pick_type.get(pick_type, 0) + 1
         domain = _domain(str(pick.get("topic") or ""))
         by_domain[domain] = by_domain.get(domain, 0) + 1
+        watchlist_scope = _pick_watchlist_scope(pick)
+        if watchlist_scope:
+            by_watchlist_scope[watchlist_scope] = by_watchlist_scope.get(watchlist_scope, 0) + 1
         if noisy_reason:
             legacy_noisy_by_skill_version[skill_bucket] = legacy_noisy_by_skill_version.get(skill_bucket, 0) + 1
             legacy_noisy_by_pick_type[pick_type] = legacy_noisy_by_pick_type.get(pick_type, 0) + 1
@@ -1162,6 +1219,24 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "domains": sorted({_domain(str(row.get("topic") or "")) for row in rows}),
             "version_eras": sorted({_skill_version_era(row.get("skill_version")) for row in rows}),
         })
+    nba_watch_rows = [pick for pick in open_picks if _domain(str(pick.get("topic") or "")) == "nba" and pick.get("pick_type") == "watchlist"]
+    for pick in nba_watch_rows:
+        if _pick_watchlist_scope(pick) != "series":
+            continue
+        series_key = str(pick.get("venue_market_key") or "")
+        same_rows = [
+            other for other in nba_watch_rows
+            if other is not pick
+            and _pick_watchlist_scope(other) == "game"
+            and str(other.get("venue") or "") == str(pick.get("venue") or "")
+            and any(team in str(other.get("title") or "").lower() for team in re.sub(r"[^a-z0-9\s]", " ", str(pick.get("title") or "").lower()).split() if team in eq.NBA_TEAM_TOKENS)
+        ]
+        if same_rows:
+            mixed_scope_clusters.append({
+                "series_key": series_key,
+                "series_title": pick.get("title") or pick.get("question") or "",
+                "game_titles": sorted({row.get("title") or row.get("question") or "" for row in same_rows}),
+            })
     warnings = []
     total = len(open_picks)
     if total and mix["favorite"] / total >= 0.70:
@@ -1193,6 +1268,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "by_skill_version": dict(sorted(by_skill_version.items())),
         "by_pick_type": dict(sorted(by_pick_type.items())),
         "by_domain": dict(sorted(by_domain.items())),
+        "by_watchlist_scope": dict(sorted(by_watchlist_scope.items())),
         "by_age_bucket": dict(sorted(by_age_bucket.items())),
         "by_version_era": dict(sorted(by_version_era.items())),
         "duplicate_market_key_count": duplicate_market_key_count,
@@ -1201,6 +1277,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "duplicate_open_row_count_current_dedupe_era": duplicate_open_row_count_current_dedupe_era,
         "duplicate_clusters": duplicate_clusters,
         "duplicate_cluster_summaries": duplicate_cluster_summaries,
+        "mixed_scope_clusters": mixed_scope_clusters,
         "legacy_noisy_by_skill_version": dict(sorted(legacy_noisy_by_skill_version.items())),
         "legacy_noisy_by_pick_type": dict(sorted(legacy_noisy_by_pick_type.items())),
         "legacy_noisy_by_domain": dict(sorted(legacy_noisy_by_domain.items())),
@@ -1310,7 +1387,14 @@ def cmd_report(args) -> None:
     recent = store.list_recent_paper_picks(days=args.days, limit=args.limit)
     summary = calibration_summary(store.list_resolved_paper_picks(days=args.days))
     comparable = current_skill_comparable_summary(store.list_resolved_paper_picks(days=args.days))
-    print(json.dumps({"days": args.days, "summary": summary, "current_skill_comparable_sample": comparable, "open_portfolio": open_pick_diagnostics(recent), "recent_picks": recent}, indent=2, default=str))
+    print(json.dumps({
+        "days": args.days,
+        "summary": summary,
+        "current_skill_comparable_sample": comparable,
+        "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
+        "open_portfolio": open_pick_diagnostics(recent),
+        "recent_picks": recent,
+    }, indent=2, default=str))
 
 
 def cmd_suggest(args) -> None:

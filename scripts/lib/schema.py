@@ -737,6 +737,7 @@ class MarketWatchItem:
     live_match_confidence: Optional[float] = None
     live_match_reason: str = ""
     resolvability: str = ""
+    watchlist_scope: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -780,6 +781,7 @@ class MarketWatchItem:
             'live_match_confidence': self.live_match_confidence,
             'live_match_reason': self.live_match_reason,
             'resolvability': self.resolvability,
+            'watchlist_scope': self.watchlist_scope,
         }
 
 
@@ -1362,6 +1364,7 @@ class Report:
                 live_match_confidence=m.get('live_match_confidence'),
                 live_match_reason=m.get('live_match_reason', ''),
                 resolvability=m.get('resolvability', ''),
+                watchlist_scope=m.get('watchlist_scope', ''),
             ))
 
         paper_bundle_items = []

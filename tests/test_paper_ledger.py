@@ -214,6 +214,43 @@ class PaperExtractionTests(unittest.TestCase):
         evidence = json.loads(picks[0]["evidence_json"])
         self.assertEqual(evidence["source_health"]["source_status"]["x"]["status"], "empty")
 
+    def test_nba_watchlist_json_prefers_game_scope_over_near_tied_series_scope(self):
+        report = {
+            "topic": "NBA markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "source_item_id": "PM2",
+                    "title": "NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                    "question": "NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                    "outcome_label": "Spurs",
+                    "probability": 0.96,
+                    "rank_score": 53,
+                    "watchlist_scope": "series",
+                    "url": "https://polymarket.com/event/nba-playoffs-who-will-win-series-spurs-vs-trail-blazers",
+                },
+                {
+                    "venue": "polymarket",
+                    "source_item_id": "PM1",
+                    "title": "Trail Blazers vs. Spurs",
+                    "question": "Trail Blazers vs. Spurs",
+                    "outcome_label": "Spurs",
+                    "probability": 0.84,
+                    "rank_score": 56,
+                    "watchlist_scope": "game",
+                    "url": "https://polymarket.com/event/nba-por-sas-2026-04-21",
+                },
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(picks[0]["title"], "Trail Blazers vs. Spurs")
+        notes = json.loads(picks[0]["notes_json"])
+        self.assertEqual(notes["watchlist_scope"], "game")
+
     def test_watchlist_json_prefers_balanced_pick_when_top_is_extreme_favorite(self):
         report = {
             "topic": "AI coding tools markets to watch today",
@@ -713,6 +750,36 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["legacy_noisy_examples"][0]["reason"], "promo_macro_or_crypto")
         self.assertTrue(any("legacy rationale text" in warning for warning in diagnostics["warnings"]))
 
+    def test_open_pick_diagnostics_tracks_watchlist_scope_and_mixed_scope_clusters(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "open",
+                "topic": "NBA markets to watch today",
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "venue_market_key": "nba-por-sas-series",
+                "title": "NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                "question": "NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ",
+                "skill_version": "1.0.33",
+                "notes_json": json.dumps({"watchlist_scope": "series"}),
+            },
+            {
+                "status": "open",
+                "topic": "NBA markets to watch today",
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "venue_market_key": "nba-por-sas-game",
+                "title": "Trail Blazers vs. Spurs",
+                "question": "Trail Blazers vs. Spurs",
+                "skill_version": "1.0.33",
+                "notes_json": json.dumps({"watchlist_scope": "game"}),
+            },
+        ])
+
+        self.assertEqual(diagnostics["by_watchlist_scope"]["game"], 1)
+        self.assertEqual(diagnostics["by_watchlist_scope"]["series"], 1)
+        self.assertEqual(diagnostics["mixed_scope_clusters"][0]["series_title"], "NBA Playoffs: Who Will Win Series? - Spurs vs. Trail Blazers ")
+
     def test_open_pick_diagnostics_flags_legacy_sportsbook_and_recap_rationale(self):
         diagnostics = paper.open_pick_diagnostics([
             {
@@ -890,6 +957,46 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(summary["raw_resolved_count"], 4)
         self.assertEqual(summary["excluded_pre_current_version_count"], 1)
         self.assertEqual(summary["excluded_unversioned_count"], 1)
+
+    def test_post_1_0_30_nba_watchlist_summary_groups_by_scope(self):
+        summary = paper.post_1_0_30_nba_watchlist_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.04,
+                "log_loss": 0.22,
+                "model_probability": 0.80,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "game_outcome",
+                "confidence": "watchlist",
+                "topic": "NBA markets to watch today",
+                "skill_version": "1.0.32",
+                "notes_json": json.dumps({"watchlist_scope": "game"}),
+                "evidence_json": json.dumps({"why_line": "Mostly market-driven right now; no clean injury, lineup, rest, or market-moving team signal surfaced in the last 24 hours."}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 0.0,
+                "brier_score": 0.36,
+                "log_loss": 0.9,
+                "model_probability": 0.60,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "futures",
+                "confidence": "watchlist",
+                "topic": "NBA markets to watch today",
+                "skill_version": "1.0.32",
+                "notes_json": json.dumps({"watchlist_scope": "series"}),
+                "evidence_json": json.dumps({"why_line": "Mostly market-driven right now; supporting evidence is thin."}),
+            },
+        ])
+
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["groups"]["watchlist_scope:game"]["count"], 1)
+        self.assertEqual(summary["groups"]["watchlist_scope:series"]["count"], 1)
 
     def test_open_pick_diagnostics_rolls_up_source_health_statuses(self):
         diagnostics = paper.open_pick_diagnostics([

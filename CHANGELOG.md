@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.33] - 2026-04-21
+
+### Added
+- Mixed NBA watchlist rows now carry explicit `watchlist_scope` metadata into the paper ledger so `paper.py report` can separate NBA game-monitoring rows from playoff-series rows without any schema migration
+- `paper.py report` now emits a `post_1_0_30_nba_watchlist_sample` rollup plus open-NBA scope diagnostics, including mixed-scope clusters when a same-matchup game row and series row are both open
+
+### Changed
+- `NBA markets to watch today` remains a mixed board, but the ranking now treats same-day game rows and playoff-series rows as distinct classes so direct games anchor the board while series rows must clear a higher signal bar to stay in the top set
+- Compact NBA watchlist rendering now labels mixed-board rows explicitly as `Game outcome` or `Playoff series`, which makes same-day monitoring and broader series-state monitoring easier to read
+- Paper extraction from mixed NBA watchlists now prefers a near-tied direct game row over a same-matchup series row for day-of-game prompts, while still allowing clearly stronger series rows to win when they materially outrank the game row
+
+### Tested
+- Added regressions for mixed NBA watchlist ordering, explicit series labeling, weak-series suppression, mixed-scope paper extraction, and NBA watchlist report rollups by `watchlist_scope`
+
 ## [1.0.32] - 2026-04-21
 
 ### Added
