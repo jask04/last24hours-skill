@@ -697,7 +697,38 @@ def _sports_candidate_score(
     )
     if category not in {"high_signal", "market_context"}:
         return None
-    concrete_hits = len(SPORTS_HIGH_SIGNAL_TERMS & tokens)
+    strict_status_terms = {
+        "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
+        "probable", "available", "inactive", "scratch", "scratched", "status",
+        "report", "listed",
+    }
+    strict_rest_terms = {
+        "rest", "resting", "minutes", "restriction", "restricted", "back-to-back", "b2b",
+    }
+    strict_lineup_terms = {"lineup", "lineups", "starter", "starters", "starting", "confirmed", "announced", "expected"}
+    strict_incentive_terms = {
+        "elimination", "eliminated", "clinch", "clinched", "tank", "tanking",
+    }
+    line_movement_terms = {"movement", "moved", "steam", "shift", "shifted", "shortened", "drifted"}
+
+    has_status = bool(tokens & strict_status_terms)
+    has_rest = bool(tokens & strict_rest_terms)
+    has_lineup = bool(tokens & {"lineup", "lineups", "starter", "starters", "starting"} and tokens & {"confirmed", "announced", "expected", "available", "inactive", "ruled", "questionable", "doubtful"})
+    has_incentive = bool(tokens & strict_incentive_terms)
+    if {"playoff", "playoffs"} & tokens and tokens & {"elimination", "eliminated", "clinch", "clinched"}:
+        has_incentive = True
+    if "must" in tokens and "win" in tokens and (
+        tokens & {"elimination", "eliminated", "clinch", "clinched"}
+    ):
+        has_incentive = True
+    has_actionable_signal = has_status or has_rest or has_lineup or has_incentive
+    has_clean_market_context = bool(tokens & SPORTS_MARKET_CONTEXT_TERMS and tokens & line_movement_terms)
+    if category == "high_signal" and not has_actionable_signal:
+        return None
+    if category == "market_context" and not has_clean_market_context:
+        return None
+
+    concrete_hits = int(has_status) + int(has_rest) + int(has_lineup) + int(has_incentive)
     if category == "market_context":
         concrete_hits = max(concrete_hits, 1)
     if not sides and "nba" in title.lower() and not ((eq.NBA_TEAM_TOKENS & tokens) or "nba" in tokens):
@@ -717,9 +748,9 @@ def _sports_candidate_score(
 
     if concrete_hits:
         score += 12
-    if {"injury", "injuries", "ruled", "questionable", "doubtful", "rest", "lineup", "lineups", "inactive", "available"} & tokens:
+    if has_status or has_rest or has_lineup:
         score += 10
-    if {"playoff", "playoffs", "seed", "seeding", "elimination", "clinch", "clinched", "tank", "tanking"} & tokens:
+    if has_incentive:
         score += 6
     if SPORTS_MARKET_CONTEXT_TERMS & tokens and concrete_hits:
         score += 4

@@ -88,11 +88,11 @@ SPORTS_GENERIC_PREVIEW_TERMS = {
     "preview", "previews", "matchup", "matchups", "strategy", "strategies",
     "overpower", "thrilling", "showdown", "watch", "channel", "tickets",
     "sportsbook", "fanduel", "draftkings", "betting", "odds", "previous", "meeting",
-    "iconic",
+    "iconic", "ats", "angle", "favorite", "favorites", "probabilities",
 }
 SPORTS_RECAP_TERMS = {
     "matchup", "season", "series", "previous", "meeting", "sportsbook",
-    "fanduel", "draftkings", "check", "showdown", "get", "ready",
+    "fanduel", "draftkings", "check", "showdown", "get", "ready", "ats", "angle",
 }
 SPORTS_REPORTER_TOKENS = {
     "beat", "reporter", "reports", "insider", "news", "updates", "wire",
@@ -186,13 +186,14 @@ def classify_sports_evidence(
 ) -> str:
     """Classify sports evidence quality for forecast rationale selection."""
     raw = f"{text or ''} {source_context or ''}"
+    lowered = raw.lower()
     tokens = tokenize(raw)
     if "check" in tokens and "out" in tokens:
         tokens.discard("out")
 
     status_terms = {
         "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
-        "probable", "available", "inactive", "out", "scratch", "scratched",
+        "probable", "available", "inactive", "scratch", "scratched",
         "status", "report", "listed",
     }
     rest_terms = {
@@ -202,19 +203,62 @@ def classify_sports_evidence(
     lineup_terms = {"lineup", "lineups", "starter", "starters", "starting"}
     lineup_status_terms = status_terms | {"confirmed", "announced", "expected"}
     incentive_terms = {
-        "seed", "seeding", "elimination", "eliminated", "clinch", "clinched",
-        "must-win", "must", "tank", "tanking",
+        "elimination", "eliminated", "clinch", "clinched",
+        "tank", "tanking",
     }
     market_terms = SPORTS_MARKET_CONTEXT_TERMS | {"movement", "moved", "steam"}
     line_movement_terms = {"movement", "moved", "steam", "shift", "shifted", "shortened", "drifted"}
     ticket_terms = {"ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat", "fs", "wtb"}
+    media_guide_phrases = (
+        "how to watch",
+        "live stream",
+        "stream it online",
+        "tv, live stream",
+        "tv and stream",
+        "tv channel",
+    )
+    sportsbook_copy_phrases = (
+        "ats angle",
+        "point spread",
+        "moneyline",
+        "over/under",
+        "market & probabilities",
+        "market and probabilities",
+        "best bets",
+        "predictions for all games",
+    )
+    recap_phrases = (
+        "statement win",
+        "dominant showing",
+        "roll past",
+        "rolled past",
+        "take down",
+        "took down",
+        "not backing down",
+        "lived up to the hype",
+    )
+    low_signal_context_terms = {"nbapicksai", "sportsbook", "sportsbetting"}
 
     has_status = bool(tokens & status_terms)
     has_rest = bool(tokens & rest_terms)
     has_lineup_status = bool(tokens & lineup_terms and tokens & lineup_status_terms)
     has_incentive = bool(tokens & incentive_terms)
+    if {"playoff", "playoffs"} & tokens and tokens & {"elimination", "eliminated", "clinch", "clinched"}:
+        has_incentive = True
+    if "must" in tokens and "win" in tokens and (
+        tokens & {"elimination", "eliminated", "clinch", "clinched"}
+    ):
+        has_incentive = True
     has_high_signal = has_status or has_rest or has_lineup_status or has_incentive
 
+    if source_context and tokenize(source_context) & low_signal_context_terms and not has_high_signal:
+        return "low_signal"
+    if any(phrase in lowered for phrase in media_guide_phrases) and not has_high_signal:
+        return "low_signal"
+    if any(phrase in lowered for phrase in sportsbook_copy_phrases) and not has_high_signal:
+        return "low_signal"
+    if any(phrase in lowered for phrase in recap_phrases) and not (has_status or has_rest or has_lineup_status):
+        return "low_signal"
     if tokens & ticket_terms and not (has_rest or has_lineup_status or has_incentive or (tokens & (status_terms - {"available"}))):
         return "low_signal"
     if SPORTS_LOW_SIGNAL_TERMS & tokens and not has_high_signal:

@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from scripts.lib import evidence_fusion, forecast, market_watchlist, render, schema
+from scripts.lib import evidence_fusion, forecast, market_watchlist, render, schema, sports_schedule
 
 
 def _report(topic: str) -> schema.Report:
@@ -19,6 +19,131 @@ def _engagement(volume=1_000_000, liquidity=250_000, open_interest=None):
 
 
 class ForecastWatchlistTests(unittest.TestCase):
+    def test_nba_date_window_counts_as_slate_query(self):
+        self.assertTrue(sports_schedule.is_nba_slate_query("NBA matchups April 21 through April 23"))
+
+    def test_nba_slate_render_shows_only_direct_game_markets(self):
+        report = _report("NBA matchups April 21 through April 23")
+        report.forecasts = [
+            schema.ForecastItem(
+                title="76ers vs. Celtics",
+                forecast_probability=0.88,
+                forecast_range_low=0.84,
+                forecast_range_high=0.92,
+                favorite_label="Celtics",
+                polymarket_market_id="PM1",
+                anchor_source="polymarket",
+                market_view="Polymarket 88%",
+                why_line="Mostly market-driven right now.",
+                confidence_level="moderate-low",
+                uncertainty="Confidence is moderate-low.",
+            ),
+            schema.ForecastItem(
+                title="Magic vs. Pistons",
+                forecast_probability=0.78,
+                forecast_range_low=0.74,
+                forecast_range_high=0.82,
+                favorite_label="Pistons",
+                polymarket_market_id="PM4",
+                anchor_source="polymarket",
+                market_view="Polymarket 78%",
+                why_line="Mostly market-driven right now.",
+                confidence_level="moderate-low",
+                uncertainty="Confidence is moderate-low.",
+            ),
+        ]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="76ers vs. Celtics",
+                question="76ers vs. Celtics",
+                url="https://polymarket.com/event/nba-phi-bos-2026-04-21",
+                outcome_prices=[("76ers", 0.12), ("Celtics", 0.88)],
+                engagement=_engagement(),
+                market_type="game_outcome",
+                relevance=0.95,
+                score=95,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Spread: Rockets (-4.5)",
+                question="Rockets vs. Lakers",
+                url="https://polymarket.com/event/nba-hou-lal-2026-04-21",
+                outcome_prices=[("Rockets", 0.52), ("Lakers", 0.48)],
+                engagement=_engagement(),
+                market_type="team_prop",
+                relevance=0.9,
+                score=90,
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="NBA Playoffs: Who Will Win Series? - 76ers vs. Celtics",
+                question="NBA Playoffs: Who Will Win Series? - 76ers vs. Celtics",
+                url="https://polymarket.com/event/nba-playoffs-who-will-win-series-76ers-vs-celtics",
+                outcome_prices=[("76ers", 0.04), ("Celtics", 0.96)],
+                engagement=_engagement(),
+                market_type="futures",
+                relevance=0.9,
+                score=90,
+            ),
+            schema.PolymarketItem(
+                id="PM4",
+                title="Magic vs. Pistons",
+                question="Magic vs. Pistons",
+                url="https://polymarket.com/event/nba-orl-det-2026-04-22",
+                outcome_prices=[("Magic", 0.22), ("Pistons", 0.78)],
+                engagement=_engagement(),
+                market_type="game_outcome",
+                relevance=0.95,
+                score=93,
+            ),
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("76ers vs. Celtics", output)
+        self.assertNotIn("Spread: Rockets (-4.5)", output)
+        self.assertNotIn("Who Will Win Series", output)
+
+    def test_nba_slate_x_section_filters_how_to_watch_and_ats_copy(self):
+        report = _report("NBA matchups April 21 through April 23")
+        report.forecasts = [
+            schema.ForecastItem(
+                title="Trail Blazers vs. Spurs",
+                forecast_probability=0.86,
+                forecast_range_low=0.82,
+                forecast_range_high=0.90,
+                favorite_label="Spurs",
+                polymarket_market_id="PM1",
+                anchor_source="polymarket",
+                market_view="Polymarket 86%",
+                why_line="Mostly market-driven right now.",
+                confidence_level="moderate-low",
+                uncertainty="Confidence is moderate-low.",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="How to watch Portland Trail Blazers-San Antonio Spurs, Game 2: TV, live stream for Tuesday's NBA playoff game.",
+                url="https://x.com/media/status/1",
+                author_handle="AzspNews",
+                score=84,
+            ),
+            schema.XItem(
+                id="X2",
+                text="NBA Playoffs: Portland Trail Blazers vs. San Antonio Spurs (Game 2) Line: San Antonio -11.5 | Total: 220.0 The ATS Angle San Antonio must maintain defensive dominance to cover.",
+                url="https://x.com/edge/status/2",
+                author_handle="TheEdgeAnalyst",
+                score=87,
+            ),
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertNotIn("How to watch Portland Trail Blazers-San Antonio Spurs", output)
+        self.assertNotIn("The ATS Angle", output)
+
     def test_nba_slate_ignores_player_props_as_forecasts(self):
         report = _report("todays nba games")
         report.polymarket = [

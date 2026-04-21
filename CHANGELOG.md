@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.31] - 2026-04-21
+
+### Fixed
+- NBA slate/date-window forecasts now reject ATS-style sportsbook copy, how-to-watch media guides, ticket chatter, and prior-game recap language from both `why_line` selection and compact sports source sections
+- NBA slate/date-window prompts now behave as first-class slate queries for rendering and direct-game market filtering, so primary pricing sections stay limited to direct in-window game-outcome rows
+- Sports rationale quality now requires cleaner injury, lineup, rest, elimination/clinch, or exact-date line-movement context instead of treating generic playoff or seed wording as forecast signal
+
+### Tested
+- Added regressions for ATS-angle false positives, how-to-watch suppression, past-game recap suppression, NBA date-window slate detection, and direct-game-only slate market rendering
+
 ## [1.0.28] - 2026-04-20
 
 ### Added

@@ -415,6 +415,134 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertIn("line moved", forecasts[0].why_line)
         self.assertNotIn("betting", forecasts[0].why_line.lower())
 
+    def test_how_to_watch_post_is_rejected_from_sports_rationale(self):
+        report = _report("76ers vs Celtics April 21 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="76ers vs. Celtics",
+                question="76ers vs. Celtics",
+                url="https://polymarket.com/event/nba-phi-bos-2026-04-21",
+                outcome_prices=[("76ers", 0.12), ("Celtics", 0.88)],
+                engagement=schema.Engagement(volume=504_000, liquidity=4_600_000),
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                score=95,
+                relevance=0.95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="How to watch Philadelphia 76ers-Boston Celtics, Game 2: TV, live stream info for Tuesday's NBA playoff game.",
+                url="https://x.com/media/status/1",
+                author_handle="msnsports",
+                score=84,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+        self.assertNotIn("how to watch", forecasts[0].why_line.lower())
+        self.assertNotIn("live stream", forecasts[0].why_line.lower())
+
+    def test_slate_market_summary_copy_is_rejected_from_sports_rationale(self):
+        report = _report("76ers vs Celtics April 21 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="76ers vs. Celtics",
+                question="76ers vs. Celtics",
+                url="https://polymarket.com/event/nba-phi-bos-2026-04-21",
+                outcome_prices=[("76ers", 0.12), ("Celtics", 0.88)],
+                engagement=schema.Engagement(volume=504_000, liquidity=4_600_000),
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                score=95,
+                relevance=0.95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Basketball chronicle NBA playoff Philadelphia 76ers vs Boston Celtics Market & Probabilities. Celtics favorites. Key factors and spread.",
+                url="https://x.com/summary/status/1",
+                author_handle="summarybot",
+                score=85,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+        self.assertNotIn("probabilities", forecasts[0].why_line.lower())
+        self.assertNotIn("favorites", forecasts[0].why_line.lower())
+
+    def test_ats_angle_copy_with_must_maintain_does_not_become_sports_rationale(self):
+        report = _report("Trail Blazers vs Spurs April 21 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Trail Blazers vs. Spurs",
+                question="Trail Blazers vs. Spurs",
+                url="https://polymarket.com/event/nba-por-sas-2026-04-21",
+                outcome_prices=[("Trail Blazers", 0.14), ("Spurs", 0.86)],
+                engagement=schema.Engagement(volume=373_000, liquidity=4_500_000),
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                score=91,
+                relevance=0.91,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="NBA Playoffs: Portland Trail Blazers vs. San Antonio Spurs (Game 2) Time: 8:00 PM ET Line: San Antonio -11.5 | Total: 220.0 The ATS Angle San Antonio Spurs -11.5 (-110): The Spurs (1-0 lead) are heavy favorites. To cover the -11.5, San Antonio must maintain their defensive dominance.",
+                url="https://x.com/edge/status/1",
+                author_handle="TheEdgeAnalyst",
+                score=87,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+        self.assertNotIn("ats angle", forecasts[0].why_line.lower())
+        self.assertNotIn("must maintain", forecasts[0].why_line.lower())
+
+    def test_past_game_recap_copy_does_not_become_sports_rationale(self):
+        report = _report("Magic vs Pistons April 22 2026 Game 2")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Magic vs. Pistons",
+                question="Magic vs. Pistons",
+                url="https://polymarket.com/event/nba-orl-det-2026-04-22",
+                outcome_prices=[("Magic", 0.22), ("Pistons", 0.78)],
+                engagement=schema.Engagement(volume=59_000, liquidity=467_000),
+                market_type="game_outcome",
+                end_date="2026-04-22",
+                score=89,
+                relevance=0.89,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Huge statement win Orlando Magic take down the No. 1 seed Detroit Pistons on Sunday. Playoff energy came early. Orlando not backing down.",
+                url="https://x.com/recap/status/1",
+                author_handle="UnsungHoops",
+                score=83,
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIn("Mostly market-driven", forecasts[0].why_line)
+        self.assertNotIn("statement win", forecasts[0].why_line.lower())
+        self.assertNotIn("not backing down", forecasts[0].why_line.lower())
+
     def test_macro_alert_spam_does_not_become_why_line(self):
         report = _report("Fed rate cut by June")
         report.x = [

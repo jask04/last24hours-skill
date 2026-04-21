@@ -121,7 +121,22 @@ def _is_nba_slate_topic(topic: str) -> bool:
     return "nba" in topic_lower and any(term in topic_lower for term in (
         "games today", "games tonight", "games tomorrow", "tomorrows nba games",
         "tomorrow's nba games", "todays nba games", "today's nba games", "nba slate",
+        "nba matchups",
     ))
+
+
+def _is_direct_nba_market_item(item) -> bool:
+    text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    item_type = getattr(item, "market_type", "unknown")
+    if item_type == "game_outcome":
+        return _is_nba_market_item(item)
+    if item_type != "unknown":
+        return False
+    return _is_nba_market_item(item) and market_types.is_direct_game_outcome(
+        getattr(item, "title", ""),
+        getattr(item, "question", ""),
+        getattr(item, "url", ""),
+    )
 
 
 def _matchup_side_tokens(text: str) -> list[set[str]]:
@@ -1287,7 +1302,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         elif query_kind == "market_watchlist" or suppress_unused_poly:
             market_items = []
         if _is_nba_slate_topic(report.topic):
-            market_items = [item for item in market_items if _is_nba_market_item(item)]
+            market_items = [item for item in market_items if _is_direct_nba_market_item(item)]
         if not market_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Polymarket markets found after league filtering.*")
             lines.append("")
@@ -1361,7 +1376,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         elif query_kind == "market_watchlist" or suppress_unused_kalshi:
             kalshi_items = []
         if _is_nba_slate_topic(report.topic):
-            kalshi_items = [item for item in kalshi_items if _is_nba_market_item(item)]
+            kalshi_items = [item for item in kalshi_items if _is_direct_nba_market_item(item)]
         if not kalshi_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Kalshi markets found after league filtering.*")
             lines.append("")

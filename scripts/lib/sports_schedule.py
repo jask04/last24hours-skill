@@ -254,6 +254,8 @@ def is_nba_slate_query(topic: str) -> bool:
     topic_lower = topic.lower()
     if "nba" not in topic_lower:
         return False
+    if resolve_nba_date_window(topic) is not None:
+        return True
     return any(term in topic_lower for term in (
         "games today", "games tonight", "games tomorrow", "tomorrows nba games",
         "tomorrow's nba games", "todays nba games", "today's nba games",
