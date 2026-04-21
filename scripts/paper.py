@@ -210,6 +210,25 @@ def _stored_rationale_text(pick: Dict[str, Any]) -> str:
     ).strip()
 
 
+def _parse_skill_version_value(value: Any) -> Optional[tuple[int, int, int]]:
+    text = str(value or "").strip()
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)$", text)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def _skill_version_era(value: Any) -> str:
+    parsed = _parse_skill_version_value(value)
+    if parsed is None:
+        return "legacy_unversioned"
+    if parsed < (1, 0, 20):
+        return "pre_1_0_20"
+    if parsed < (1, 0, 24):
+        return "v1_0_20_to_1_0_23"
+    return "v1_0_24_plus"
+
+
 def _looks_like_alert_spam(text: str) -> bool:
     raw = (text or "").strip()
     letters = [char for char in raw if char.isalpha()]
@@ -951,6 +970,38 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def current_skill_comparable_summary(
+    picks: List[Dict[str, Any]],
+    *,
+    min_version: str = "1.0.24",
+) -> Dict[str, Any]:
+    resolved_all = [p for p in picks if p.get("status") == "resolved" and p.get("resolution_value") is not None]
+    minimum = _parse_skill_version_value(min_version)
+    comparable: List[Dict[str, Any]] = []
+    excluded_legacy_noisy = 0
+    excluded_pre_current = 0
+    excluded_unversioned = 0
+    for pick in resolved_all:
+        if _is_legacy_noisy_rationale(pick):
+            excluded_legacy_noisy += 1
+            continue
+        version = _parse_skill_version_value(pick.get("skill_version"))
+        if version is None:
+            excluded_unversioned += 1
+            continue
+        if minimum and version < minimum:
+            excluded_pre_current += 1
+            continue
+        comparable.append(pick)
+    summary = calibration_summary(comparable)
+    summary["min_skill_version"] = min_version
+    summary["raw_resolved_count"] = len(resolved_all)
+    summary["excluded_legacy_noisy_count"] = excluded_legacy_noisy
+    summary["excluded_pre_current_version_count"] = excluded_pre_current
+    summary["excluded_unversioned_count"] = excluded_unversioned
+    return summary
+
+
 def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     open_picks = [p for p in picks if p.get("status") in {"open", "unknown"}]
     mix = {"favorite": 0, "balanced": 0, "longshot": 0, "unknown": 0}
@@ -963,7 +1014,13 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_pick_type: Dict[str, int] = {}
     by_domain: Dict[str, int] = {}
     by_age_bucket: Dict[str, int] = {}
+    by_version_era: Dict[str, int] = {}
     duplicate_keys: Dict[str, int] = {}
+    duplicate_rows: Dict[str, List[Dict[str, Any]]] = {}
+    legacy_noisy_by_skill_version: Dict[str, int] = {}
+    legacy_noisy_by_pick_type: Dict[str, int] = {}
+    legacy_noisy_by_domain: Dict[str, int] = {}
+    source_health_status_rollup: Dict[str, Dict[str, int]] = {}
     now = datetime.now()
     for pick in open_picks:
         is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
@@ -980,15 +1037,30 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         else:
             skill_bucket = skill_version
         by_skill_version[skill_bucket] = by_skill_version.get(skill_bucket, 0) + 1
+        version_era = _skill_version_era(skill_version)
+        by_version_era[version_era] = by_version_era.get(version_era, 0) + 1
         pick_type = str(pick.get("pick_type") or "unknown")
         by_pick_type[pick_type] = by_pick_type.get(pick_type, 0) + 1
         domain = _domain(str(pick.get("topic") or ""))
         by_domain[domain] = by_domain.get(domain, 0) + 1
+        if _is_legacy_noisy_rationale(pick):
+            legacy_noisy_by_skill_version[skill_bucket] = legacy_noisy_by_skill_version.get(skill_bucket, 0) + 1
+            legacy_noisy_by_pick_type[pick_type] = legacy_noisy_by_pick_type.get(pick_type, 0) + 1
+            legacy_noisy_by_domain[domain] = legacy_noisy_by_domain.get(domain, 0) + 1
         age_bucket = _age_bucket(pick.get("created_at"), now=now)
         by_age_bucket[age_bucket] = by_age_bucket.get(age_bucket, 0) + 1
         key = str(pick.get("venue_market_key") or "")
         if key:
             duplicate_keys[key] = duplicate_keys.get(key, 0) + 1
+            duplicate_rows.setdefault(key, []).append(pick)
+        source_health = _safe_json_loads(pick.get("evidence_json")).get("source_health", {})
+        statuses = source_health.get("source_status", {}) if isinstance(source_health, dict) else {}
+        for source_name, status_payload in statuses.items():
+            if not isinstance(status_payload, dict):
+                continue
+            status = str(status_payload.get("status") or "unknown")
+            source_rollup = source_health_status_rollup.setdefault(str(source_name), {})
+            source_rollup[status] = int(source_rollup.get(status, 0) or 0) + 1
         if pick.get("venue") == "model_implied" or pick.get("anchor_source") == "model_implied":
             model_implied += 1
         has_auto_resolver = pick.get("venue") in {"kalshi", "polymarket", "weather_api"} or pick.get("resolution_source") in {"kalshi", "polymarket", "nws_observations", "espn_nba"}
@@ -997,6 +1069,25 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     duplicate_market_key_count = sum(1 for count in duplicate_keys.values() if count > 1)
     duplicate_row_count = sum(count - 1 for count in duplicate_keys.values() if count > 1)
     duplicate_clusters = {key: count for key, count in sorted(duplicate_keys.items()) if count > 1}
+    duplicate_cluster_summaries = []
+    duplicate_open_row_count_legacy_era = 0
+    duplicate_open_row_count_current_dedupe_era = 0
+    for key, rows in sorted(duplicate_rows.items()):
+        if len(rows) <= 1:
+            continue
+        ordered = sorted(rows, key=lambda row: _parse_timestamp(row.get("created_at")) or datetime.min, reverse=True)
+        for row in ordered[1:]:
+            era = _skill_version_era(row.get("skill_version"))
+            if era == "v1_0_24_plus":
+                duplicate_open_row_count_current_dedupe_era += 1
+            else:
+                duplicate_open_row_count_legacy_era += 1
+        duplicate_cluster_summaries.append({
+            "venue_market_key": key,
+            "count": len(rows),
+            "domains": sorted({_domain(str(row.get("topic") or "")) for row in rows}),
+            "version_eras": sorted({_skill_version_era(row.get("skill_version")) for row in rows}),
+        })
     warnings = []
     total = len(open_picks)
     if total and mix["favorite"] / total >= 0.70:
@@ -1026,9 +1117,17 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "by_pick_type": dict(sorted(by_pick_type.items())),
         "by_domain": dict(sorted(by_domain.items())),
         "by_age_bucket": dict(sorted(by_age_bucket.items())),
+        "by_version_era": dict(sorted(by_version_era.items())),
         "duplicate_market_key_count": duplicate_market_key_count,
         "duplicate_open_row_count": duplicate_row_count,
+        "duplicate_open_row_count_legacy_era": duplicate_open_row_count_legacy_era,
+        "duplicate_open_row_count_current_dedupe_era": duplicate_open_row_count_current_dedupe_era,
         "duplicate_clusters": duplicate_clusters,
+        "duplicate_cluster_summaries": duplicate_cluster_summaries,
+        "legacy_noisy_by_skill_version": dict(sorted(legacy_noisy_by_skill_version.items())),
+        "legacy_noisy_by_pick_type": dict(sorted(legacy_noisy_by_pick_type.items())),
+        "legacy_noisy_by_domain": dict(sorted(legacy_noisy_by_domain.items())),
+        "source_health_status_rollup": {key: dict(sorted(value.items())) for key, value in sorted(source_health_status_rollup.items())},
         "warnings": warnings,
     }
 
@@ -1131,7 +1230,8 @@ def cmd_resolve(args) -> None:
 def cmd_report(args) -> None:
     recent = store.list_recent_paper_picks(days=args.days, limit=args.limit)
     summary = calibration_summary(store.list_resolved_paper_picks(days=args.days))
-    print(json.dumps({"days": args.days, "summary": summary, "open_portfolio": open_pick_diagnostics(recent), "recent_picks": recent}, indent=2, default=str))
+    comparable = current_skill_comparable_summary(store.list_resolved_paper_picks(days=args.days))
+    print(json.dumps({"days": args.days, "summary": summary, "current_skill_comparable_sample": comparable, "open_portfolio": open_pick_diagnostics(recent), "recent_picks": recent}, indent=2, default=str))
 
 
 def cmd_suggest(args) -> None:

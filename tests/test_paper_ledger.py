@@ -681,9 +681,14 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["by_domain"]["crypto"], 2)
         self.assertEqual(diagnostics["by_domain"]["nba"], 1)
         self.assertEqual(sum(diagnostics["by_age_bucket"].values()), 3)
+        self.assertEqual(diagnostics["by_version_era"]["v1_0_20_to_1_0_23"], 2)
+        self.assertEqual(diagnostics["by_version_era"]["legacy_unversioned"], 1)
         self.assertEqual(diagnostics["duplicate_market_key_count"], 1)
         self.assertEqual(diagnostics["duplicate_open_row_count"], 1)
+        self.assertEqual(diagnostics["duplicate_open_row_count_legacy_era"], 1)
+        self.assertEqual(diagnostics["duplicate_open_row_count_current_dedupe_era"], 0)
         self.assertEqual(diagnostics["duplicate_clusters"]["model_implied|btc-100k"], 2)
+        self.assertEqual(diagnostics["duplicate_cluster_summaries"][0]["version_eras"], ["v1_0_20_to_1_0_23"])
         self.assertTrue(any("redundant duplicates" in warning for warning in diagnostics["warnings"]))
 
     def test_open_pick_diagnostics_tracks_legacy_noisy_rationale(self):
@@ -701,6 +706,9 @@ class CalibrationTests(unittest.TestCase):
         ])
 
         self.assertEqual(diagnostics["legacy_noisy_rationale_count"], 1)
+        self.assertEqual(diagnostics["legacy_noisy_by_skill_version"]["1.0.18"], 1)
+        self.assertEqual(diagnostics["legacy_noisy_by_pick_type"]["forecast"], 1)
+        self.assertEqual(diagnostics["legacy_noisy_by_domain"]["macro"], 1)
         self.assertTrue(any("legacy rationale text" in warning for warning in diagnostics["warnings"]))
 
     def test_calibration_summary_excludes_legacy_noisy_rationale_by_default(self):
@@ -738,6 +746,99 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(summary["raw_resolved_count"], 2)
         self.assertEqual(summary["excluded_legacy_noisy_count"], 1)
         self.assertEqual(summary["count"], 1)
+
+    def test_current_skill_comparable_summary_filters_pre_current_and_unversioned_rows(self):
+        summary = paper.current_skill_comparable_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.04,
+                "log_loss": 0.22,
+                "model_probability": 0.80,
+                "venue": "kalshi",
+                "anchor_source": "kalshi",
+                "pick_type": "forecast",
+                "market_type": "macro_binary",
+                "confidence": "moderate",
+                "topic": "Fed rate cut by June",
+                "skill_version": "1.0.28",
+                "evidence_json": json.dumps({"why_line": "Official data release kept rate-cut pricing soft."}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.09,
+                "log_loss": 0.30,
+                "model_probability": 0.70,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "crypto_daily",
+                "confidence": "watchlist",
+                "topic": "Bitcoin above 100k this week",
+                "skill_version": "1.0.18",
+                "evidence_json": json.dumps({"why_line": "Mostly market-driven right now; supporting evidence is thin."}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 0.0,
+                "brier_score": 0.64,
+                "log_loss": 1.60,
+                "model_probability": 0.80,
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "pick_type": "forecast",
+                "market_type": "model_implied",
+                "confidence": "low",
+                "topic": "Fed rate cut by June",
+                "skill_version": "",
+                "evidence_json": json.dumps({"why_line": "BREAKING: top traders say this VIP macro call keeps cashing."}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.16,
+                "log_loss": 0.45,
+                "model_probability": 0.60,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "weather_binary",
+                "confidence": "watchlist",
+                "topic": "NYC rain tomorrow",
+                "skill_version": "",
+                "evidence_json": json.dumps({"why_line": "Official NWS hourly forecast provides the current weather anchor."}),
+            },
+        ])
+
+        self.assertEqual(summary["count"], 1)
+        self.assertEqual(summary["raw_resolved_count"], 4)
+        self.assertEqual(summary["excluded_pre_current_version_count"], 1)
+        self.assertEqual(summary["excluded_unversioned_count"], 1)
+
+    def test_open_pick_diagnostics_rolls_up_source_health_statuses(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "open",
+                "topic": "Bitcoin above 100k this week",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "model_probability": 0.12,
+                "resolution_source": "",
+                "skill_version": "1.0.28",
+                "evidence_json": json.dumps({
+                    "source_health": {
+                        "source_status": {
+                            "x": {"status": "degraded"},
+                            "web": {"status": "empty"},
+                        }
+                    }
+                }),
+            }
+        ])
+
+        self.assertEqual(diagnostics["source_health_status_rollup"]["x"]["degraded"], 1)
+        self.assertEqual(diagnostics["source_health_status_rollup"]["web"]["empty"], 1)
 
 
 class LaunchdTests(unittest.TestCase):

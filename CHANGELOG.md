@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.28] - 2026-04-20
+
+### Added
+- `paper.py report` now emits a `current_skill_comparable_sample` rollup for resolved rows that are both current-version comparable and free of legacy noisy rationale text
+- Open-paper diagnostics now break out version eras, legacy-noisy groups, source-health status rollups, and duplicate-cluster summaries so current post-hardening samples are easier to separate from older history
+
+### Changed
+- Duplicate-open-row diagnostics now distinguish legacy duplicate noise from current post-dedupe-era rows without rewriting any historical paper records
+
+### Tested
+- Added paper-ledger regressions for current-skill comparable rollups, legacy-noisy breakdowns, duplicate-era separation, and stored source-health status aggregation
+
 ## [1.0.27] - 2026-04-20
 
 ### Added
