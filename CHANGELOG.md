@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.40] - 2026-04-21
+
+### Added
+- Two paper-only CS2 portfolio entries: one same-day CS2 watchlist sample and one same-day CS2 forecast sample
+- Paper notes and report rollups now track eSports `subdomain` metadata, with `cs2` available for future calibration slices
+
+### Changed
+- Paper extraction now tags forecast, watchlist, and bundle notes with `domain` plus `subdomain` metadata without changing the SQLite schema
+- Paper report summaries and open-pick diagnostics now expose `subdomain:*` groupings alongside the existing domain rollups
+
+### Fixed
+- `paper.py daily --dry-run` now includes the CS2 calibration topics in the shipped portfolio fixture without regressing existing NBA, macro, crypto, weather, or tech diagnostics
+
 ## [1.0.39] - 2026-04-21
 
 ### Added

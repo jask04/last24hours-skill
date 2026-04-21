@@ -72,6 +72,24 @@
     "notes": "Tech/product market-watchlist sample; stores the top ranked paper pick."
   },
   {
+    "topic": "Counter-Strike 2 markets to watch today",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "CS2 watchlist calibration sample; should prefer same-day direct Counter-Strike match markets."
+  },
+  {
+    "topic": "Counter-Strike 2 matches today",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "CS2 direct-match forecast sample; should anchor on same-day Counter-Strike match winner markets."
+  },
+  {
     "topic": "Polymarket markets closing soon",
     "query_type": "market_watchlist",
     "enabled": true,

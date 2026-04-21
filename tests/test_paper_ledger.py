@@ -281,6 +281,30 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(picks[0]["title"], "Balanced market")
         self.assertAlmostEqual(picks[0]["model_probability"], 0.58)
 
+    def test_cs2_watchlist_pick_stores_esports_domain_and_subdomain(self):
+        report = {
+            "topic": "Counter-Strike 2 markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                    "question": "Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                    "outcome_label": "G2",
+                    "probability": 0.53,
+                    "market_type": "game_outcome",
+                    "url": "https://polymarket.com/event/cs2-astr-g2-2026-04-21",
+                }
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        notes = json.loads(picks[0]["notes_json"])
+        self.assertEqual(notes["domain"], "esports")
+        self.assertEqual(notes["subdomain"], "cs2")
+
     def test_filter_picks_by_policy(self):
         picks = [
             {"pick_type": "forecast", "title": "F"},
@@ -728,6 +752,24 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["duplicate_cluster_summaries"][0]["version_eras"], ["v1_0_20_to_1_0_23"])
         self.assertTrue(any("redundant duplicates" in warning for warning in diagnostics["warnings"]))
 
+    def test_open_pick_diagnostics_tracks_esports_subdomain(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "status": "open",
+                "topic": "Counter-Strike 2 markets to watch today",
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "venue_market_key": "cs2-astr-g2",
+                "model_probability": 0.53,
+                "resolution_source": "polymarket",
+                "skill_version": "1.0.40",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "cs2"}),
+            }
+        ])
+
+        self.assertEqual(diagnostics["by_domain"]["esports"], 1)
+        self.assertEqual(diagnostics["by_subdomain"]["cs2"], 1)
+
     def test_open_pick_diagnostics_tracks_legacy_noisy_rationale(self):
         diagnostics = paper.open_pick_diagnostics([
             {
@@ -888,6 +930,28 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(summary["raw_resolved_count"], 2)
         self.assertEqual(summary["excluded_legacy_noisy_count"], 1)
         self.assertEqual(summary["count"], 1)
+
+    def test_calibration_summary_groups_esports_subdomain(self):
+        summary = paper.calibration_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.22,
+                "log_loss": 0.55,
+                "model_probability": 0.53,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "game_outcome",
+                "confidence": "watchlist",
+                "topic": "Counter-Strike 2 markets to watch today",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "cs2"}),
+                "evidence_json": json.dumps({"catalyst_summary": "Mostly market-driven right now."}),
+            }
+        ])
+
+        self.assertEqual(summary["groups"]["domain:esports"]["count"], 1)
+        self.assertEqual(summary["groups"]["subdomain:cs2"]["count"], 1)
 
     def test_current_skill_comparable_summary_filters_pre_current_and_unversioned_rows(self):
         summary = paper.current_skill_comparable_summary([

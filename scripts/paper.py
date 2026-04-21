@@ -92,6 +92,8 @@ def _domain(topic: str) -> str:
     tokens = set(re.sub(r"[^\w\s]", " ", lowered).split())
     if "nba" in tokens:
         return "nba"
+    if eq.is_esports_query(lowered):
+        return "esports"
     if tokens & {"bitcoin", "btc", "ethereum", "eth", "crypto"}:
         return "crypto"
     if tokens & {"fed", "rate", "rates", "cut", "cuts", "inflation", "cpi", "recession"}:
@@ -101,6 +103,13 @@ def _domain(topic: str) -> str:
     if tokens & {"ai", "coding", "model", "models"}:
         return "tech"
     return "broad"
+
+
+def _subdomain(topic: str) -> str:
+    lowered = (topic or "").lower()
+    if eq.is_cs2_query(lowered):
+        return "cs2"
+    return ""
 
 
 def _probability_bucket(probability: float) -> str:
@@ -422,6 +431,14 @@ def _pick_watchlist_scope(pick: Dict[str, Any]) -> str:
     return str(notes.get("watchlist_scope") or "")
 
 
+def _pick_subdomain(pick: Dict[str, Any]) -> str:
+    notes = _safe_json_loads(pick.get("notes_json"))
+    subdomain = str(notes.get("subdomain") or "")
+    if subdomain:
+        return subdomain
+    return _subdomain(str(pick.get("topic") or ""))
+
+
 def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract paper picks from a last24hours JSON report."""
     topic = report.get("topic", "")
@@ -503,7 +520,11 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             "status": "open" if venue in {"kalshi", "polymarket", "weather_api"} else "unknown",
             "resolution_source": "nws_observations" if venue == "weather_api" else (venue if venue in {"kalshi", "polymarket"} else ""),
             "evidence_json": _evidence_payload(report, forecast),
-            "notes_json": json.dumps({"domain": _domain(topic), "paper_only": True}, sort_keys=True),
+            "notes_json": json.dumps({
+                "domain": _domain(topic),
+                "subdomain": _subdomain(topic),
+                "paper_only": True,
+            }, sort_keys=True),
             "skill_version": skill_version,
         })
 
@@ -553,6 +574,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             }, sort_keys=True),
             "notes_json": json.dumps({
                 "domain": _domain(topic),
+                "subdomain": _subdomain(topic),
                 "paper_only": True,
                 "bundle_id": bundle.get("id", ""),
                 "combined_probability_independence": baseline,
@@ -603,6 +625,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 }, sort_keys=True),
                 "notes_json": json.dumps({
                     "domain": _domain(topic),
+                    "subdomain": _subdomain(topic),
                     "paper_only": True,
                     "watchlist_scope": item.get("watchlist_scope", ""),
                     "rank_score": item.get("rank_score"),
@@ -1027,6 +1050,14 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
             "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
         }
+    for value in sorted({_pick_subdomain(p) for p in resolved if _pick_subdomain(p)}):
+        rows = [p for p in resolved if _pick_subdomain(p) == value]
+        groups[f"subdomain:{value}"] = {
+            "count": len(rows),
+            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
+            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
+            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
+        }
     for value in sorted({_probability_bucket(float(p.get("model_probability") or 0)) for p in resolved}):
         rows = [p for p in resolved if _probability_bucket(float(p.get("model_probability") or 0)) == value]
         groups[f"probability_bucket:{value}"] = {
@@ -1124,6 +1155,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_skill_version: Dict[str, int] = {}
     by_pick_type: Dict[str, int] = {}
     by_domain: Dict[str, int] = {}
+    by_subdomain: Dict[str, int] = {}
     by_watchlist_scope: Dict[str, int] = {}
     by_age_bucket: Dict[str, int] = {}
     by_version_era: Dict[str, int] = {}
@@ -1133,6 +1165,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     legacy_noisy_by_skill_version: Dict[str, int] = {}
     legacy_noisy_by_pick_type: Dict[str, int] = {}
     legacy_noisy_by_domain: Dict[str, int] = {}
+    legacy_noisy_by_subdomain: Dict[str, int] = {}
     legacy_noisy_by_reason: Dict[str, int] = {}
     legacy_noisy_examples: List[Dict[str, Any]] = []
     source_health_status_rollup: Dict[str, Dict[str, int]] = {}
@@ -1159,6 +1192,9 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         by_pick_type[pick_type] = by_pick_type.get(pick_type, 0) + 1
         domain = _domain(str(pick.get("topic") or ""))
         by_domain[domain] = by_domain.get(domain, 0) + 1
+        subdomain = _pick_subdomain(pick)
+        if subdomain:
+            by_subdomain[subdomain] = by_subdomain.get(subdomain, 0) + 1
         watchlist_scope = _pick_watchlist_scope(pick)
         if watchlist_scope:
             by_watchlist_scope[watchlist_scope] = by_watchlist_scope.get(watchlist_scope, 0) + 1
@@ -1166,12 +1202,15 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             legacy_noisy_by_skill_version[skill_bucket] = legacy_noisy_by_skill_version.get(skill_bucket, 0) + 1
             legacy_noisy_by_pick_type[pick_type] = legacy_noisy_by_pick_type.get(pick_type, 0) + 1
             legacy_noisy_by_domain[domain] = legacy_noisy_by_domain.get(domain, 0) + 1
+            if subdomain:
+                legacy_noisy_by_subdomain[subdomain] = legacy_noisy_by_subdomain.get(subdomain, 0) + 1
             legacy_noisy_by_reason[noisy_reason] = legacy_noisy_by_reason.get(noisy_reason, 0) + 1
             if len(legacy_noisy_examples) < 8:
                 legacy_noisy_examples.append({
                     "id": pick.get("id"),
                     "skill_version": skill_bucket,
                     "domain": domain,
+                    "subdomain": subdomain,
                     "pick_type": pick_type,
                     "reason": noisy_reason,
                     "title": pick.get("title") or pick.get("topic") or "",
@@ -1268,6 +1307,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "by_skill_version": dict(sorted(by_skill_version.items())),
         "by_pick_type": dict(sorted(by_pick_type.items())),
         "by_domain": dict(sorted(by_domain.items())),
+        "by_subdomain": dict(sorted(by_subdomain.items())),
         "by_watchlist_scope": dict(sorted(by_watchlist_scope.items())),
         "by_age_bucket": dict(sorted(by_age_bucket.items())),
         "by_version_era": dict(sorted(by_version_era.items())),
@@ -1281,6 +1321,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_noisy_by_skill_version": dict(sorted(legacy_noisy_by_skill_version.items())),
         "legacy_noisy_by_pick_type": dict(sorted(legacy_noisy_by_pick_type.items())),
         "legacy_noisy_by_domain": dict(sorted(legacy_noisy_by_domain.items())),
+        "legacy_noisy_by_subdomain": dict(sorted(legacy_noisy_by_subdomain.items())),
         "legacy_noisy_by_reason": dict(sorted(legacy_noisy_by_reason.items())),
         "legacy_noisy_examples": legacy_noisy_examples,
         "source_health_status_rollup": {key: dict(sorted(value.items())) for key, value in sorted(source_health_status_rollup.items())},
