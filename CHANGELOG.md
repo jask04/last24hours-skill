@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.36] - 2026-04-21
+
+### Changed
+- NBA slate forecasts now gather clean direct-game markets from both Polymarket and Kalshi instead of iterating Polymarket alone, which allows Kalshi-only slate boards when Kalshi has the only date-compatible game contracts
+- Kalshi/Polymarket NBA pairing now uses Kalshi NBA event-ticker team codes when matching same-game contracts, so city-style Kalshi labels can line up with nickname-style Polymarket labels
+- Market watchlists no longer force a near-cutoff Kalshi row into the top set just for venue coverage; Kalshi rows now stay or drop on the same structural ranking basis as other candidates
+
+### Fixed
+- Kalshi matchup filtering for NBA-expanded search topics now accepts NBA team codes from Kalshi tickers, which stops valid `Phoenix at Oklahoma City` rows from dropping out when the expanded topic uses `Suns vs. Thunder`
+
+### Tested
+- Added regressions for Kalshi/Polymarket NBA matchup alignment, Kalshi-only NBA slate forecasts, and NBA matchup filtering through Kalshi event-ticker team codes
+
 ## [1.0.35] - 2026-04-21
 
 ### Fixed

@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 import re
 
 from . import http
+from . import evidence_quality as eq
 from .query_type import detect_query_type
 from .relevance import token_overlap_relevance
 
@@ -158,6 +159,8 @@ def _market_text(market: Dict[str, Any]) -> str:
 
 
 def _detect_league(topic: str) -> Optional[str]:
+    if eq.is_nba_market_text(topic):
+        return "nba"
     topic_lower = topic.lower()
     for league, aliases in _LEAGUE_TOKENS.items():
         if any(alias in topic_lower for alias in aliases):
@@ -264,7 +267,8 @@ def _fetch_event(event_ticker: str) -> Dict[str, Any]:
 def _series_for_topic(topic: str) -> List[str]:
     tokens = set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split())
     series = []
-    if "nba" in tokens or "basketball" in tokens:
+    league = _detect_league(topic)
+    if league == "nba":
         series.append("KXNBAGAME")
     if tokens & {"fed", "fomc", "rates", "rate", "cuts", "cut", "hikes", "hike"}:
         series.append("KXFED")

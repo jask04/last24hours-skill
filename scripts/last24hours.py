@@ -924,6 +924,40 @@ def _topic_cap_for_depth(depth: str) -> int:
     return {"quick": 6, "default": 8, "deep": 12}.get(depth, 8)
 
 
+_NBA_CODE_TO_TEAM = {
+    "ATL": "hawks",
+    "BOS": "celtics",
+    "BKN": "nets",
+    "CHA": "hornets",
+    "CHI": "bulls",
+    "CLE": "cavaliers",
+    "DAL": "mavericks",
+    "DEN": "nuggets",
+    "DET": "pistons",
+    "GSW": "warriors",
+    "HOU": "rockets",
+    "IND": "pacers",
+    "LAC": "clippers",
+    "LAL": "lakers",
+    "MEM": "grizzlies",
+    "MIA": "heat",
+    "MIL": "bucks",
+    "MIN": "timberwolves",
+    "NOP": "pelicans",
+    "NYK": "knicks",
+    "OKC": "thunder",
+    "ORL": "magic",
+    "PHI": "76ers",
+    "PHX": "suns",
+    "POR": "blazers",
+    "SAC": "kings",
+    "SAS": "spurs",
+    "TOR": "raptors",
+    "UTA": "jazz",
+    "WAS": "wizards",
+}
+
+
 def _matchup_side_tokens(topic: str) -> list[set[str]]:
     """Return distinctive token sets for each side of a sports matchup."""
     text = topic.lower()
@@ -948,14 +982,34 @@ def _matchup_side_tokens(topic: str) -> list[set[str]]:
     return sides if len(sides) == 2 else []
 
 
+def _matchup_item_tokens(item: dict) -> set[str]:
+    item_text = " ".join(
+        str(part) for part in (
+            item.get("title", ""),
+            item.get("question", ""),
+            item.get("ticker", ""),
+            item.get("event_ticker", ""),
+        )
+        if part
+    ).lower()
+    item_tokens = set(re.sub(r"[^\w\s]", " ", item_text).split())
+    ticker_text = f"{item.get('ticker', '')} {item.get('event_ticker', '')}".upper()
+    match = re.search(r"KXNBAGAME-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})", ticker_text)
+    if match:
+        for code in (match.group(1), match.group(2)):
+            team = _NBA_CODE_TO_TEAM.get(code)
+            if team:
+                item_tokens.add(team)
+    return item_tokens
+
+
 def _market_matches_matchup(item: dict, topic: str) -> bool:
     """Require at least one distinctive token from each matchup side."""
     sides = _matchup_side_tokens(topic)
     if len(sides) != 2:
         return True
 
-    item_text = f"{item.get('title', '')} {item.get('question', '')}".lower()
-    item_tokens = set(re.sub(r"[^\w\s]", " ", item_text).split())
+    item_tokens = _matchup_item_tokens(item)
     for side in sides:
         nba_nickname_tokens = side & evidence_quality.NBA_TEAM_TOKENS
         if nba_nickname_tokens:

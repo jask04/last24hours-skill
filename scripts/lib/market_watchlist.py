@@ -1190,12 +1190,4 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         results.append(candidate)
         if len(results) >= limit:
             break
-    if results and not any(item.venue.lower() == "kalshi" for item in results):
-        best_kalshi = next((item for item in candidates if item.venue.lower() == "kalshi"), None)
-        cutoff = results[-1].rank_score
-        if best_kalshi and best_kalshi.rank_score >= max(30, cutoff - 10):
-            results[-1] = best_kalshi
-            results.sort(key=lambda item: item.rank_score, reverse=True)
-            for idx, item in enumerate(results, start=1):
-                item.id = f"MW{idx}"
     return results

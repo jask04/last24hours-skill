@@ -1,4 +1,4 @@
-# /last24hours v1.0.35
+# /last24hours v1.0.36
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -68,6 +68,7 @@ Current notable capabilities:
 - Mixed NBA watchlists that label direct rows as `Game outcome` and series rows as `Playoff series`, with paper-ledger scope metadata so NBA watchlist calibration can be split cleanly between game and series monitoring.
 - Kalshi NBA winner contracts now classify as direct game-outcome markets, so Kalshi sports rows can clear NBA watchlist scope filters instead of dropping out as unknown contracts.
 - Kalshi sports searches now respect day-specific topic windows more directly, using compact ticker/event dates so `today`, `tomorrow`, and explicit sports dates stop pulling unrelated future game contracts into the candidate set.
+- Kalshi can now lead NBA slate forecasts directly when it has the cleanest or only date-compatible game markets, instead of being limited to a blend/attachment role behind Polymarket.
 - Closing-soon Polymarket scanning with full close datetimes, minutes-to-close, liquidity/spread, 24h movement, and resolvability notes.
 - Market-watchlist catalyst filtering that rejects unrelated promo posts, picks/parlay chatter, and domain-mismatched snippets.
 - Paper-only calibration loop with Brier score, log loss, probability buckets, favorite/longshot diagnostics, and conservative suggestions.

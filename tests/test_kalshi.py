@@ -1,10 +1,14 @@
 import unittest
 from unittest import mock
 
+from scripts import last24hours
 from scripts.lib import forecast, kalshi, schema
 
 
 class KalshiTests(unittest.TestCase):
+    def test_nba_matchup_topic_detects_nba_series_search(self):
+        self.assertIn("KXNBAGAME", kalshi._series_for_topic("76ers vs. Celtics"))
+
     def test_search_kalshi_filters_nba_games_to_topic_day(self):
         events = [
             {
@@ -65,6 +69,16 @@ class KalshiTests(unittest.TestCase):
 
         self.assertEqual(len(response["markets"]), 1)
         self.assertEqual(response["markets"][0]["event_ticker"], "KXNBAGAME-26APR21PHIBOS")
+
+    def test_kalshi_matchup_filter_accepts_nba_team_codes_for_matchup_topics(self):
+        item = {
+            "title": "Game 2: Phoenix at Oklahoma City",
+            "question": "Game 2: Phoenix at Oklahoma City Winner?",
+            "ticker": "KXNBAGAME-26APR22PHXOKC-OKC",
+            "event_ticker": "KXNBAGAME-26APR22PHXOKC",
+        }
+
+        self.assertTrue(last24hours._market_matches_matchup(item, "Suns vs. Thunder"))
 
     def test_sports_market_date_compatible_reads_kalshi_compact_ticker_date(self):
         item = schema.KalshiItem(

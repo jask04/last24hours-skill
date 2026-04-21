@@ -25,6 +25,38 @@ SPORTS_LOW_SIGNAL_TERMS = eq.SPORTS_LOW_SIGNAL_TERMS
 SPORTS_RECAP_TERMS = eq.SPORTS_RECAP_TERMS
 SPORTS_REPORTER_TOKENS = eq.SPORTS_REPORTER_TOKENS
 SPORTS_TEAM_TOKENS = eq.SPORTS_TEAM_TOKENS
+_NBA_CODE_TO_TEAM = {
+    "ATL": "hawks",
+    "BOS": "celtics",
+    "BKN": "nets",
+    "CHA": "hornets",
+    "CHI": "bulls",
+    "CLE": "cavaliers",
+    "DAL": "mavericks",
+    "DEN": "nuggets",
+    "DET": "pistons",
+    "GSW": "warriors",
+    "HOU": "rockets",
+    "IND": "pacers",
+    "LAC": "clippers",
+    "LAL": "lakers",
+    "MEM": "grizzlies",
+    "MIA": "heat",
+    "MIL": "bucks",
+    "MIN": "timberwolves",
+    "NOP": "pelicans",
+    "NYK": "knicks",
+    "OKC": "thunder",
+    "ORL": "magic",
+    "PHI": "76ers",
+    "PHX": "suns",
+    "POR": "blazers",
+    "SAC": "kings",
+    "SAS": "spurs",
+    "TOR": "raptors",
+    "UTA": "jazz",
+    "WAS": "wizards",
+}
 
 
 @dataclass
@@ -78,6 +110,41 @@ def _matchup_signature(text: str) -> Optional[str]:
     normalized = [" ".join(sorted(side)) for side in sides]
     normalized.sort()
     return " | ".join(normalized)
+
+
+def _signature_from_kalshi_codes(text: str) -> Optional[str]:
+    match = re.search(r"KXNBAGAME-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})", (text or "").upper())
+    if not match:
+        return None
+    left = _NBA_CODE_TO_TEAM.get(match.group(1))
+    right = _NBA_CODE_TO_TEAM.get(match.group(2))
+    if not left or not right:
+        return None
+    teams = sorted([left, right])
+    return " | ".join(teams)
+
+
+def _item_matchup_signature(item) -> Optional[str]:
+    kalshi_text = " ".join(
+        str(part) for part in (
+            getattr(item, "ticker", ""),
+            getattr(item, "event_ticker", ""),
+            getattr(item, "url", ""),
+        )
+        if part
+    )
+    base_text = (
+        getattr(item, "title", "")
+        or getattr(item, "question", "")
+        or " ".join(
+            str(part) for part in (
+                getattr(item, "title", ""),
+                getattr(item, "question", ""),
+            )
+            if part
+        )
+    )
+    return _signature_from_kalshi_codes(kalshi_text) or _matchup_signature(str(base_text))
 
 
 def market_quality(engagement: Optional[schema.Engagement], movement_pct: Optional[float] = None) -> float:
@@ -1181,7 +1248,7 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     if topic_signature:
         matching = [
             item for item in items
-            if _matchup_signature(item.title or item.question) == topic_signature
+            if _item_matchup_signature(item) == topic_signature
         ]
         if matching:
             return max(matching, key=lambda item: item.score)
@@ -1203,13 +1270,13 @@ def _matching_kalshi_for_polymarket(
     sports_target_date: Optional[str] = None,
 ) -> Optional[schema.KalshiItem]:
     kalshi_items = [item for item in kalshi_items if _threshold_market_compatible(f"{poly_item.title} {poly_item.question}", item)]
-    signature = _matchup_signature(poly_item.title or poly_item.question)
+    signature = _item_matchup_signature(poly_item)
     if signature:
         for item in kalshi_items:
             if (
                 _is_direct_game_market(item)
                 and _sports_market_date_compatible(item, sports_target_date)
-                and _matchup_signature(item.title or item.question) == signature
+                and _item_matchup_signature(item) == signature
             ):
                 return item
     poly_spec = _threshold_spec(f"{poly_item.title} {poly_item.question}")
@@ -1768,8 +1835,10 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     is_nba_slate = "nba" in topic_lower and any(term in topic_lower for term in ("games", "matchups", "slate"))
     sports_target_date = _sports_target_date(report) if _is_sports_query(report.topic) else None
 
-    if is_nba_slate and report.polymarket:
-        seen = set()
+    if is_nba_slate and (report.polymarket or report.kalshi):
+        slate_rows: dict[str, dict[str, object]] = {}
+        slate_order: dict[str, int] = {}
+
         for poly_item in report.polymarket:
             if (
                 not _is_nba_market_item(poly_item)
@@ -1777,17 +1846,43 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
                 or not _sports_market_date_compatible(poly_item, sports_target_date)
             ):
                 continue
-            signature = _matchup_signature(poly_item.title or poly_item.question)
-            if not signature or signature in seen:
+            signature = _item_matchup_signature(poly_item)
+            if not signature:
                 continue
-            seen.add(signature)
-            kalshi_item = _matching_kalshi_for_polymarket(poly_item, report.kalshi, sports_target_date)
-            forecasts.append(_build_forecast_item(poly_item.title or poly_item.question, poly_item, kalshi_item, report))
+            row = slate_rows.setdefault(signature, {"polymarket": None, "kalshi": None, "title": poly_item.title or poly_item.question})
+            if row["polymarket"] is None or poly_item.score > row["polymarket"].score:
+                row["polymarket"] = poly_item
+                row["title"] = poly_item.title or poly_item.question
+            slate_order[signature] = max(slate_order.get(signature, 0), poly_item.score)
+
+        for kalshi_item in report.kalshi:
+            if (
+                not _is_nba_market_item(kalshi_item)
+                or not _is_direct_game_market(kalshi_item)
+                or not _sports_market_date_compatible(kalshi_item, sports_target_date)
+            ):
+                continue
+            signature = _item_matchup_signature(kalshi_item)
+            if not signature:
+                continue
+            row = slate_rows.setdefault(signature, {"polymarket": None, "kalshi": None, "title": kalshi_item.title or kalshi_item.question})
+            if row["kalshi"] is None or kalshi_item.score > row["kalshi"].score:
+                row["kalshi"] = kalshi_item
+                if not row["polymarket"]:
+                    row["title"] = kalshi_item.title or kalshi_item.question
+            slate_order[signature] = max(slate_order.get(signature, 0), kalshi_item.score)
+
+        for signature in sorted(slate_rows, key=lambda key: slate_order.get(key, 0), reverse=True):
+            row = slate_rows[signature]
+            poly_item = row["polymarket"]
+            kalshi_item = row["kalshi"]
+            title = str(row["title"] or report.topic)
+            forecasts.append(_build_forecast_item(title, poly_item, kalshi_item, report))
         return forecasts
 
     top_poly = _best_polymarket(report.topic, report.polymarket, sports_target_date)
     top_kalshi = _best_kalshi(report.topic, report.kalshi, sports_target_date)
-    if top_poly and top_kalshi and _matchup_signature(top_poly.title or top_poly.question):
+    if top_poly and top_kalshi and _item_matchup_signature(top_poly):
         matched_kalshi = _matching_kalshi_for_polymarket(top_poly, report.kalshi, sports_target_date)
         if matched_kalshi:
             top_kalshi = matched_kalshi

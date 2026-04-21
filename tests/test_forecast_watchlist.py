@@ -255,6 +255,96 @@ class ForecastWatchlistTests(unittest.TestCase):
         report.forecasts = forecasts
         self.assertIn("DEGRADED RUN WARNING", render.render_compact(report))
 
+    def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
+        poly_item = schema.PolymarketItem(
+            id="PM1",
+            title="Suns vs. Thunder",
+            question="Suns vs. Thunder",
+            url="https://polymarket.com/event/nba-phx-okc-2026-04-22",
+            outcome_prices=[("Suns", 0.07), ("Thunder", 0.93)],
+            engagement=_engagement(),
+            market_type="game_outcome",
+        )
+        kalshi_item = schema.KalshiItem(
+            id="KA1",
+            title="Game 2: Phoenix at Oklahoma City",
+            question="Game 2: Phoenix at Oklahoma City Winner?",
+            url="https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26APR22PHXOKC-OKC",
+            ticker="KXNBAGAME-26APR22PHXOKC-OKC",
+            event_ticker="KXNBAGAME-26APR22PHXOKC",
+            current_probability=0.93,
+            market_type="game_outcome",
+        )
+
+        matched = forecast._matching_kalshi_for_polymarket(poly_item, [kalshi_item], "2026-04-22")
+
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched.id, "KA1")
+
+    def test_kalshi_only_nba_slate_returns_per_game_forecasts(self):
+        report = schema.Report(
+            topic="tomorrows nba games",
+            range_from="2026-04-21",
+            range_to="2026-04-21",
+            generated_at="2026-04-21T00:00:00+00:00",
+            mode="kalshi",
+        )
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Game 2: Phoenix at Oklahoma City",
+                question="Game 2: Phoenix at Oklahoma City Winner?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26APR22PHXOKC-OKC",
+                ticker="KXNBAGAME-26APR22PHXOKC-OKC",
+                event_ticker="KXNBAGAME-26APR22PHXOKC",
+                current_probability=0.93,
+                implied_probability=0.93,
+                best_bid=0.92,
+                best_ask=0.93,
+                spread=0.01,
+                movement_24h=-1.0,
+                volume_24h=66_610.46,
+                market_signal_quality=0.63,
+                market_type="game_outcome",
+                date="2026-04-18",
+                date_confidence="high",
+                engagement=_engagement(volume=66_610.46, liquidity=0, open_interest=202_240.62),
+                end_date="2026-05-07",
+                relevance=0.74,
+                score=75,
+            ),
+            schema.KalshiItem(
+                id="KA2",
+                title="Game 2: Orlando at Detroit",
+                question="Game 2: Orlando at Detroit Winner?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26APR22ORLDET-DET",
+                ticker="KXNBAGAME-26APR22ORLDET-DET",
+                event_ticker="KXNBAGAME-26APR22ORLDET",
+                current_probability=0.86,
+                implied_probability=0.86,
+                best_bid=0.85,
+                best_ask=0.86,
+                spread=0.01,
+                movement_24h=1.0,
+                volume_24h=54_210.0,
+                market_signal_quality=0.61,
+                market_type="game_outcome",
+                date="2026-04-18",
+                date_confidence="high",
+                engagement=_engagement(volume=54_210.0, liquidity=0, open_interest=95_000.0),
+                end_date="2026-05-07",
+                relevance=0.72,
+                score=68,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 2)
+        self.assertTrue(all(item.anchor_source == "kalshi" for item in forecasts))
+        self.assertEqual(forecasts[0].title, "Game 2: Phoenix at Oklahoma City")
+        self.assertEqual(forecasts[1].title, "Game 2: Orlando at Detroit")
+
     def test_crypto_threshold_forecast_keeps_matching_threshold_market(self):
         report = _report("Bitcoin above 100k this week")
         report.polymarket = [
