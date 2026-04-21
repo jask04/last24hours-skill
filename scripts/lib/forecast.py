@@ -481,6 +481,14 @@ def _date_refs(text: str, default_year: Optional[int] = None) -> set[str]:
     lowered = (text or "").lower()
     for match in re.finditer(r"\b(20\d{2})-(\d{2})-(\d{2})\b", lowered):
         refs.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+    compact_pattern = "|".join(sorted({key for key in _MONTH_NUMBERS if len(key) == 3}, key=len, reverse=True))
+    compact_date_pattern = rf"(?<!\d)(\d{{2}})({compact_pattern})(\d{{2}})(?!\d)"
+    for match in re.finditer(compact_date_pattern, lowered):
+        year = 2000 + int(match.group(1))
+        month = _MONTH_NUMBERS[match.group(2)]
+        day = int(match.group(3))
+        if 1 <= day <= 31:
+            refs.add(f"{year:04d}-{month:02d}-{day:02d}")
     month_pattern = "|".join(sorted(_MONTH_NUMBERS, key=len, reverse=True))
     pattern = rf"\b({month_pattern})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(20\d{{2}}))?\b"
     for match in re.finditer(pattern, lowered):

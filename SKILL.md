@@ -1,6 +1,6 @@
 ---
 name: last24hours
-version: "1.0.34"
+version: "1.0.35"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
 argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.34: Forecast From the Last 24 Hours
+# last24hours v1.0.35: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -81,6 +81,8 @@ For prompts such as `markets to watch`, `best markets`, `recommend markets`, `ma
 For mixed NBA watchlist prompts such as `NBA markets to watch today`, allow both direct same-day game rows and playoff series rows when they clear the filter. Label direct rows as `Game outcome` and series rows as `Playoff series`, keep direct games ahead when scores are close, and preserve explicit series prompts as series-heavy boards. When these rows are stored in the paper ledger, keep the run paper-only and preserve scope metadata for later calibration reporting.
 
 Kalshi sports winner contracts can use different phrasing from Polymarket, including `Game N: Team at Team Winner?`. Treat those as direct game-outcome markets when they are clean sports contracts so they can participate in NBA watchlists and sports forecast anchoring instead of being discarded as unknown market types.
+
+For Kalshi sports scans, treat compact ticker dates such as `26APR23` as real event dates when checking `today`, `tomorrow`, and explicit date prompts. Do not surface out-of-window Kalshi sports contracts just because the broader series page still has them open.
 
 For closing-soon or live-sports watchlist prompts, prioritize near-expiry Polymarket markets and direct live/starting-soon sports game markets. Live-sports mode must only surface direct matching game-outcome markets, not series, futures, totals, player props, or wrong-matchup markets. Catalyst snippets must match the specific market domain and entity; if no clean external catalyst clears the filter, say the ranking is mostly market-signal driven. Show close time, minutes to close, liquidity/spread, live game status when available, and settlement-rule warnings. Do not call these bets, do not imply profit, and tell the user to verify fast-moving lines in the Polymarket UI.
 

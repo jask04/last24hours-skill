@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.35] - 2026-04-21
+
+### Fixed
+- Kalshi sports date matching now reads compact ticker/event dates such as `26APR23`, which prevents date-specific sports forecasts from treating out-of-window Kalshi contracts as date-compatible by default
+- Direct Kalshi sports searches now filter candidate markets to the requested topic day when prompts specify `today`, `tomorrow`, or an explicit sports date, instead of leaving that discipline to downstream NBA wrapper behavior alone
+
+### Tested
+- Added deterministic Kalshi regressions for in-window sports-market filtering and Kalshi compact ticker date compatibility
+
 ## [1.0.34] - 2026-04-21
 
 ### Fixed

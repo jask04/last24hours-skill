@@ -377,6 +377,63 @@ def _topic_months(topic: str) -> set[int]:
     return {aliases[token] for token in tokens if token in aliases}
 
 
+def _topic_target_dates(topic: str, to_date: str) -> set[str]:
+    refs = set()
+    lowered = (topic or "").lower()
+    for match in re.finditer(r"\b(20\d{2})-(\d{2})-(\d{2})\b", lowered):
+        refs.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+    month_pattern = "|".join(sorted(_MONTHS, key=len, reverse=True))
+    pattern = rf"\b({month_pattern.lower()})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(20\d{{2}}))?\b"
+    default_year = None
+    try:
+        default_year = datetime.fromisoformat(str(to_date)[:10]).year
+    except ValueError:
+        pass
+    for match in re.finditer(pattern, lowered):
+        month = _MONTHS[match.group(1).upper()]
+        day = int(match.group(2))
+        year = int(match.group(3)) if match.group(3) else default_year
+        if year and 1 <= day <= 31:
+            refs.add(f"{year:04d}-{month:02d}-{day:02d}")
+    try:
+        base = datetime.fromisoformat(str(to_date)[:10]).date()
+    except ValueError:
+        base = None
+    if base and ("today" in lowered or "tonight" in lowered):
+        refs.add(base.isoformat())
+    if base and ("tomorrow" in lowered or "tomorrows" in lowered):
+        refs.add((base + timedelta(days=1)).isoformat())
+    return refs
+
+
+def _market_event_date(market: Dict[str, Any], event_title: str = "") -> Optional[str]:
+    for value in (market.get("event_ticker"), market.get("ticker"), event_title):
+        text = str(value or "")
+        match = re.search(r"-(\d{2})([A-Z]{3})(\d{2})", text)
+        if match:
+            year = 2000 + int(match.group(1))
+            month = _MONTHS.get(match.group(2))
+            day = int(match.group(3))
+            if month:
+                try:
+                    return datetime(year, month, day, tzinfo=timezone.utc).date().isoformat()
+                except ValueError:
+                    pass
+    return None
+
+
+def _market_in_topic_sports_window(topic: str, market: Dict[str, Any], event_title: str, to_date: str) -> bool:
+    if not _detect_league(topic):
+        return True
+    target_dates = _topic_target_dates(topic, to_date)
+    if not target_dates:
+        return True
+    event_date = _market_event_date(market, event_title)
+    if not event_date:
+        return True
+    return event_date in target_dates
+
+
 def _fetch_batch_candlesticks(tickers: List[str]) -> Dict[str, Any]:
     """Fetch one-hour Kalshi candles for up to 100 market tickers."""
     if not tickers:
@@ -565,6 +622,13 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
     for market in markets:
         market["relevance"] = _market_relevance(topic, market, series_event_titles.get(market.get("event_ticker", ""), ""))
         ranked.append(market)
+
+    sports_window_filtered = [
+        market for market in ranked
+        if _market_in_topic_sports_window(topic, market, series_event_titles.get(market.get("event_ticker", ""), ""), to_date)
+    ]
+    if sports_window_filtered or _topic_target_dates(topic, to_date):
+        ranked = sports_window_filtered
 
     ranked.sort(
         key=lambda m: (
