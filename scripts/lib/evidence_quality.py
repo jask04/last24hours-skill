@@ -107,6 +107,22 @@ NBA_TEAM_TOKENS = {
     "jazz", "wizards",
 }
 SPORTS_TEAM_TOKENS = NBA_TEAM_TOKENS | {"guardians", "braves", "yankees", "mets", "dodgers", "giants", "rangers"}
+ESPORTS_TERMS = {
+    "esports", "counter", "strike", "counterstrike", "counter-strike", "cs2", "csgo",
+    "valorant", "league", "legends", "dota", "bo1", "bo2", "bo3", "bo5",
+}
+CS2_TERMS = {"counter", "strike", "counterstrike", "counter-strike", "cs2", "csgo"}
+ESPORTS_HIGH_SIGNAL_TERMS = {
+    "roster", "standin", "stand-in", "sub", "substitute", "bench", "benched", "coach",
+    "veto", "map", "pool", "patch", "update", "qualifier", "qualifiers", "playoffs",
+    "playoff", "bracket", "elimination", "seed", "seeding", "lan", "travel", "server",
+    "ping", "illness", "sick", "injury", "injured",
+}
+ESPORTS_LOW_SIGNAL_TERMS = {
+    "highlight", "highlights", "clip", "clips", "giveaway", "skin", "skins", "case",
+    "cases", "inventory", "fragmovie", "ace", "best plays", "montage", "dev", "log",
+    "developer", "trailer", "giveaways", "promo", "bet", "bets", "pick", "picks",
+}
 
 
 def tokenize(text: str) -> set[str]:
@@ -178,6 +194,38 @@ def is_nba_market_text(text: str) -> bool:
     has_team = bool(NBA_TEAM_TOKENS & tokens)
     has_game_marker = any(marker in lowered for marker in (" vs. ", " vs ", " at ", "spread", "moneyline"))
     return has_team and ("nba" in lowered or has_game_marker)
+
+
+def is_esports_query(text: str) -> bool:
+    lowered = (text or "").lower()
+    tokens = tokenize(text)
+    if tokens & ESPORTS_TERMS:
+        return True
+    return any(phrase in lowered for phrase in ("counter-strike", "league of legends"))
+
+
+def is_cs2_market_text(text: str) -> bool:
+    lowered = (text or "").lower()
+    return bool(re.search(r"\bcounter[- ]strike(?:\s*2)?\b|\bcs2\b|\bcsgo\b", lowered))
+
+
+def is_cs2_query(text: str) -> bool:
+    return is_cs2_market_text(text)
+
+
+def is_esports_rationale_evidence(
+    text: str,
+    source_context: str = "",
+    *,
+    exact_match: bool = False,
+) -> bool:
+    tokens = tokenize(f"{text or ''} {source_context or ''}")
+    if tokens & ESPORTS_LOW_SIGNAL_TERMS:
+        if not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool", "patch", "update"})):
+            return False
+    if exact_match and not (tokens & ESPORTS_HIGH_SIGNAL_TERMS):
+        return False
+    return bool(tokens & ESPORTS_HIGH_SIGNAL_TERMS)
 
 
 def classify_sports_evidence(

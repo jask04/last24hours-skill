@@ -379,6 +379,8 @@ def _format_market_type(market_type: str, watchlist_scope: str = "") -> str:
         "game_outcome": "Game outcome",
         "player_prop": "Player prop",
         "team_prop": "Team prop",
+        "esports_prop": "Esports prop",
+        "esports_title": "Esports title market",
         "futures": "Futures",
         "crypto_daily": "Crypto daily",
         "threshold": "Threshold",

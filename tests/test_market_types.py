@@ -104,6 +104,36 @@ class MarketTypeTests(unittest.TestCase):
             "macro_binary",
         )
 
+    def test_cs2_direct_match_classifies_as_game_outcome(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Counter-Strike: Wingman vs Nebula In Chaox (BO3) - Exort Series Main Stage",
+                "Counter-Strike: Wingman vs Nebula In Chaox (BO3) - Exort Series Main Stage",
+                "https://polymarket.com/event/cs2-wing-nic1-2026-04-21",
+            ),
+            "game_outcome",
+        )
+
+    def test_cs2_map_prop_classifies_as_esports_prop(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Map 1: Odd/Even Total Kills?",
+                "Counter-Strike: AaB Esport vs Sangal ALTERS (BO3) - European Pro League Regular Group A",
+                "https://polymarket.com/event/cs2-aab-sng-2026-04-21",
+            ),
+            "esports_prop",
+        )
+
+    def test_cs2_map_pool_market_classifies_as_esports_title(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "Will Valve add Cache to the Map Pool by June 30, 2026?",
+                "Will Valve add Cache to the Map Pool by June 30, 2026?",
+                "https://polymarket.com/event/will-valve-will-add-cache-to-the-map-pool-by-end-of-january-519",
+            ),
+            "esports_title",
+        )
+
     def test_crypto_up_or_down_classifies_as_crypto_daily(self):
         self.assertEqual(
             market_types.classify_market(

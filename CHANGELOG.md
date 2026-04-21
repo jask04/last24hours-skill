@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.38] - 2026-04-21
+
+### Added
+- First-class eSports / CS2 watchlist routing, query detection, market typing, and compact market labels for direct match markets, eSports props, and eSports title markets
+- Counter-Strike-focused watchlist search aliases so `Counter-Strike 2 markets to watch today` discovers real Polymarket CS2 match boards instead of empty output
+
+### Changed
+- Generic CS2 watchlists now rank direct same-day Counter-Strike match winner markets first and suppress map props plus long-dated map-pool/title contracts unless the prompt asks for them explicitly
+- Generic eSports watchlists now use stronger domain seeds across Counter-Strike, Valorant, and LoL instead of relying on incidental broad search matches
+
+### Fixed
+- CS2 watchlists no longer misread unrelated `strike` markets as Counter-Strike contracts
+- Explicit CS2 map-pool prompts still surface title-market rows after the stronger generic CS2 filtering
+- CS2 catalyst filtering now rejects generic dev-log style noise in watchlist ranking tests
+
 ## [1.0.37] - 2026-04-21
 
 ### Fixed

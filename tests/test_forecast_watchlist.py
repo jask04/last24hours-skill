@@ -22,6 +22,10 @@ class ForecastWatchlistTests(unittest.TestCase):
     def test_nba_date_window_counts_as_slate_query(self):
         self.assertTrue(sports_schedule.is_nba_slate_query("NBA matchups April 21 through April 23"))
 
+    def test_cs2_watchlist_search_topics_include_counter_strike_alias(self):
+        topics = market_watchlist.search_topics("Counter-Strike 2 markets to watch today")
+        self.assertIn("counter strike", topics)
+
     def test_nba_slate_render_shows_only_direct_game_markets(self):
         report = _report("NBA matchups April 21 through April 23")
         report.forecasts = [
@@ -254,6 +258,157 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("DEGRADED RUN WARNING", forecasts[0].degraded_warning)
         report.forecasts = forecasts
         self.assertIn("DEGRADED RUN WARNING", render.render_compact(report))
+
+    def test_cs2_watchlist_prefers_direct_matches_and_suppresses_long_dated_title_market(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Wingman vs Nebula In Chaox (BO3) - Exort Series Main Stage",
+                question="Counter-Strike: Wingman vs Nebula In Chaox (BO3) - Exort Series Main Stage",
+                url="https://polymarket.com/event/cs2-wing-nic1-2026-04-21",
+                outcome_prices=[("Wingman", 0.06), ("Nebula In Chaox", 0.94)],
+                engagement=_engagement(volume=350_000, liquidity=150_000),
+                market_signal_quality=0.82,
+                volume_24h=350_000,
+                best_bid=0.93,
+                best_ask=0.95,
+                spread=0.02,
+                movement_24h=7.5,
+                relevance=0.94,
+                score=92,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                question="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                url="https://polymarket.com/event/will-valve-will-add-cache-to-the-map-pool-by-end-of-january-519",
+                outcome_prices=[("Yes", 0.36), ("No", 0.64)],
+                engagement=_engagement(volume=120_000, liquidity=20_000),
+                market_signal_quality=0.60,
+                volume_24h=120_000,
+                best_bid=0.60,
+                best_ask=0.67,
+                spread=0.07,
+                movement_24h=7.0,
+                relevance=0.60,
+                score=70,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].market_type, "game_outcome")
+        self.assertIn("Wingman vs Nebula", items[0].title)
+
+    def test_cs2_watchlist_suppresses_map_props_for_generic_prompt(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Map 1: Odd/Even Total Kills?",
+                question="Counter-Strike: AaB Esport vs Sangal ALTERS (BO3) - European Pro League Regular Group A",
+                url="https://polymarket.com/event/cs2-aab-sng-2026-04-21",
+                outcome_prices=[("Odd", 0.5), ("Even", 0.5)],
+                engagement=_engagement(volume=90_000, liquidity=0),
+                market_signal_quality=0.35,
+                volume_24h=90_000,
+                best_bid=0.0,
+                best_ask=1.0,
+                spread=1.0,
+                movement_24h=0.0,
+                relevance=0.90,
+                score=65,
+            )
+        ]
+
+        self.assertEqual(market_watchlist.synthesize_market_watchlist(report), [])
+
+    def test_cs2_watchlist_rejects_generic_dev_log_catalyst(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                question="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                url="https://polymarket.com/event/cs2-team1-team2-2026-04-21",
+                outcome_prices=[("Team One", 0.44), ("Team Two", 0.56)],
+                engagement=_engagement(volume=220_000, liquidity=80_000),
+                market_signal_quality=0.74,
+                volume_24h=220_000,
+                best_bid=0.55,
+                best_ask=0.57,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.90,
+                score=86,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="CS2 Update DEV Log This is a Counter-Strike 2 client-side developer log from Dust II animation testing.",
+                url="https://x.com/dev/status/1",
+                author_handle="xTheWhale_",
+                score=90,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("thin", items[0].catalyst_summary.lower())
+        self.assertNotIn("DEV Log", items[0].catalyst_summary)
+
+    def test_explicit_cs2_map_pool_prompt_allows_title_market(self):
+        report = _report("CS2 map pool markets")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                question="Will Valve add Cache to the Map Pool by June 30, 2026?",
+                url="https://polymarket.com/event/will-valve-will-add-cache-to-the-map-pool-by-end-of-january-519",
+                outcome_prices=[("Yes", 0.36), ("No", 0.64)],
+                engagement=_engagement(volume=120_000, liquidity=20_000),
+                market_signal_quality=0.60,
+                volume_24h=120_000,
+                best_bid=0.60,
+                best_ask=0.67,
+                spread=0.07,
+                movement_24h=7.0,
+                relevance=0.90,
+                score=70,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].market_type, "esports_title")
+
+    def test_cs2_watchlist_rejects_non_esports_strike_market(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="How many different countries will the US conduct military action against in 2026?",
+                question="Will the US strike 6 countries in 2026?",
+                url="https://polymarket.com/event/how-many-different-countries-will-the-us-strike-in-2026",
+                outcome_prices=[("Yes", 0.11), ("No", 0.89)],
+                engagement=_engagement(volume=361_000, liquidity=153_000),
+                market_signal_quality=0.74,
+                volume_24h=361_000,
+                best_bid=0.89,
+                best_ask=0.89,
+                spread=0.0,
+                movement_24h=4.5,
+                relevance=0.65,
+                score=88,
+            )
+        ]
+
+        self.assertEqual(market_watchlist.synthesize_market_watchlist(report), [])
 
     def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
         poly_item = schema.PolymarketItem(

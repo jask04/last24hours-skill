@@ -12,6 +12,8 @@ MarketType = Literal[
     "player_prop",
     "team_prop",
     "futures",
+    "esports_prop",
+    "esports_title",
     "crypto_daily",
     "threshold",
     "macro_binary",
@@ -99,6 +101,16 @@ _CRYPTO_MARKERS = {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto
 _KALSHI_SPORTS_MARKET_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)[A-Z]*", re.IGNORECASE)
 _KALSHI_SPORTS_SERIES_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)(?:SERIES|PLAYOFF|FINAL|FINALS)", re.IGNORECASE)
 _KALSHI_MACRO_MARKET_RE = re.compile(r"/markets/KX(?:FED|FEDDECISION|CPI|JOBS)[A-Z0-9.-]*", re.IGNORECASE)
+_ESPORTS_TERMS = {
+    "counter", "strike", "counterstrike", "counter-strike", "cs2", "csgo",
+    "valorant", "dota", "esports", "lol",
+}
+_ESPORTS_MATCH_MARKERS = {"bo1", "bo2", "bo3", "bo5", "winner", "match"}
+_ESPORTS_PROP_MARKERS = {
+    "map 1", "map 2", "map 3", "map winner", "total maps", "odd/even total kills",
+    "total kills", "kills", "handicap", "correct score",
+}
+_ESPORTS_TITLE_MARKERS = {"map pool", "major winner", "tournament winner", "cache", "add cache", "champion"}
 
 
 def _tokens(text: str) -> set[str]:
@@ -145,6 +157,16 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
 
     if _KALSHI_MACRO_MARKET_RE.search(url or ""):
         return "macro_binary"
+
+    if any(marker in text_lower for marker in _ESPORTS_PROP_MARKERS):
+        return "esports_prop"
+    if any(marker in text_lower for marker in _ESPORTS_TITLE_MARKERS):
+        return "esports_title"
+    if (tokens & _ESPORTS_TERMS) and _has_matchup(text_lower):
+        if any(marker in text_lower for marker in _ESPORTS_MATCH_MARKERS):
+            return "game_outcome"
+        if re.search(r"\(bo[1-5]\)", text_lower):
+            return "game_outcome"
 
     if any(marker in text_lower for marker in _FUTURES_MARKERS):
         return "futures"

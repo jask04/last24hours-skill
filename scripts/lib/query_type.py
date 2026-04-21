@@ -43,6 +43,7 @@ _PREDICTION_PATTERNS = re.compile(
     r"election|primary|ballot|polls?|outcome|result|bet on|market for|polymarket|kalshi|"
     r"storm|rain|snow|temperature|hurricane|tornado|landfall|showers?|precipitation|forecast models?|playoffs?|finals?|matchup|game|tonight|"
     r"fed|fomc|powell|inflation|cpi|jobs report|payrolls|gdp|recession|unemployment|yield|treasury|rate cut|rate hike|earnings|approval rating"
+    r"|esports|counter-strike|counter strike|cs2|csgo|valorant|league of legends|dota"
     r")\b",
     re.I,
 )
@@ -51,7 +52,8 @@ _FORECASTABLE_DOMAIN_PATTERNS = re.compile(
     r"nba|nfl|mlb|nhl|wnba|ncaa|soccer|football|baseball|basketball|tennis|golf|ufc|mma|boxing|"
     r"weather|storm|rain|snow|wind|temperature|hurricane|tornado|heatwave|wildfire|showers?|precipitation|"
     r"election|senate|house|president|governor|polling|approval|fomc|powell|"
-    r"stocks?|stock market|s&p|nasdaq|bitcoin|btc|eth|crypto|economy|inflation|cpi|jobs|gdp|fed|rates?|recession|unemployment|yield|treasury"
+    r"stocks?|stock market|s&p|nasdaq|bitcoin|btc|eth|crypto|economy|inflation|cpi|jobs|gdp|fed|rates?|recession|unemployment|yield|treasury|"
+    r"esports|counter-strike|counter strike|cs2|csgo|valorant|league of legends|lol|dota"
     r")\b",
     re.I,
 )

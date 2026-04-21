@@ -133,8 +133,13 @@ def _expand_queries(topic: str) -> List[str]:
     core = _extract_core_subject(topic)
     queries = [core]
     league = _detect_sports_league(topic)
+    topic_lower = topic.lower()
     if league and _is_sports_slate_query(topic):
         queries.insert(0, league.upper())
+    if re.search(r"\bcounter[- ]strike(?:\s*2)?\b|\bcs2\b|\bcsgo\b", topic_lower):
+        queries.extend(["counter strike", "counter-strike", "cs2"])
+    elif "esports" in topic_lower:
+        queries.extend(["counter strike", "valorant", "league of legends", "lol"])
 
     # Add ALL individual words as separate queries
     words = core.split()

@@ -26,6 +26,7 @@ _STOPWORDS = {
 _DOMAIN_SEEDS = {
     "nba": ["NBA", "NBA games today"],
     "sports": ["NBA", "NFL", "MLB", "NHL"],
+    "esports": ["counter strike", "valorant", "lol", "esports today"],
     "macro": ["Fed rates", "inflation", "recession", "CPI", "jobs report"],
     "crypto": ["Bitcoin", "Ethereum", "crypto"],
     "weather": ["weather", "rain", "storm"],
@@ -44,6 +45,8 @@ _GENERIC_MARKET_TOKENS = {
     "champion", "championship", "conference", "playoffs", "playoff", "year",
     "april", "today", "tomorrow", "price", "will",
     "https", "http", "com", "event", "www", "polymarket", "kalshi",
+    "esports", "counter", "strike", "counterstrike", "counter-strike", "cs2", "csgo",
+    "valorant", "dota", "league", "legends",
 }
 _SPORTS_CORE_SIGNAL = {
     "injury", "injuries", "injured", "ruled", "questionable", "doubtful",
@@ -109,6 +112,8 @@ _SPORTS_PROMO_TOKENS = {
 }
 _SPORTSBOOK_TOKENS = {"sportsbook", "sportsbooks", "draftkings", "fanduel", "betting"}
 _SPORTS_RECAP_TOKENS = {"highlight", "highlights", "recap", "recaps"}
+_ESPORTS_TITLE_TERMS = {"map pool", "cache", "major winner", "tournament winner", "champion"}
+_ESPORTS_PROP_TERMS = {"props", "prop", "map", "maps", "kills", "odd", "even", "handicap", "total maps"}
 
 _META_MARKET_TERMS = {
     "law banning", "ban sports prediction", "sports prediction markets enacted",
@@ -138,6 +143,8 @@ def _domain(topic: str) -> str:
     lowered = (topic or "").lower()
     if "nba" in tokens:
         return "nba"
+    if eq.is_esports_query(lowered):
+        return "esports"
     if tokens & {"nfl", "mlb", "nhl", "wnba", "sports", "football", "basketball", "baseball", "hockey"}:
         return "sports"
     if tokens & {"bitcoin", "btc", "ethereum", "eth", "crypto"}:
@@ -209,6 +216,16 @@ def _is_explicit_nba_series_prompt(topic: str) -> bool:
     return _is_nba_watchlist_topic(topic) and any(term in lowered for term in _NBA_SERIES_PROMPT_TERMS)
 
 
+def _is_explicit_esports_prop_prompt(topic: str) -> bool:
+    lowered = (topic or "").lower()
+    return _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_PROP_TERMS)
+
+
+def _is_explicit_esports_title_prompt(topic: str) -> bool:
+    lowered = (topic or "").lower()
+    return _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_TITLE_TERMS)
+
+
 def _watchlist_scope(report: schema.Report, item, market_type: str) -> str:
     text = _market_text(item).lower()
     if _is_nba_watchlist_topic(report.topic):
@@ -257,6 +274,20 @@ def _topic_relevance(topic: str, item) -> float:
     elif domain == "tech":
         if market_tokens & (_TECH_SIGNAL_TERMS | _TECH_ENTITY_TOKENS):
             relevance += 0.35
+    elif domain == "esports":
+        if market_tokens & eq.ESPORTS_TERMS:
+            relevance += 0.35
+        else:
+            relevance -= 0.35
+        if (
+            eq.is_cs2_query(topic)
+            and not _is_explicit_esports_prop_prompt(topic)
+            and not _is_explicit_esports_title_prompt(topic)
+        ):
+            if eq.is_cs2_market_text(market_lower):
+                relevance += 0.35
+            else:
+                relevance -= 0.45
     return max(0.0, min(1.0, relevance))
 
 
@@ -274,13 +305,24 @@ def _is_bad_candidate(topic: str, item) -> bool:
         return True
     if domain == "nba" and not eq.is_nba_market_text(market_lower):
         return True
+    if (
+        domain == "esports"
+        and eq.is_cs2_query(topic)
+        and not _is_explicit_esports_prop_prompt(topic)
+        and not _is_explicit_esports_title_prompt(topic)
+        and not eq.is_cs2_market_text(market_lower)
+    ):
+        return True
     if "parlay" in market_lower or "combo" in market_lower:
         return True
     return False
 
 
 def _candidate_market_type(item) -> str:
-    return getattr(item, "market_type", "") or market_types.classify_market(
+    current = getattr(item, "market_type", "")
+    if current and current != "unknown":
+        return current
+    return market_types.classify_market(
         getattr(item, "title", ""),
         getattr(item, "question", ""),
         getattr(item, "url", ""),
@@ -348,6 +390,8 @@ def _source_text(item) -> str:
 
 def _market_evidence_domain(prompt_domain: str, market_type: str, market_tokens: set[str], market_text: str) -> str:
     lowered = market_text.lower()
+    if prompt_domain == "esports" or (market_tokens & eq.ESPORTS_TERMS):
+        return "esports"
     if market_type in {"crypto_daily", "threshold"} and market_tokens & _CRYPTO_ENTITY_TOKENS:
         return "crypto"
     if market_tokens & _CRYPTO_ENTITY_TOKENS:
@@ -484,6 +528,16 @@ def _is_market_specific_evidence(
             return False
         return bool(evidence_tokens & _TECH_STRONG_SIGNAL_TERMS)
 
+    if effective_domain == "esports":
+        if overlap < 1:
+            return False
+        if not eq.is_esports_rationale_evidence(text, context, exact_match=True):
+            return False
+        if tokens := _tokens(f"{text} {context}"):
+            market_specific_overlap = len((market_specific_tokens - {"bo1", "bo2", "bo3", "bo5"}) & tokens)
+            return market_specific_overlap >= 1
+        return False
+
     if prompt_domain != "broad":
         if overlap < 1:
             return False
@@ -496,6 +550,8 @@ def _is_signal_evidence(topic: str, text: str, context: str = "") -> bool:
     domain = _domain(topic)
     tokens = _tokens(f"{text} {context}")
     topic_tokens = _tokens(topic)
+    if domain == "esports":
+        return eq.is_esports_rationale_evidence(text, context, exact_match=True)
     if domain in {"sports", "nba"}:
         if tokens & eq.SPORTS_LOW_SIGNAL_TERMS and not (tokens & _SPORTS_CORE_SIGNAL):
             return False
@@ -764,6 +820,19 @@ def _is_direct_espn_game_market(report: schema.Report, item, market_type: str) -
     return bool(getattr(item, "live_game_context", "")) and confidence is not None and confidence >= 0.70
 
 
+def _esports_same_day_match_exists(other_items: list, report: schema.Report) -> bool:
+    for other in other_items:
+        other_type = _candidate_market_type(other)
+        if other_type != "game_outcome":
+            continue
+        if not eq.is_esports_query(_market_text(other)):
+            continue
+        days_to_end = _days_to_end(getattr(other, "end_date", None))
+        if days_to_end is not None and days_to_end <= 1:
+            return True
+    return False
+
+
 def _closing_score(minutes_to_close: Optional[float], reason: str) -> float:
     if minutes_to_close is None:
         return 0.0
@@ -867,6 +936,18 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     closing_signal = _closing_score(minutes_to_close, closing_reason)
     tech_actionability = _tech_actionability_score(item, market_type) if domain == "tech" else 0.0
     resolvability_score = _resolvability_score(resolvability, broad=(domain == "broad" and closing_mode))
+    if domain == "esports":
+        explicit_props = _is_explicit_esports_prop_prompt(report.topic)
+        explicit_title = _is_explicit_esports_title_prompt(report.topic)
+        same_day_match_exists = _esports_same_day_match_exists(other_items, report)
+        days_to_end = _days_to_end(getattr(item, "end_date", None))
+        if market_type == "esports_prop" and not explicit_props:
+            return None
+        if market_type == "esports_title" and not explicit_title and same_day_match_exists:
+            return None
+        if market_type == "game_outcome" and probability is not None and (probability <= 0.02 or probability >= 0.98):
+            if movement < 0.20 and quality < 0.70 and (volume or 0) < 50_000:
+                return None
     if (
         market_type == "threshold"
         and probability is not None
@@ -922,6 +1003,16 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             and quality < 0.50
         ):
             rank_score = max(0, rank_score - 12)
+    if domain == "esports":
+        days_to_end = _days_to_end(getattr(item, "end_date", None))
+        if market_type == "game_outcome":
+            if days_to_end is not None and days_to_end <= 1:
+                rank_score += 12
+            rank_score += 6
+        elif market_type == "esports_title":
+            if days_to_end is not None and days_to_end > 7:
+                rank_score = max(0, rank_score - 16)
+        rank_score = max(0, min(100, rank_score))
     if _is_nba_watchlist_topic(report.topic):
         if watchlist_scope == "game":
             rank_score += 8 if not _is_explicit_nba_series_prompt(report.topic) else 2
@@ -975,6 +1066,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.insert(0, "team prop")
     elif market_type == "threshold":
         why_bits.insert(0, "threshold market")
+    elif market_type == "esports_prop":
+        why_bits.insert(0, "esports prop")
+    elif market_type == "esports_title":
+        why_bits.insert(0, "esports title market")
     elif watchlist_scope == "series":
         why_bits.insert(0, "playoff series")
     elif watchlist_scope == "game":
