@@ -1144,6 +1144,74 @@ def post_1_0_30_nba_watchlist_summary(picks: List[Dict[str, Any]]) -> Dict[str, 
     return summary
 
 
+def post_1_0_38_esports_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    minimum = _parse_skill_version_value("1.0.38")
+    filtered = []
+    for pick in picks:
+        if pick.get("status") != "resolved" or pick.get("resolution_value") is None:
+            continue
+        version = _parse_skill_version_value(pick.get("skill_version"))
+        if version is None or version < minimum:
+            continue
+        if _domain(str(pick.get("topic") or "")) != "esports":
+            continue
+        if _is_legacy_noisy_rationale(pick):
+            continue
+        filtered.append(pick)
+    summary = calibration_summary(filtered)
+    summary["min_skill_version"] = "1.0.38"
+    summary["domain"] = "esports"
+    summary["subdomain_visibility"] = sorted({_pick_subdomain(pick) for pick in filtered if _pick_subdomain(pick)})
+    if summary.get("count", 0) == 0:
+        summary["empty_reason"] = "No resolved post-1.0.38 esports paper rows yet."
+    return summary
+
+
+def _is_degraded_report(report: Dict[str, Any]) -> bool:
+    forecasts = report.get("forecasts") or []
+    if any(bool(item.get("model_implied")) for item in forecasts):
+        return True
+    source_status = (((report.get("evidence_fusion_stats") or {}).get("source_health") or {}).get("source_status") or {})
+    return any(str(info.get("status") or "") in {"degraded", "error", "blocked"} for info in source_status.values() if isinstance(info, dict))
+
+
+def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "topic": entry["topic"],
+        "last24hours_args": list(entry.get("last24hours_args", [])),
+        "pick_policy": entry.get("pick_policy", "default"),
+        "dedupe_policy": entry.get("dedupe_policy", "allow"),
+        "expected_pick_types": list(entry.get("expected_pick_types", [])),
+        "warnings": [],
+    }
+    debug_counters: Dict[str, int] = {}
+    report = _run_last24hours(entry["topic"], quick=quick, extra_args=entry.get("last24hours_args", []))
+    picks = extract_paper_picks(report)
+    result["extracted_pick_count"] = len(picks)
+    picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
+    result["post_policy_pick_count"] = len(picks)
+    picks = _apply_dedupe_policy(entry, picks, result["warnings"], debug_counters)
+    result["post_dedupe_pick_count"] = len(picks)
+    result["pick_types"] = _pick_types(picks)
+    result["warnings"].extend(_validate_expected_pick_types(entry, picks))
+    if picks:
+        result["warnings"].extend(pick_quality_warnings(picks))
+    duplicate_skip = any("skipped duplicate" in warning for warning in result["warnings"])
+    if not picks and duplicate_skip:
+        result["status"] = "duplicate_skip"
+    elif not picks and _is_degraded_report(report):
+        result["status"] = "degraded_run"
+        result["warnings"].append(f"{entry['topic']}: no usable paper pick found because the run degraded or no compatible anchored market cleared.")
+    elif not picks:
+        result["status"] = "no_compatible_pick"
+        result["warnings"].append(f"{entry['topic']}: no usable paper pick found after policy and compatibility filters.")
+    else:
+        result["status"] = "ready"
+    if debug_counters:
+        result["debug_counters"] = debug_counters
+    return result
+
+
 def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     open_picks = [p for p in picks if p.get("status") in {"open", "unknown"}]
     mix = {"favorite": 0, "balanced": 0, "longshot": 0, "unknown": 0}
@@ -1382,7 +1450,19 @@ def _write_daily_report(
 def cmd_daily(args) -> None:
     entries = _load_portfolio(Path(args.portfolio))
     if args.dry_run:
-        print(json.dumps({"dry_run": True, "topics": [entry["topic"] for entry in entries]}, indent=2))
+        results = []
+        errors = []
+        for entry in entries:
+            try:
+                results.append(_daily_dry_run_entry(entry, quick=args.quick))
+            except Exception as exc:
+                errors.append(f"{entry['topic']}: {type(exc).__name__}: {exc}")
+        print(json.dumps({
+            "dry_run": True,
+            "topics": [entry["topic"] for entry in entries],
+            "results": results,
+            "errors": errors,
+        }, indent=2))
         return
     started = time.time()
     run_id = store.record_paper_run(Path(args.portfolio).stem, status="running", topics_attempted=len(entries), skill_version=_skill_version())
@@ -1433,6 +1513,7 @@ def cmd_report(args) -> None:
         "summary": summary,
         "current_skill_comparable_sample": comparable,
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
+        "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
         "open_portfolio": open_pick_diagnostics(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

@@ -1,3 +1,4 @@
+import io
 import math
 import json
 import sqlite3
@@ -358,6 +359,38 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(captured, [("Polymarket markets closing soon", True, ["--closing-window-hours", "6"])])
         self.assertEqual(len(recent), 1)
         self.assertEqual(recent[0]["pick_type"], "watchlist")
+
+    def test_cmd_daily_dry_run_reports_no_compatible_and_degraded_statuses(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Counter-Strike 2 matches today", "enabled": True},
+            {"topic": "Fed rate cut by June", "enabled": True},
+        ]), encoding="utf-8")
+        reports = {
+            "Counter-Strike 2 matches today": {
+                "topic": "Counter-Strike 2 matches today",
+                "query_type": "prediction",
+                "forecasts": [],
+                "market_watchlist": [],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+            },
+            "Fed rate cut by June": {
+                "topic": "Fed rate cut by June",
+                "query_type": "prediction",
+                "forecasts": [{"title": "Fed rate cut by June", "model_implied": True}],
+                "market_watchlist": [],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"kalshi": {"status": "degraded"}}}},
+            },
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", side_effect=lambda topic, quick, extra_args=None: reports[topic]), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        by_topic = {entry["topic"]: entry for entry in payload["results"]}
+        self.assertEqual(by_topic["Counter-Strike 2 matches today"]["status"], "no_compatible_pick")
+        self.assertEqual(by_topic["Fed rate cut by June"]["status"], "degraded_run")
 
     def test_cmd_daily_skips_open_duplicates_under_entry_policy(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
@@ -1061,6 +1094,35 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(summary["count"], 2)
         self.assertEqual(summary["groups"]["watchlist_scope:game"]["count"], 1)
         self.assertEqual(summary["groups"]["watchlist_scope:series"]["count"], 1)
+
+    def test_post_1_0_38_esports_summary_groups_subdomain_and_empty_state(self):
+        summary = paper.post_1_0_38_esports_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.12,
+                "log_loss": 0.33,
+                "model_probability": 0.65,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "game_outcome",
+                "confidence": "watchlist",
+                "topic": "Counter-Strike 2 markets to watch today",
+                "skill_version": "1.0.40",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "cs2"}),
+                "evidence_json": json.dumps({"why_line": "Mostly market-driven right now."}),
+            }
+        ])
+
+        self.assertEqual(summary["count"], 1)
+        self.assertEqual(summary["groups"]["domain:esports"]["count"], 1)
+        self.assertEqual(summary["groups"]["subdomain:cs2"]["count"], 1)
+        self.assertEqual(summary["subdomain_visibility"], ["cs2"])
+
+        empty = paper.post_1_0_38_esports_summary([])
+        self.assertEqual(empty["count"], 0)
+        self.assertIn("No resolved post-1.0.38 esports paper rows yet.", empty["empty_reason"])
 
     def test_open_pick_diagnostics_rolls_up_source_health_statuses(self):
         diagnostics = paper.open_pick_diagnostics([

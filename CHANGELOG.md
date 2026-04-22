@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.43] - 2026-04-21
+
+### Added
+- `paper.py report` now includes a `post_1_0_38_esports_sample` slice so new CS2/eSports calibration rows can be audited separately from older paper history
+
+### Changed
+- `paper.py daily --dry-run` now executes the fixture logic far enough to report per-topic readiness, duplicate-skip outcomes, degraded runs, and no-compatible-pick outcomes instead of only echoing the topic list
+- eSports report output keeps `domain: esports` and `subdomain: cs2` visible in comparable-sample summaries without changing the SQLite schema
+
+### Fixed
+- Added regression coverage for dry-run warning clarity and the new post-1.0.38 eSports sample slice without regressing existing NBA, macro, crypto, and legacy-noisy report diagnostics
+
 ## [1.0.42] - 2026-04-21
 
 ### Changed

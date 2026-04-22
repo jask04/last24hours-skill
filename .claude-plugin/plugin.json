@@ -1,6 +1,6 @@
 {
   "name": "last24hours",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "description": "Forecast any topic from the last 24 hours using Polymarket, Kalshi, X, Reddit, Hacker News, sports, weather, politics, and the web.",
   "author": {
     "name": "Jaskaran Singh",
