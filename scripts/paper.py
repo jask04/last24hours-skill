@@ -108,7 +108,7 @@ def _domain(topic: str) -> str:
 
 def _subdomain(topic: str) -> str:
     lowered = (topic or "").lower()
-    return eq.esports_subdomain_of(lowered)
+    return eq.inferred_esports_subdomain(lowered)
 
 
 def _probability_bucket(probability: float) -> str:
@@ -1272,9 +1272,11 @@ def post_1_0_38_esports_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     summary["min_skill_version"] = "1.0.38"
     summary["domain"] = "esports"
     summary["subdomain_visibility"] = sorted({_pick_subdomain(pick) for pick in filtered if _pick_subdomain(pick)})
+    summary["market_type_visibility"] = sorted({str(pick.get("market_type") or "") for pick in filtered if pick.get("market_type")})
     if summary.get("count", 0) == 0:
         summary["empty_reason"] = "No resolved post-1.0.38 esports paper rows yet."
         summary["operator_note"] = "eSports reporting is wired up, but no post-1.0.38 esports paper rows have resolved yet."
+        summary["market_type_visibility"] = []
     return summary
 
 
@@ -1284,6 +1286,39 @@ def _is_degraded_report(report: Dict[str, Any]) -> bool:
         return True
     source_status = (((report.get("evidence_fusion_stats") or {}).get("source_health") or {}).get("source_status") or {})
     return any(str(info.get("status") or "") in {"degraded", "error", "blocked"} for info in source_status.values() if isinstance(info, dict))
+
+
+def _report_market_subdomains(report: Dict[str, Any]) -> set[str]:
+    values: set[str] = set()
+    for bucket in ("polymarket", "kalshi"):
+        for item in report.get(bucket) or []:
+            text = " ".join(
+                str(part or "")
+                for part in (
+                    item.get("title", ""),
+                    item.get("question", ""),
+                    item.get("url", ""),
+                    item.get("ticker", ""),
+                    item.get("event_ticker", ""),
+                )
+            )
+            subdomain = eq.inferred_esports_subdomain(text)
+            if subdomain:
+                values.add(subdomain)
+    return values
+
+
+def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: List[Dict[str, Any]]) -> str:
+    if picks:
+        return ""
+    if _is_degraded_report(report):
+        return "degraded_evidence_only"
+    topic = str(entry.get("topic") or "")
+    topic_subdomain = _subdomain(topic)
+    market_subdomains = _report_market_subdomains(report)
+    if topic_subdomain and market_subdomains and topic_subdomain not in market_subdomains:
+        return "wrong_subdomain"
+    return "no_compatible_market"
 
 
 def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any]:
@@ -1331,10 +1366,14 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         result["status"] = "duplicate_skip"
     elif not picks and _is_degraded_report(report):
         result["status"] = "degraded_run"
-        result["warnings"].append(f"{entry['topic']}: no usable paper pick found because the run degraded or no compatible anchored market cleared.")
+        result["reason_class"] = "degraded_evidence_only"
+        result["warnings"].append(f"{entry['topic']}: no usable paper pick found because the run degraded or only degraded evidence-level output remained.")
     elif not picks:
+        result["reason_class"] = _dry_run_reason_class(entry, report, picks)
         result["status"] = "no_compatible_pick"
-        result["warnings"].append(f"{entry['topic']}: no usable paper pick found after policy and compatibility filters.")
+        result["warnings"].append(
+            f"{entry['topic']}: no usable paper pick found after policy and compatibility filters (reason_class={result['reason_class']})."
+        )
     else:
         result["status"] = "ready"
     if debug_counters:
@@ -1401,6 +1440,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "title": pick.get("title") or pick.get("topic") or "",
                 "subdomain": subdomain,
                 "pick_type": pick_type,
+                "market_type": str(pick.get("market_type") or ""),
                 "status": pick.get("status"),
             })
         watchlist_scope = _pick_watchlist_scope(pick)
@@ -1542,6 +1582,10 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "by_subdomain": {
                 key: value for key, value in sorted(by_subdomain.items())
                 if key in {row["subdomain"] for row in esports_rows if row["subdomain"]}
+            },
+            "by_market_type": {
+                key: sum(1 for row in esports_rows if row.get("market_type") == key)
+                for key in sorted({str(row.get("market_type") or "") for row in esports_rows if row.get("market_type")})
             },
             "rows": esports_rows[:8],
             "empty_reason": "" if esports_rows else "No open esports paper rows right now.",

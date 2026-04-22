@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.61] - 2026-04-21
+
+### Added
+- `fixtures/paper_portfolio.json`: Narrowed the CS2/Valorant/LoL prop prompts toward named-player total-kills phrasing so the paper runner targets prop surfaces that are more likely to exist live.
+- `scripts/paper.py`: Dry-run output now includes `reason_class` for skipped prop topics (`degraded_evidence_only`, `wrong_subdomain`, `no_compatible_market`) and exposes eSports market-type visibility in both the post-`1.0.38` sample and the open-row slice.
+- `tests/test_paper_ledger.py`: Added regressions for dry-run reason classes, eSports market-type visibility, and prop-oriented open-slice grouping.
+
 ## [1.0.60] - 2026-04-21
 
 ### Added

@@ -156,7 +156,7 @@
     "notes": "Crypto closing-soon sample; should widen paper coverage without creating a second command path."
   },
   {
-    "topic": "donk kills vs Vitality tonight",
+    "topic": "donk total kills tonight",
     "query_type": "prediction",
     "enabled": true,
     "expected_pick_types": ["forecast"],
@@ -165,7 +165,7 @@
     "notes": "CS2 player-prop forecast sample."
   },
   {
-    "topic": "CS2 player-prop markets to watch today",
+    "topic": "donk player-prop markets to watch today",
     "query_type": "market_watchlist",
     "enabled": true,
     "expected_pick_types": ["watchlist"],
@@ -174,7 +174,7 @@
     "notes": "CS2 player-prop watchlist sample."
   },
   {
-    "topic": "TenZ kills vs Sentinels tonight",
+    "topic": "TenZ total kills tonight",
     "query_type": "prediction",
     "enabled": true,
     "expected_pick_types": ["forecast"],
@@ -183,7 +183,7 @@
     "notes": "Valorant player-prop forecast sample."
   },
   {
-    "topic": "Faker solo kills tonight",
+    "topic": "Faker total kills tonight",
     "query_type": "prediction",
     "enabled": true,
     "expected_pick_types": ["forecast"],
