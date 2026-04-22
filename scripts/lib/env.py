@@ -272,6 +272,9 @@ def get_config() -> Dict[str, Any]:
         ('BSKY_HANDLE', None),
         ('BSKY_APP_PASSWORD', None),
         ('TRUTHSOCIAL_TOKEN', None),
+        ('ODDS_API_KEY', None),
+        ('LAST24HOURS_SPORTSBOOK_BOOKS', None),
+        ('LAST24HOURS_DISABLE_SPORTSBOOK', None),
     ]
 
     for key, default in keys:
@@ -559,6 +562,20 @@ def is_polymarket_available() -> bool:
 
     Always returns True - Gamma API is free, no key needed.
     """
+    return True
+
+
+def is_sportsbook_available(config: Dict[str, Any]) -> bool:
+    """Check if sportsbook odds context tier is available.
+
+    Requires ODDS_API_KEY (the-odds-api.com) and not explicitly disabled.
+    """
+    from . import sportsbook
+    return sportsbook.is_available(config)
+
+
+def is_casino_context_available() -> bool:
+    """Static casino-game reference table is always available (in-repo)."""
     return True
 
 

@@ -124,8 +124,8 @@ SOURCE_TIERS = {
     "how_to":        {"tier1": {"reddit", "hn", "web"},        "tier2": {"x", "youtube"}},
     "comparison":    {"tier1": {"reddit", "x", "hn"},          "tier2": {"web", "youtube"}},
     "breaking_news": {"tier1": {"x", "reddit", "web", "hn"},   "tier2": {"bluesky", "truthsocial", "youtube"}},
-    "prediction":    {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"},   "tier2": {"hn", "bluesky"}},
-    "market_watchlist": {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"}, "tier2": {"hn"}},
+    "prediction":    {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"},   "tier2": {"hn", "bluesky", "sportsbook"}},
+    "market_watchlist": {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"}, "tier2": {"hn", "sportsbook"}},
 }
 
 # WebSearch penalty adjustment by query type.
@@ -151,8 +151,8 @@ TIEBREAKER_BY_TYPE = {
     "how_to":        {"reddit": 0, "hn": 1, "web": 2, "x": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "comparison":    {"reddit": 0, "x": 1, "hn": 2, "web": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "breaking_news": {"x": 0, "reddit": 1, "web": 2, "hn": 3, "bluesky": 4, "tiktok": 5, "youtube": 6, "polymarket": 7},
-    "prediction":    {"kalshi": 0, "polymarket": 1, "x": 2, "reddit": 3, "web": 4, "hn": 5, "bluesky": 6, "youtube": 7, "tiktok": 8, "instagram": 9},
-    "market_watchlist": {"kalshi": 0, "polymarket": 1, "web": 2, "x": 3, "reddit": 4, "hn": 5, "bluesky": 6, "youtube": 7, "tiktok": 8, "instagram": 9},
+    "prediction":    {"kalshi": 0, "polymarket": 1, "x": 2, "reddit": 3, "web": 4, "hn": 5, "sportsbook": 6, "bluesky": 7, "youtube": 8, "tiktok": 9, "instagram": 10},
+    "market_watchlist": {"kalshi": 0, "polymarket": 1, "web": 2, "x": 3, "reddit": 4, "hn": 5, "sportsbook": 6, "bluesky": 7, "youtube": 8, "tiktok": 9, "instagram": 10},
 }
 
 

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.54] - 2026-04-21
+
+### Added
+- `scripts/lib/sportsbook.py` — sportsbook odds context tier backed by the-odds-api.com (FanDuel, DraftKings, BetMGM, Caesars). Covers pre-game moneyline / spread / total lines for NBA, NFL, MLB, NHL. Includes `search_sportsbook()` with graceful no-key fallback, `parse_sportsbook_response()` flattening into per-quote dicts, `consensus_rows()` collapsing multi-book quotes into best/worst/avg rows, American↔decimal↔implied-probability conversions, sport detection from team/league mentions, and a monthly usage ledger at `~/.local/share/last24hours/sportsbook_usage.json` with a 480/500-call safety cap.
+- `scripts/lib/casino_reference.py` — static casino-game house-edge reference (blackjack, European/American roulette, craps pass line, baccarat banker, 9/6 video poker, typical Strip slots) with keyword lookup (`lookup_casino_context()`) and `is_casino_query()` helper. Anchors informational context when users ask about casino markets; no live scraping.
+- `scripts/lib/env.py` — new config keys `ODDS_API_KEY`, `LAST24HOURS_SPORTSBOOK_BOOKS`, `LAST24HOURS_DISABLE_SPORTSBOOK`, plus `is_sportsbook_available()` / `is_casino_context_available()` helpers.
+- `scripts/lib/query_type.py` — `sportsbook` is now a tier-2 source for both `prediction` and `market_watchlist` queries (opt-in via `--search=sportsbook` or automatic when the API key is configured).
+- `scripts/last24hours.py --diagnose` surfaces sportsbook availability, monthly API-call usage, and casino-reference availability.
+- `tests/test_sportsbook.py` (27 tests) + `tests/test_casino_reference.py` (17 tests) covering odds math, sport detection, graceful missing-key behavior, HTTP-error capture, monthly-cap short-circuit, response parsing, consensus collapsing, keyword lookup, and false-positive avoidance for terms like "21 savage".
+
+### Notes
+- Direct scraping of fanduel.com / sportsbook.draftkings.com is forbidden by their ToS and their line data lives behind authenticated XHR endpoints; the-odds-api.com (free tier: 500 req/month) is the chosen aggregator. When no `ODDS_API_KEY` is configured, the skill silently degrades — no traceback, no empty-result noise.
+- Sportsbook items are scoped as *context*, not anchors. Full forecast/watchlist fan-out wiring and rationale surfacing land in subsequent releases alongside the CS2 player-prop batch.
+
 ## [1.0.53] - 2026-04-21
 
 ### Fixed
