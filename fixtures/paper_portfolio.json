@@ -172,5 +172,23 @@
     "pick_policy": "watchlist_only",
     "dedupe_policy": "skip_if_open_duplicate",
     "notes": "CS2 player-prop watchlist sample."
+  },
+  {
+    "topic": "TenZ kills vs Sentinels tonight",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "Valorant player-prop forecast sample."
+  },
+  {
+    "topic": "Faker solo kills tonight",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "LoL player-prop forecast sample."
   }
 ]

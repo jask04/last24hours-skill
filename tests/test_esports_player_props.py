@@ -211,5 +211,63 @@ class V1056SurfacingTests(unittest.TestCase):
         self.assertFalse(any("donk" in (f.title or "").lower() for f in forecasts))
 
 
+class ValorantAndLoLSurfacingTests(unittest.TestCase):
+    def setUp(self):
+        from scripts.lib import schema
+        self.val_prop = schema.PolymarketItem(
+            id="PM3",
+            title="TenZ total kills > 18.5 - Map 1",
+            question="Will TenZ get more than 18.5 kills?",
+            url="https://polymarket.com/event/val-tenz-kills",
+            market_type="esports_prop",
+            relevance=0.8,
+            outcome_prices=[("Yes", 0.55), ("No", 0.45)],
+            spread=0.01,
+            movement_24h=0.05
+        )
+        self.val_prop.score = 100.0
+        self.val_prop.volume = 5000
+        self.val_prop.liquidity = 5000
+        self.val_prop.open_interest = 5000
+
+        self.lol_prop = schema.PolymarketItem(
+            id="PM4",
+            title="Faker total kills > 4.5 - Game 1",
+            question="Will Faker get more than 4.5 kills?",
+            url="https://polymarket.com/event/lol-faker-kills",
+            market_type="esports_prop",
+            relevance=0.8,
+            outcome_prices=[("Yes", 0.55), ("No", 0.45)],
+            spread=0.01,
+            movement_24h=0.05
+        )
+        self.lol_prop.score = 100.0
+        self.lol_prop.volume = 5000
+        self.lol_prop.liquidity = 5000
+        self.lol_prop.open_interest = 5000
+
+        self.report = schema.Report(
+            topic="",
+            range_from="",
+            range_to="",
+            generated_at="",
+            mode="quick",
+            polymarket=[self.val_prop, self.lol_prop],
+            kalshi=[]
+        )
+
+    def test_forecast_returns_valorant_prop_for_valorant_topic(self):
+        from scripts.lib import forecast
+        self.report.topic = "TenZ kills vs Sentinels tonight"
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertTrue(any("tenz" in (f.title or "").lower() for f in forecasts))
+
+    def test_forecast_returns_lol_prop_for_lol_topic(self):
+        from scripts.lib import forecast
+        self.report.topic = "Faker solo kills tonight"
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertTrue(any("faker" in (f.title or "").lower() for f in forecasts))
+
+
 if __name__ == "__main__":
     unittest.main()

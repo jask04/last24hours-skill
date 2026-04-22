@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.58] - 2026-04-21
+
+### Added
+- `fixtures/paper_portfolio.json`: Added Valorant and LoL player-prop entries (`TenZ kills vs Sentinels tonight`, `Faker solo kills tonight`) to the daily tracking ledger.
+- `tests/test_esports_player_props.py`: Extended coverage with `ValorantAndLoLSurfacingTests` to ensure end-to-end surfacing parity for Valorant and LoL player-prop queries analogous to CS2.
+
 ## [1.0.57] - 2026-04-21
 
 ### Added
