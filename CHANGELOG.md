@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.55] - 2026-04-21
+
+### Added
+- CS2/Valorant/LoL player-prop detection groundwork in `scripts/lib/evidence_quality.py`: curated `CS2_PLAYER_TOKENS` / `VALORANT_PLAYER_TOKENS` / `LOL_PLAYER_TOKENS` rosters plus helpers `extract_esports_players(text, subdomain=...)`, `extract_cs2_players()`, `is_cs2_player_text()`, `has_player_prop_stat_marker()`, and `is_esports_player_prop_query()` which requires co-occurring eSports + prop signals so unrelated text containing a handle ("donk the dictator") does not trip.
+- `scripts/lib/forecast.py::_is_esports_player_prop_query` thin wrapper on the eq helper, kept disjoint from `_is_esports_match_query` which continues to reject kills/props/handicap outright. This preserves the match-slate path while opening a parallel player-prop path for v1.0.56 to wire.
+- `scripts/lib/market_types.py::_ESPORTS_PROP_MARKERS` extended with `headshot`, `adr`, `first kill`, `first blood`, `1v1`, `clutch`, `entry kill`, `mvp`, `bomb plant`, `pistol round`, `assists`, `deaths`, `kd`, `rating` so `classify_market()` tags player-prop titles as `esports_prop`.
+- `tests/test_esports_player_props.py` (23 tests) covers CS2/Valorant/LoL roster extraction, cross-subdomain isolation, player-prop query classifier (positive + negative cases), disjointness with match-slate classification, market-type tagging, and stat-marker helper.
+
+### Notes
+- v1.0.55 ships detection helpers and tests only — no changes to what gets surfaced. Player-prop queries still route through the existing forecast/watchlist paths until v1.0.56 wires the new classifier into `_candidate_to_watch_item`, `_is_direct_game_market`, and the forecast slate branch.
+
 ## [1.0.54] - 2026-04-21
 
 ### Added

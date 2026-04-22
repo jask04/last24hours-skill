@@ -258,6 +258,121 @@ def esports_subdomain_of(text: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# eSports player-prop detection (v1.0.55 groundwork)
+#
+# Conservative curated rosters of current top-tier pro players. These lists
+# feed `extract_esports_players()` / `is_cs2_player_text()` helpers and the
+# player-prop query classifier in `forecast.py`. No scraped feeds — every
+# entry is a deliberate add.
+# ---------------------------------------------------------------------------
+
+CS2_PLAYER_TOKENS = {
+    # NAVI / tier-1 Europe
+    "s1mple", "b1t", "w0nderful", "jl", "aleksib", "iem",
+    # G2 / Vitality / Team Falcons / MOUZ / FaZe
+    "zywoo", "niko", "m0nesy", "sh1ro", "ax1le", "device", "twistzz",
+    "ropz", "broky", "rain", "karrigan", "magisk", "blamef", "frozen",
+    "jame", "hooch", "donk", "perfecto", "ilay", "flamie",
+    # North America / SA
+    "ethan", "stewie2k", "snow", "floppy", "junior", "yekindar",
+}
+VALORANT_PLAYER_TOKENS = {
+    "tenz", "aspas", "less", "derke", "yay", "chronicle", "cryocells",
+    "suygetsu", "ange1", "zekken", "marved", "sacy", "leo", "sayf",
+    "fns", "n4rrate", "crashies", "boostio", "something", "jinggg",
+}
+LOL_PLAYER_TOKENS = {
+    "faker", "chovy", "showmaker", "zeus", "oner", "keria", "ruler",
+    "viper", "gumayusi", "canyon", "bdd", "peyz", "zeka", "deokdam",
+    "bin", "caps", "jankos", "rekkles",
+}
+
+# Aggregate roster used when the query does not specify a subdomain.
+_ESPORTS_ALL_PLAYERS = CS2_PLAYER_TOKENS | VALORANT_PLAYER_TOKENS | LOL_PLAYER_TOKENS
+
+# Stat markers that indicate a *player-level* prop (not match-level). Mirrored
+# in `market_types._ESPORTS_PROP_MARKERS` so the market classifier agrees.
+ESPORTS_PROP_STAT_MARKERS = {
+    "kills", "headshot", "headshots", "adr", "first kill", "first blood",
+    "1v1", "clutch", "entry kill", "mvp", "bomb plant", "pistol round",
+    "assists", "deaths", "kd", "k/d", "rating", "props", "prop",
+}
+
+
+def _roster_for_subdomain(subdomain: str) -> set[str]:
+    sub = (subdomain or "").lower()
+    if sub == "cs2":
+        return CS2_PLAYER_TOKENS
+    if sub == "valorant":
+        return VALORANT_PLAYER_TOKENS
+    if sub == "lol":
+        return LOL_PLAYER_TOKENS
+    return _ESPORTS_ALL_PLAYERS
+
+
+def extract_esports_players(text: str, *, subdomain: str = "") -> set[str]:
+    """Return the set of roster tokens present in `text` for the subdomain.
+
+    When `subdomain` is empty, the aggregate CS2+Valorant+LoL roster is used.
+    Matching is lowercase token-level; "s1mple" and "S1mple" both match, but
+    "s1mple's kills" does — the tokenizer strips punctuation.
+    """
+    roster = _roster_for_subdomain(subdomain)
+    tokens = tokenize(text)
+    return tokens & roster
+
+
+def extract_cs2_players(text: str) -> set[str]:
+    """CS2-subdomain convenience wrapper."""
+    return extract_esports_players(text, subdomain="cs2")
+
+
+def is_cs2_player_text(text: str) -> bool:
+    """True when text mentions a known CS2 pro player."""
+    return bool(extract_cs2_players(text))
+
+
+def has_player_prop_stat_marker(text: str) -> bool:
+    """True when text contains a player-level stat marker (kills, ADR, etc.)."""
+    lowered = (text or "").lower()
+    tokens = tokenize(text)
+    if tokens & ESPORTS_PROP_STAT_MARKERS:
+        return True
+    return any(phrase in lowered for phrase in ("first kill", "first blood", "bomb plant", "pistol round"))
+
+
+def is_esports_player_prop_query(text: str) -> bool:
+    """True when the query pairs an eSports signal with a player-prop signal.
+
+    A query qualifies when it matches *both* of:
+      - eSports context: a named pro player OR an eSports domain term
+      - player-prop context: a named pro player OR a stat marker
+        (kills/headshots/ADR/etc.)
+
+    This requires a two-signal match so unrelated text like "donk the dictator"
+    (player token appears but no esports or stat context) does not trigger.
+    It stays disjoint from match-level `_is_esports_match_query`, which
+    continues to reject kills/props/handicap outright.
+    """
+    if not text:
+        return False
+    has_player = bool(extract_esports_players(text))
+    has_domain = is_esports_query(text)
+    has_stat = has_player_prop_stat_marker(text)
+    esports_signal = has_player or has_domain
+    prop_signal = has_player or has_stat
+    if not (esports_signal and prop_signal):
+        return False
+    # Guard: bare "player name + esports term" with no stat marker is still
+    # treated as a prop query (pro handle + title is a strong enough signal),
+    # but "player name alone" is not — an esports term or stat marker must
+    # co-occur so non-gaming contexts involving the same handle do not trip.
+    if has_player and not (has_domain or has_stat):
+        return False
+    return True
+
+
 def is_esports_rationale_evidence(
     text: str,
     source_context: str = "",

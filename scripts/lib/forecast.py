@@ -800,6 +800,17 @@ def _is_esports_match_query(text: str) -> bool:
     return bool(_matchup_signature(lowered) or any(term in lowered for term in ("match", "matches", "game", "games", "today", "tonight", "tomorrow")))
 
 
+def _is_esports_player_prop_query(text: str) -> bool:
+    """Thin wrapper around eq.is_esports_player_prop_query for forecast-internal use.
+
+    Disjoint from _is_esports_match_query: player-prop queries name a pro handle
+    or pair an eSports domain term with a player-level stat marker
+    (kills/ADR/headshots/etc.). v1.0.55 ships detection only; surfacing wiring
+    lands in v1.0.56.
+    """
+    return eq.is_esports_player_prop_query(text)
+
+
 def _is_weather_query(text: str) -> bool:
     return eq.is_weather_query(text)
 

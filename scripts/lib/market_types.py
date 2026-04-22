@@ -109,6 +109,10 @@ _ESPORTS_MATCH_MARKERS = {"bo1", "bo2", "bo3", "bo5", "winner", "match"}
 _ESPORTS_PROP_MARKERS = {
     "map 1", "map 2", "map 3", "map winner", "total maps", "odd/even total kills",
     "total kills", "kills", "handicap", "correct score",
+    # Player-level prop markers (v1.0.55 groundwork, primarily CS2/Valorant/LoL)
+    "headshot", "headshots", "adr", "first kill", "first blood",
+    "1v1", "clutch", "entry kill", "mvp", "bomb plant", "pistol round",
+    "assists", "deaths", "kd", "k/d", "rating",
 }
 _ESPORTS_TITLE_MARKERS = {"map pool", "major winner", "tournament winner", "cache", "add cache", "champion"}
 
