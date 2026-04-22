@@ -111,6 +111,29 @@ def _subdomain(topic: str) -> str:
     return eq.inferred_esports_subdomain(lowered)
 
 
+def _watchlist_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
+    topic_text = str(topic or "")
+    if _domain(topic_text) != "esports":
+        return ""
+    market_text = " ".join(
+        str(part or "")
+        for part in (
+            item.get("title", ""),
+            item.get("question", ""),
+            item.get("url", ""),
+        )
+    )
+    if not eq.is_esports_query(market_text):
+        return "wrong_domain_market"
+    topic_subdomain = _subdomain(topic_text)
+    market_subdomain = eq.inferred_esports_subdomain(market_text)
+    if topic_subdomain and market_subdomain and topic_subdomain != market_subdomain:
+        return "wrong_subdomain"
+    if eq.is_esports_player_prop_query(topic_text) and str(item.get("market_type") or "") != "esports_prop":
+        return "wrong_market_type"
+    return ""
+
+
 def _probability_bucket(probability: float) -> str:
     if probability < 0.35:
         return "0-35"
@@ -435,6 +458,18 @@ def _pick_subdomain(pick: Dict[str, Any]) -> str:
     subdomain = str(notes.get("subdomain") or "")
     if subdomain:
         return subdomain
+    inferred = eq.inferred_esports_subdomain(
+        " ".join(
+            str(part or "")
+            for part in (
+                pick.get("title", ""),
+                pick.get("question", ""),
+                pick.get("market_url", ""),
+            )
+        )
+    )
+    if inferred:
+        return inferred
     return _subdomain(str(pick.get("topic") or ""))
 
 
@@ -588,6 +623,18 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
         item = _select_watchlist_item(watchlist)
         if item is None:
             return picks
+        if _watchlist_item_reason_class(topic, item):
+            return picks
+        watchlist_subdomain = _subdomain(topic) or eq.inferred_esports_subdomain(
+            " ".join(
+                str(part or "")
+                for part in (
+                    item.get("title", ""),
+                    item.get("question", ""),
+                    item.get("url", ""),
+                )
+            )
+        )
         probability = _prob(item.get("probability") or item.get("implied_probability"))
         if probability is not None:
             venue = str(item.get("venue") or "").lower()
@@ -624,7 +671,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 }, sort_keys=True),
                 "notes_json": json.dumps({
                     "domain": _domain(topic),
-                    "subdomain": _subdomain(topic),
+                    "subdomain": watchlist_subdomain,
                     "paper_only": True,
                     "watchlist_scope": item.get("watchlist_scope", ""),
                     "rank_score": item.get("rank_score"),
@@ -1314,6 +1361,11 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
     if _is_degraded_report(report):
         return "degraded_evidence_only"
     topic = str(entry.get("topic") or "")
+    watchlist = report.get("market_watchlist") or []
+    if watchlist:
+        reason = _watchlist_item_reason_class(topic, _select_watchlist_item(watchlist) or {})
+        if reason:
+            return reason
     topic_subdomain = _subdomain(topic)
     market_subdomains = _report_market_subdomains(report)
     if topic_subdomain and market_subdomains and topic_subdomain not in market_subdomains:
@@ -1579,6 +1631,10 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "source_health_status_rollup": {key: dict(sorted(value.items())) for key, value in sorted(source_health_status_rollup.items())},
         "esports_open_slice": {
             "count": len(esports_rows),
+            "by_pick_type": {
+                key: sum(1 for row in esports_rows if row.get("pick_type") == key)
+                for key in sorted({str(row.get("pick_type") or "") for row in esports_rows if row.get("pick_type")})
+            },
             "by_subdomain": {
                 key: value for key, value in sorted(by_subdomain.items())
                 if key in {row["subdomain"] for row in esports_rows if row["subdomain"]}

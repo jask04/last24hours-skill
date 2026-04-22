@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.64] - 2026-04-22
+
+### Fixed
+- `scripts/lib/evidence_quality.py`: Named-player eSports prop topics now count as eSports queries when they carry both a recognized player and a stat marker, which closes the last broad-domain hole that let non-eSports rows survive prop compatibility checks.
+- `scripts/paper.py`: Paper extraction now rejects eSports watchlist rows that fail final domain, subdomain, or prop-type compatibility before they can be stored, and broad eSports watchlists now infer subdomain from the selected market when the topic itself is intentionally mixed-title.
+- `tests/test_paper_ledger.py`: Added regressions proving that wrong-domain NBA rows cannot be stored for `donk total kills markets to watch today`, that broad eSports watchlists retain inferred subdomains, and that dry-run reason classes distinguish wrong-domain from wrong-market-type failures.
+
 ## [1.0.63] - 2026-04-22
 
 ### Fixed

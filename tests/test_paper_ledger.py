@@ -307,6 +307,49 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(notes["domain"], "esports")
         self.assertEqual(notes["subdomain"], "cs2")
 
+    def test_broad_esports_watchlist_pick_infers_market_subdomain(self):
+        report = {
+            "topic": "esports markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "LoL: NRG Esports vs Supernova (BO3) - NACL",
+                    "question": "LoL: NRG Esports vs Supernova (BO3) - NACL",
+                    "outcome_label": "NRG Esports",
+                    "probability": 0.64,
+                    "market_type": "game_outcome",
+                    "url": "https://polymarket.com/event/lol-nrg-sn-2026-04-22",
+                }
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        notes = json.loads(picks[0]["notes_json"])
+        self.assertEqual(notes["domain"], "esports")
+        self.assertEqual(notes["subdomain"], "lol")
+
+    def test_esports_watchlist_pick_rejects_wrong_domain_market(self):
+        report = {
+            "topic": "donk total kills markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "NBA Playoffs: Rockets vs. Lakers Total Games O/U 5.5",
+                    "question": "NBA Playoffs: Rockets vs. Lakers Total Games O/U 5.5",
+                    "outcome_label": "Over 5.5",
+                    "probability": 0.82,
+                    "market_type": "player_prop",
+                    "url": "https://polymarket.com/event/nba-playoffs-rockets-vs-lakers-total-games-ou-5pt5",
+                }
+            ],
+        }
+
+        self.assertEqual(paper.extract_paper_picks(report), [])
+
     def test_filter_picks_by_policy(self):
         picks = [
             {"pick_type": "forecast", "title": "F"},
@@ -424,6 +467,58 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(entry["status"], "no_compatible_pick")
         self.assertEqual(entry["reason_class"], "wrong_subdomain")
         self.assertIn("wrong_subdomain", " ".join(entry["warnings"]))
+
+    def test_cmd_daily_dry_run_reports_wrong_domain_and_market_type_reason_classes(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "donk total kills markets to watch today", "enabled": True},
+            {"topic": "TenZ total kills tonight", "enabled": True},
+        ]), encoding="utf-8")
+        reports = {
+            "donk total kills markets to watch today": {
+                "topic": "donk total kills markets to watch today",
+                "query_type": "market_watchlist",
+                "forecasts": [],
+                "market_watchlist": [
+                    {
+                        "venue": "polymarket",
+                        "title": "NBA Playoffs: Rockets vs. Lakers Total Games O/U 5.5",
+                        "question": "NBA Playoffs: Rockets vs. Lakers Total Games O/U 5.5",
+                        "outcome_label": "Over 5.5",
+                        "probability": 0.82,
+                        "market_type": "player_prop",
+                        "url": "https://polymarket.com/event/nba-playoffs-rockets-vs-lakers-total-games-ou-5pt5",
+                    }
+                ],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+            },
+            "TenZ total kills tonight": {
+                "topic": "TenZ total kills tonight",
+                "query_type": "market_watchlist",
+                "forecasts": [],
+                "market_watchlist": [
+                    {
+                        "venue": "polymarket",
+                        "title": "Valorant: Sentinels vs 100 Thieves winner",
+                        "question": "Valorant: Sentinels vs 100 Thieves winner",
+                        "outcome_label": "Sentinels",
+                        "probability": 0.61,
+                        "market_type": "game_outcome",
+                        "url": "https://polymarket.com/event/valorant-sen-100t-2026-04-22",
+                    }
+                ],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+            },
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", side_effect=lambda topic, quick, extra_args=None, timeout_seconds=None: reports[topic]), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        by_topic = {entry["topic"]: entry for entry in payload["results"]}
+        self.assertEqual(by_topic["donk total kills markets to watch today"]["reason_class"], "wrong_domain_market")
+        self.assertEqual(by_topic["TenZ total kills tonight"]["reason_class"], "wrong_market_type")
 
     def test_cmd_daily_dry_run_reports_timeout_as_error_status(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
@@ -1341,6 +1436,7 @@ class CalibrationTests(unittest.TestCase):
         ])
 
         self.assertEqual(diagnostics["esports_open_slice"]["count"], 1)
+        self.assertEqual(diagnostics["esports_open_slice"]["by_pick_type"]["forecast"], 1)
         self.assertEqual(diagnostics["esports_open_slice"]["by_subdomain"]["cs2"], 1)
         self.assertEqual(diagnostics["esports_open_slice"]["by_market_type"]["esports_prop"], 1)
         self.assertEqual(diagnostics["esports_open_slice"]["rows"][0]["subdomain"], "cs2")

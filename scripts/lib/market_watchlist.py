@@ -1217,7 +1217,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
 
     if domain == "esports" and market_type == "esports_prop":
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)
-        if _is_explicit_esports_prop_prompt(report.topic) and quality >= 0.45 and relevance >= 0.30:
+        if _is_explicit_esports_prop_prompt(report.topic) and relevance >= 0.30:
             rank_score = max(rank_score, 24)
 
     if closing_mode and not closing_signal:
@@ -1451,19 +1451,21 @@ def _is_valid_esports_watchlist_item(report: schema.Report, item: schema.MarketW
     topic_subdomain = _topic_esports_subdomain(report.topic)
     explicit_props = _is_explicit_esports_prop_prompt(report.topic)
     explicit_title = _is_explicit_esports_title_prompt(report.topic)
-    if not eq.is_esports_query(item_text):
-        return False
     if explicit_props:
-        if item.market_type != "esports_prop":
+        if item.market_type not in {"esports_prop", "player_prop"}:
             return False
         if topic_subdomain and item_subdomain != topic_subdomain:
             return False
-    elif explicit_title:
+        return True
+    if explicit_title:
         if item.market_type != "esports_title":
             return False
         if topic_subdomain and item_subdomain and item_subdomain != topic_subdomain:
             return False
-    elif topic_subdomain and item_subdomain and item_subdomain != topic_subdomain:
+        return True
+    if not eq.is_esports_query(item_text):
+        return False
+    if topic_subdomain and item_subdomain and item_subdomain != topic_subdomain:
         return False
     return True
 

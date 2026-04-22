@@ -219,6 +219,8 @@ def is_esports_query(text: str) -> bool:
     tokens = tokenize(text)
     if tokens & ESPORTS_TERMS:
         return True
+    if extract_esports_players(text) and has_player_prop_stat_marker(text):
+        return True
     return any(phrase in lowered for phrase in ("counter-strike", "league of legends"))
 
 
