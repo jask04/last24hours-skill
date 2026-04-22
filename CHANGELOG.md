@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.52] - 2026-04-21
+
+### Fixed
+- Added `tests/test_kalshi_nba.py` regression coverage for Kalshi-led NBA slate forecasts: Kalshi compact-ticker team codes align with full team-name matchup topics via `_market_matches_matchup`, the reverse match rejects wrong-opponent tickers, stale Kalshi game dates are rejected by `_sports_market_date_compatible` when the slate target is a later day, fresh dates are accepted, a Kalshi-only single matchup topic still produces a Kalshi-anchored forecast when Polymarket is empty, and a mixed Kalshi+Polymarket slate surfaces both games with the higher-scoring Polymarket anchor leading.
+
 ## [1.0.51] - 2026-04-21
 
 ### Added
