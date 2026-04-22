@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.57] - 2026-04-21
+
+### Added
+- `scripts/lib/market_watchlist.py`: Tuned ranking for player-prop queries via `_esports_prop_rank_adjust()` to weigh evidence and movement more heavily than volume/open-interest, as prop markets typically move thin. Lowered the near-certainty penalty for `esports_prop` markets in `_near_certain_penalty()` since they behave differently from game-outcome pins.
+- `scripts/lib/forecast.py`: "Why this is the current line" rationale for player-prop anchors now extracts and explicitly names the player and stat. Implemented "Option 3" Sportsbook fold-in: when a player-prop forecast fires and `sportsbook` is available, the rationale seamlessly integrates FanDuel/DraftKings consensus lines without outranking the primary Polymarket/Kalshi anchor.
+
 ## [1.0.56] - 2026-04-21
 
 ### Added

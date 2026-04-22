@@ -465,6 +465,8 @@ def _near_certain_penalty(probability: Optional[float], movement: float, signal_
         return 0.0
     if 0.02 < probability < 0.98:
         return 0.0
+    if market_type == "esports_prop":
+        return 0.05
     if market_type == "threshold":
         if movement >= 0.35 and signal_quality >= 0.70:
             return 0.10
@@ -1073,6 +1075,11 @@ def _esports_player_name_match_bonus(topic: str, item) -> float:
             return 0.15
     return 0.0
 
+def _esports_prop_rank_adjust(base_score: int, evidence: float, movement: float, quality: float) -> int:
+    """Tune ranking for player props: they move thin, so weigh evidence/movement more than liquidity."""
+    shift = 100 * (0.20 * evidence + 0.15 * movement - 0.35 * quality)
+    return int(max(0, min(100, base_score + shift)))
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     if _is_bad_candidate(report.topic, item):
         return None
@@ -1175,6 +1182,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             max(0.0, resolvability_score) -
             certainty_penalty
         ))))
+
+    if domain == "esports" and market_type == "esports_prop":
+        rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)
 
     if closing_mode and not closing_signal:
         return None

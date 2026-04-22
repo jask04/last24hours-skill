@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
-from . import evidence_fusion, evidence_quality as eq, market_types, query_type as qt, schema
+from . import evidence_fusion, evidence_quality as eq, market_types, query_type as qt, schema, sportsbook
 
 LOW_SIGNAL_SOCIAL_TERMS = eq.LOW_SIGNAL_SOCIAL_TERMS
 DRIVER_TERMS = eq.DRIVER_TERMS
@@ -1913,6 +1913,62 @@ def _esports_catalysts(candidates: list[_EvidenceCandidate], favorite_label: str
     return up[:2], down[:2]
 
 
+def _esports_prop_why_line(
+    report: schema.Report,
+    title: str,
+    polymarket_item: Optional[schema.PolymarketItem],
+    kalshi_item: Optional[schema.KalshiItem],
+    evidence: list[str],
+) -> str:
+    market = polymarket_item or kalshi_item
+    market_text = f"{market.title} {market.question}" if market else title
+
+    players = eq.extract_esports_players(title) or eq.extract_esports_players(report.topic)
+    player = list(players)[0].capitalize() if players else "Player"
+
+    threshold = ""
+    m = re.search(r'([\d.]+)\s*(?:O/U|over|under|kills|assists|deaths|headshots)', market_text, re.I)
+    if m:
+        threshold = m.group(1)
+
+    stat = "stat"
+    lowered = market_text.lower()
+    for s in ["kills", "headshots", "assists", "deaths", "adr", "rating", "first blood"]:
+        if s in lowered:
+            stat = s
+            break
+
+    why_base = f"{player} recent {stat} performance"
+    if threshold:
+        why_base += f"; market implies {threshold} O/U."
+    else:
+        why_base += "."
+
+    sb_context = ""
+    if sportsbook.is_available():
+        try:
+            sb_data = sportsbook.search_sportsbook(title)
+            if sb_data and not sb_data.get("error"):
+                quotes = sportsbook.parse_sportsbook_response(sb_data, markets=("player_props",))
+                if quotes:
+                    rows = sportsbook.consensus_rows(quotes)
+                    if rows:
+                        row = rows[0]
+                        books = row.get("books", [])
+                        best_book = books[0]["book"] if books else "Sportsbook"
+                        line = row.get("line")
+                        if line is not None:
+                            sb_context = f" {best_book} consensus line is {line}."
+        except Exception:
+            pass
+
+    if sb_context:
+        return why_base + sb_context
+    elif evidence:
+        return f"{why_base} Context: {evidence[0]}"
+    return why_base
+
+
 def _build_forecast_item(
     title: str,
     polymarket_item: Optional[schema.PolymarketItem],
@@ -1963,7 +2019,10 @@ def _build_forecast_item(
             )
             forecast.why_line = strong_social.text if strong_social else ""
     elif esports_query:
-        forecast.why_line = evidence[0] if evidence else ""
+        if _is_esports_player_prop_query(title) or _is_esports_player_prop_query(report.topic):
+            forecast.why_line = _esports_prop_why_line(report, title, polymarket_item, kalshi_item, evidence)
+        else:
+            forecast.why_line = evidence[0] if evidence else ""
     elif crypto_threshold_query:
         forecast.why_line = _crypto_threshold_why_line(report, title, evidence_candidates)
     else:
