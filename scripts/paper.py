@@ -1318,12 +1318,20 @@ def post_1_0_38_esports_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     summary = calibration_summary(filtered)
     summary["min_skill_version"] = "1.0.38"
     summary["domain"] = "esports"
+    summary["pick_type_visibility"] = sorted({str(pick.get("pick_type") or "") for pick in filtered if pick.get("pick_type")})
     summary["subdomain_visibility"] = sorted({_pick_subdomain(pick) for pick in filtered if _pick_subdomain(pick)})
     summary["market_type_visibility"] = sorted({str(pick.get("market_type") or "") for pick in filtered if pick.get("market_type")})
+    summary["missing_subdomain_count"] = sum(1 for pick in filtered if not _pick_subdomain(pick))
     if summary.get("count", 0) == 0:
         summary["empty_reason"] = "No resolved post-1.0.38 esports paper rows yet."
         summary["operator_note"] = "eSports reporting is wired up, but no post-1.0.38 esports paper rows have resolved yet."
+        summary["pick_type_visibility"] = []
         summary["market_type_visibility"] = []
+    elif summary["missing_subdomain_count"]:
+        summary["operator_note"] = (
+            f"{summary['missing_subdomain_count']} resolved post-1.0.38 esports paper row(s) "
+            "still have empty subdomain labeling and should be treated as degraded audit samples."
+        )
     return summary
 
 
@@ -1643,6 +1651,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 key: sum(1 for row in esports_rows if row.get("market_type") == key)
                 for key in sorted({str(row.get("market_type") or "") for row in esports_rows if row.get("market_type")})
             },
+            "missing_subdomain_count": sum(1 for row in esports_rows if not row.get("subdomain")),
+            "rows_missing_subdomain": [row for row in esports_rows if not row.get("subdomain")][:5],
             "rows": esports_rows[:8],
             "empty_reason": "" if esports_rows else "No open esports paper rows right now.",
         },

@@ -1384,13 +1384,16 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(summary["count"], 1)
         self.assertEqual(summary["groups"]["domain:esports"]["count"], 1)
         self.assertEqual(summary["groups"]["subdomain:cs2"]["count"], 1)
+        self.assertEqual(summary["pick_type_visibility"], ["watchlist"])
         self.assertEqual(summary["market_type_visibility"], ["game_outcome"])
+        self.assertEqual(summary["missing_subdomain_count"], 0)
         self.assertEqual(summary["subdomain_visibility"], ["cs2"])
 
         empty = paper.post_1_0_38_esports_summary([])
         self.assertEqual(empty["count"], 0)
         self.assertIn("No resolved post-1.0.38 esports paper rows yet.", empty["empty_reason"])
         self.assertIn("no post-1.0.38 esports paper rows have resolved yet", empty["operator_note"].lower())
+        self.assertEqual(empty["pick_type_visibility"], [])
         self.assertEqual(empty["market_type_visibility"], [])
 
     def test_open_pick_diagnostics_rolls_up_source_health_statuses(self):
@@ -1439,6 +1442,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["esports_open_slice"]["by_pick_type"]["forecast"], 1)
         self.assertEqual(diagnostics["esports_open_slice"]["by_subdomain"]["cs2"], 1)
         self.assertEqual(diagnostics["esports_open_slice"]["by_market_type"]["esports_prop"], 1)
+        self.assertEqual(diagnostics["esports_open_slice"]["missing_subdomain_count"], 0)
         self.assertEqual(diagnostics["esports_open_slice"]["rows"][0]["subdomain"], "cs2")
 
 

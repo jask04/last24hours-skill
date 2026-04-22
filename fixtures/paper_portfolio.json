@@ -183,13 +183,13 @@
     "notes": "CS2 player-prop forecast sample."
   },
   {
-    "topic": "donk total kills markets to watch today",
-    "query_type": "market_watchlist",
+    "topic": "Counter-Strike 2 player props today",
+    "query_type": "prediction",
     "enabled": true,
-    "expected_pick_types": ["watchlist"],
-    "pick_policy": "watchlist_only",
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "CS2 player-prop watchlist sample; phrased around total kills so the watchlist path stays on stat-compatible surfaces."
+    "notes": "CS2 player-prop forecast sample; broader player-prop phrasing currently anchors more reliably than the dead watchlist slot it replaces."
   },
   {
     "topic": "TenZ total kills tonight",

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.65] - 2026-04-22
+
+### Changed
+- `fixtures/paper_portfolio.json`: Replaced the dead `donk total kills markets to watch today` watchlist slot with `Counter-Strike 2 player props today`, which currently produces a live-ready CS2 prop forecast instead of a permanent `no_compatible_pick`.
+- `scripts/paper.py`: Post-`1.0.38` eSports reporting now exposes pick-type visibility and missing-subdomain counts for resolved rows, and the open eSports slice now calls out rows that still lack subdomain labeling so degraded audit samples are visible immediately.
+- `tests/test_paper_ledger.py`: Extended eSports paper-report coverage for pick-type visibility, missing-subdomain accounting, and the updated prop-fixture/report expectations.
+
 ## [1.0.64] - 2026-04-22
 
 ### Fixed
