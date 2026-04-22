@@ -172,6 +172,8 @@ def _matchup_signature(text: str) -> Optional[str]:
 
 def _prediction_domain(topic: str) -> Optional[str]:
     topic_lower = (topic or "").lower()
+    if eq.is_esports_query(topic_lower):
+        return "esports"
     if _is_nba_slate_topic(topic) or _matchup_signature(topic):
         return "sports"
     if eq.is_weather_query(topic_lower):
@@ -713,6 +715,34 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
     return []
 
 
+def _compact_esports_items(items: list, source: str, report: schema.Report, limit: int) -> list:
+    if qt.detect_query_type(report.topic) == "market_watchlist":
+        return []
+    if qt.detect_query_type(report.topic) != "prediction" or not eq.is_esports_query(report.topic):
+        return items[:limit]
+
+    topic_lower = report.topic.lower()
+    cs2_prompt = eq.is_cs2_query(report.topic)
+    filtered = []
+    for item in items:
+        text = getattr(item, "text", "") or getattr(item, "title", "") or ""
+        context = getattr(item, "author_handle", "") or getattr(item, "subreddit", "") or getattr(item, "source_domain", "")
+        lowered = f"{text} {context}".lower()
+        tokens = eq.tokenize(lowered)
+        if cs2_prompt and not eq.is_cs2_market_text(lowered):
+            continue
+        if text.strip().startswith("@"):
+            continue
+        if any(phrase in lowered for phrase in ("line feels too low", "streak starter", "sign up and deposit", "whale movements", "price gap", "odds favor", "pre cash")):
+            continue
+        if tokens & {"down", "downdetector", "funny", "install", "players", "hours", "reported"} and not (tokens & {"patch", "update", "roster", "standin", "stand-in", "sub", "substitute", "veto", "map", "pool", "qualifier", "playoff", "playoffs", "bracket", "lan"}):
+            continue
+        if not eq.is_esports_rationale_evidence(text, context, exact_match=True):
+            continue
+        filtered.append(item)
+    return filtered[:limit] if filtered else []
+
+
 def _is_nba_market_item(item) -> bool:
     text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
     item_type = getattr(item, "market_type", "unknown")
@@ -960,6 +990,8 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("")
         compact_reddit = _compact_sports_items(report.reddit, "reddit", report, limit)
         if compact_reddit == report.reddit[:limit]:
+            compact_reddit = _compact_esports_items(report.reddit, "reddit", report, limit)
+        if compact_reddit == report.reddit[:limit]:
             compact_reddit = _compact_weather_macro_items(report.reddit, "reddit", report, limit)
         domain = _prediction_domain(report.topic)
         if not compact_reddit and (qt.detect_query_type(report.topic) == "prediction") and domain:
@@ -1025,6 +1057,8 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("### X Posts")
         lines.append("")
         compact_x = _compact_sports_items(report.x, "x", report, limit)
+        if compact_x == report.x[:limit]:
+            compact_x = _compact_esports_items(report.x, "x", report, limit)
         if compact_x == report.x[:limit]:
             compact_x = _compact_weather_macro_items(report.x, "x", report, limit)
         domain = _prediction_domain(report.topic)

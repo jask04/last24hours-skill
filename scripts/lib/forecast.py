@@ -103,6 +103,39 @@ def _matchup_side_tokens(text: str) -> list[set[str]]:
     return sides if len(sides) == 2 else []
 
 
+_ESPORTS_MATCH_NOISE = {
+    "counter", "strike", "counterstrike", "counter-strike", "esports", "valorant", "lol",
+    "bo1", "bo2", "bo3", "bo5", "group", "stage", "regular", "playoffs", "playoff",
+    "qualifier", "qualifiers", "online", "league", "series", "main", "european",
+    "world", "cup", "north", "america", "rivals", "blast", "conquest", "prague",
+}
+
+
+def _esports_matchup_side_tokens(text: str) -> list[set[str]]:
+    text_lower = text.lower()
+    separator = None
+    for candidate in (" vs. ", " vs ", " at "):
+        if candidate in text_lower:
+            separator = candidate
+            break
+    if not separator:
+        return []
+    sides = []
+    for raw_side in text_lower.split(separator, 1):
+        side = raw_side.split(" - ", 1)[0]
+        side = re.sub(r"\([^)]*\)", " ", side)
+        if ":" in side:
+            side = side.rsplit(":", 1)[-1]
+        tokens = {
+            token
+            for token in re.sub(r"[^\w\s]", " ", side).split()
+            if len(token) >= 2 and token not in _ESPORTS_MATCH_NOISE
+        }
+        if tokens:
+            sides.append(tokens)
+    return sides if len(sides) == 2 else []
+
+
 def _matchup_signature(text: str) -> Optional[str]:
     sides = _matchup_side_tokens(text)
     if len(sides) != 2:
@@ -144,6 +177,12 @@ def _item_matchup_signature(item) -> Optional[str]:
             if part
         )
     )
+    if eq.is_esports_query(str(base_text)):
+        sides = _esports_matchup_side_tokens(str(base_text))
+        if len(sides) == 2:
+            normalized = [" ".join(sorted(side)) for side in sides]
+            normalized.sort()
+            return " | ".join(normalized)
     return _signature_from_kalshi_codes(kalshi_text) or _matchup_signature(str(base_text))
 
 
@@ -900,7 +939,15 @@ def _esports_candidate_score(
         "safe to say",
         "pre cash",
     )
+    low_signal_terms = {
+        "animgraph", "down", "downdetector", "hours", "funny", "free", "favorite", "thanks",
+        "status", "reported", "players", "install", "download",
+    }
     if any(phrase in lowered for phrase in low_signal_phrases):
+        return None
+    if text.strip().startswith("@"):
+        return None
+    if tokens & low_signal_terms and not (tokens & {"patch", "update", "roster", "standin", "stand-in", "sub", "substitute", "veto", "map", "pool", "qualifier", "playoff", "playoffs", "bracket", "lan"}):
         return None
     if not eq.is_esports_rationale_evidence(text, source_context, exact_match=exact_match):
         return None

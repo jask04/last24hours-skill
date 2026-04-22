@@ -125,6 +125,15 @@ ESPORTS_LOW_SIGNAL_TERMS = {
     "potd", "deposit", "signup", "sign", "whale", "movements", "prizepicks", "cash",
     "cashing",
 }
+ESPORTS_NOISE_TERMS = {
+    "animgraph", "downdetector", "download", "install", "issue", "issues", "status",
+    "outage", "outages", "maintenance", "reply", "replies", "scholarship",
+}
+ESPORTS_ENTITY_STOP = ESPORTS_TERMS | {
+    "match", "matches", "game", "games", "qualifier", "qualifiers", "playoff",
+    "playoffs", "bracket", "round", "group", "stage", "series", "main",
+    "regular", "academy", "esports", "today", "tomorrow", "tonight",
+}
 
 
 def tokenize(text: str) -> set[str]:
@@ -222,12 +231,31 @@ def is_esports_rationale_evidence(
     exact_match: bool = False,
 ) -> bool:
     tokens = tokenize(f"{text or ''} {source_context or ''}")
+    lowered = f"{text or ''} {source_context or ''}".lower()
+    if lowered.lstrip().startswith("@"):
+        return False
+    if tokens & ESPORTS_NOISE_TERMS and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"update"})):
+        return False
     if tokens & ESPORTS_LOW_SIGNAL_TERMS:
         if not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool", "patch", "update"})):
             return False
     if exact_match and not (tokens & ESPORTS_HIGH_SIGNAL_TERMS):
         return False
     return bool(tokens & ESPORTS_HIGH_SIGNAL_TERMS)
+
+
+def esports_entity_tokens(text: str) -> set[str]:
+    lowered = (text or "").lower()
+    sides = re.split(r"\bvs\.?\b|\bat\b", lowered)
+    collected: set[str] = set()
+    for side in sides[:2]:
+        side_tokens = {
+            token
+            for token in re.sub(r"[^a-z0-9\s-]", " ", side).split()
+            if token and token not in ESPORTS_ENTITY_STOP and not re.fullmatch(r"bo\d", token)
+        }
+        collected |= side_tokens
+    return collected
 
 
 def classify_sports_evidence(

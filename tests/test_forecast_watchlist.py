@@ -526,6 +526,36 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertTrue(all(item.anchor_source == "polymarket" for item in forecasts))
         self.assertTrue(all("Counter-Strike:" in item.title for item in forecasts))
 
+    def test_cs2_matches_today_handles_short_team_tags(self):
+        report = _report("Counter-Strike 2 matches today")
+        report.generated_at = "2026-04-21T18:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Z7 Esports vs Sashi Academy (BO3) - European Pro League Regular Group C",
+                question="Counter-Strike: Z7 Esports vs Sashi Academy (BO3) - European Pro League Regular Group C",
+                url="https://polymarket.com/event/cs2-z7-sashia-2026-04-21",
+                outcome_prices=[("Z7 Esports", 0.02), ("Sashi Academy", 0.98)],
+                engagement=_engagement(volume=42_000, liquidity=237_000),
+                market_signal_quality=0.76,
+                volume_24h=42_000,
+                best_bid=0.99,
+                best_ask=1.0,
+                spread=0.01,
+                movement_24h=0.0,
+                relevance=0.90,
+                score=75,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            )
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+        self.assertEqual(forecasts[0].favorite_label, "Sashi Academy")
+
     def test_cs2_map_pool_forecast_rejects_betting_style_why_line(self):
         report = _report("CS2 map pool markets")
         report.generated_at = "2026-04-21T18:00:00+00:00"
@@ -571,6 +601,159 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(len(forecasts), 1)
         self.assertNotIn("line feels too low", forecasts[0].why_line.lower())
         self.assertNotIn("streak starter", forecasts[0].why_line.lower())
+
+    def test_render_compact_cs2_degraded_suppresses_generic_x_noise(self):
+        report = _report("Counter-Strike 2 matches today")
+        report.forecasts = [
+            schema.ForecastItem(
+                title="Counter-Strike 2 matches today",
+                forecast_probability=0.53,
+                forecast_range_low=0.48,
+                forecast_range_high=0.58,
+                favorite_label="Yes",
+                anchor_source="model_implied",
+                market_view="No clean Polymarket or Kalshi market found.",
+                why_line="No clean market exists and no high-signal roster, patch, veto, or tournament-context driver surfaced in the last 24 hours.",
+                confidence_level="low",
+                uncertainty="No clean market exists, so this is model-implied and should be treated cautiously.",
+                degraded_warning="DEGRADED RUN WARNING: no date-compatible direct eSports market cleared anchoring, so this is a lower-confidence model-implied forecast.",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Counter-Strike 2 has pushed Animgraph 2 live. The new animation system changes player and weapon animations in matches.",
+                url="https://x.com/example/status/1",
+                author_handle="World1gg",
+                score=60,
+            ),
+            schema.XItem(
+                id="X2",
+                text="@nikitabier can you do one for Counter-Strike 2?",
+                url="https://x.com/example/status/2",
+                author_handle="rattecs",
+                score=44,
+            ),
+        ]
+
+        compact = render.render_compact(report)
+
+        self.assertIn("No high-signal X posts found for this esports forecast.", compact)
+        self.assertNotIn("Animgraph 2", compact)
+        self.assertNotIn("@nikitabier", compact)
+
+    def test_broad_esports_watchlist_prefers_mixed_titles_over_only_stale_lol(self):
+        report = _report("esports markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="LoL: Cloud9 vs Sentinels (BO3) - Qualifier",
+                question="LoL: Cloud9 vs Sentinels (BO3) - Qualifier",
+                url="https://polymarket.com/event/lol-c9-sen-2026-04-21",
+                outcome_prices=[("Cloud9", 0.0), ("Sentinels", 1.0)],
+                engagement=_engagement(volume=900_000, liquidity=400_000),
+                market_signal_quality=0.99,
+                volume_24h=900_000,
+                best_bid=1.0,
+                best_ask=1.0,
+                spread=0.0,
+                movement_24h=-60.0,
+                relevance=0.98,
+                score=96,
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="LoL: LYON vs FlyQuest (BO3) - Qualifier",
+                question="LoL: LYON vs FlyQuest (BO3) - Qualifier",
+                url="https://polymarket.com/event/lol-ly-fly-2026-04-21",
+                outcome_prices=[("LYON", 0.0), ("FlyQuest", 1.0)],
+                engagement=_engagement(volume=650_000, liquidity=365_000),
+                market_signal_quality=0.98,
+                volume_24h=650_000,
+                best_bid=1.0,
+                best_ask=1.0,
+                spread=0.0,
+                movement_24h=-70.0,
+                relevance=0.97,
+                score=95,
+            ),
+            schema.PolymarketItem(
+                id="PM3",
+                title="Valorant: AKA HERO vs Dortmund eSports (BO3) - Group Stage",
+                question="Valorant: AKA HERO vs Dortmund eSports (BO3) - Group Stage",
+                url="https://polymarket.com/event/val-ah-dor-2026-04-21",
+                outcome_prices=[("AKA HERO", 0.12), ("Dortmund eSports", 0.88)],
+                engagement=_engagement(volume=47_000, liquidity=484_000),
+                market_signal_quality=0.92,
+                volume_24h=47_000,
+                best_bid=0.87,
+                best_ask=0.89,
+                spread=0.02,
+                movement_24h=-40.9,
+                relevance=0.93,
+                score=80,
+            ),
+            schema.PolymarketItem(
+                id="PM4",
+                title="Counter-Strike: Z7 Esports vs Sashi Academy (BO3) - European Pro League Regular Group C",
+                question="Counter-Strike: Z7 Esports vs Sashi Academy (BO3) - European Pro League Regular Group C",
+                url="https://polymarket.com/event/cs2-z7-sashia-2026-04-21",
+                outcome_prices=[("Z7 Esports", 0.02), ("Sashi Academy", 0.98)],
+                engagement=_engagement(volume=42_000, liquidity=237_000),
+                market_signal_quality=0.76,
+                volume_24h=42_000,
+                best_bid=0.99,
+                best_ask=1.0,
+                spread=0.01,
+                movement_24h=0.0,
+                relevance=0.91,
+                score=75,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        titles = " || ".join(item.title for item in items)
+
+        self.assertTrue(any("Valorant:" in item.title for item in items))
+        self.assertTrue(any("Counter-Strike:" in item.title for item in items))
+        self.assertLessEqual(sum(1 for item in items if item.title.startswith("LoL:")), 2, titles)
+        self.assertFalse(any("2026-04-24" in (item.url or "") for item in items), titles)
+
+    def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
+        report = _report("esports markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Z7 Esports vs Sashi Academy (BO3) - European Pro League Regular Group C",
+                question="Counter-Strike: Z7 Esports vs Sashi Academy (BO3) - European Pro League Regular Group C",
+                url="https://polymarket.com/event/cs2-z7-sashia-2026-04-21",
+                outcome_prices=[("Z7 Esports", 0.02), ("Sashi Academy", 0.98)],
+                engagement=_engagement(volume=42_000, liquidity=237_000),
+                market_signal_quality=0.76,
+                volume_24h=42_000,
+                best_bid=0.99,
+                best_ask=1.0,
+                spread=0.01,
+                movement_24h=0.0,
+                relevance=0.91,
+                score=75,
+            ),
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="THE NEXT CHAPTER STARTS WITH YOU! Join Lakers Esports in downtown Chicago at RooseveltU. Scholarship applications are open now.",
+                url="https://x.com/example/status/1",
+                author_handle="RULakersgg",
+                score=88,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("thin", items[0].catalyst_summary.lower())
+        self.assertNotIn("Lakers Esports", items[0].catalyst_summary)
 
     def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
         poly_item = schema.PolymarketItem(

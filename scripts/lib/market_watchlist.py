@@ -2,10 +2,10 @@
 
 import math
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
-from . import evidence_fusion, evidence_quality as eq, market_types, paper_bundles, schema
+from . import dates, evidence_fusion, evidence_quality as eq, market_types, paper_bundles, schema
 
 
 _WATCHLIST_PHRASES = re.compile(
@@ -114,6 +114,12 @@ _SPORTSBOOK_TOKENS = {"sportsbook", "sportsbooks", "draftkings", "fanduel", "bet
 _SPORTS_RECAP_TOKENS = {"highlight", "highlights", "recap", "recaps"}
 _ESPORTS_TITLE_TERMS = {"map pool", "cache", "major winner", "tournament winner", "champion"}
 _ESPORTS_PROP_TERMS = {"props", "prop", "map", "maps", "kills", "odd", "even", "handicap", "total maps"}
+_ESPORTS_SUBDOMAINS = {
+    "cs2": {"counter", "strike", "counterstrike", "counter-strike", "cs2", "csgo"},
+    "valorant": {"valorant", "vct"},
+    "lol": {"lol", "league", "legends", "lec", "lcs"},
+    "dota": {"dota"},
+}
 
 _META_MARKET_TERMS = {
     "law banning", "ban sports prediction", "sports prediction markets enacted",
@@ -226,6 +232,48 @@ def _is_explicit_esports_title_prompt(topic: str) -> bool:
     return _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_TITLE_TERMS)
 
 
+def _report_base_date(report: schema.Report) -> date:
+    return dates.current_local_date()
+
+
+def _watchlist_target_date(report: schema.Report) -> Optional[str]:
+    topic_lower = (report.topic or "").lower()
+    base = _report_base_date(report)
+    explicit = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", report.topic or "")
+    if explicit:
+        return explicit.group(1)
+    if "tomorrow" in topic_lower or "tomorrows" in topic_lower:
+        return (base + timedelta(days=1)).isoformat()
+    if "today" in topic_lower or "tonight" in topic_lower:
+        return base.isoformat()
+    return None
+
+
+def _watchlist_date_compatible(item, target_date: Optional[str]) -> bool:
+    if not target_date:
+        return True
+    market_text = " ".join(
+        str(part) for part in (
+            getattr(item, "title", ""),
+            getattr(item, "question", ""),
+            getattr(item, "url", ""),
+            getattr(item, "ticker", ""),
+            getattr(item, "event_ticker", ""),
+            getattr(item, "end_date", ""),
+            getattr(item, "end_datetime", ""),
+        ) if part
+    )
+    refs = set(re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", market_text))
+    if not refs:
+        return True
+    try:
+        target = date.fromisoformat(target_date)
+        allowed = {target.isoformat(), date.fromordinal(target.toordinal() + 1).isoformat()}
+    except ValueError:
+        allowed = {target_date}
+    return bool(refs & allowed)
+
+
 def _watchlist_scope(report: schema.Report, item, market_type: str) -> str:
     text = _market_text(item).lower()
     if _is_nba_watchlist_topic(report.topic):
@@ -234,6 +282,18 @@ def _watchlist_scope(report: schema.Report, item, market_type: str) -> str:
         if market_type == "futures" and "series" in text:
             return "series"
     return ""
+
+
+def _is_esports_market_candidate(item, market_type: str) -> bool:
+    text = _market_text(item).lower()
+    if market_type in {"esports_prop", "esports_title"}:
+        return True
+    if market_type != "game_outcome":
+        return False
+    return bool(
+        re.search(r"\bcounter[- ]strike(?:\s*2)?\b|\bcs2\b|\bcsgo\b|\bvalorant\b|\blol\b|league of legends|\bdota\b", text)
+        or ("esports" in text and re.search(r"\bbo[1235]\b", text))
+    )
 
 
 def _same_matchup_signature(text: str) -> str:
@@ -294,6 +354,7 @@ def _topic_relevance(topic: str, item) -> float:
 def _is_bad_candidate(topic: str, item) -> bool:
     market_lower = _market_text(item).lower()
     domain = _domain(topic)
+    market_type = _candidate_market_type(item)
     end_date = getattr(item, "end_date", None)
     if end_date:
         try:
@@ -304,6 +365,13 @@ def _is_bad_candidate(topic: str, item) -> bool:
     if domain in {"sports", "nba"} and any(term in market_lower for term in _META_MARKET_TERMS):
         return True
     if domain == "nba" and not eq.is_nba_market_text(market_lower):
+        return True
+    if (
+        domain == "esports"
+        and not _is_explicit_esports_prop_prompt(topic)
+        and not _is_explicit_esports_title_prompt(topic)
+        and not _is_esports_market_candidate(item, market_type)
+    ):
         return True
     if (
         domain == "esports"
@@ -388,6 +456,19 @@ def _source_text(item) -> str:
     return getattr(item, "title", "") or getattr(item, "text", "")
 
 
+def _primary_source_text(item) -> str:
+    if isinstance(item, schema.XItem):
+        return item.text
+    if isinstance(item, schema.RedditItem):
+        comment_excerpts = " ".join(comment.excerpt for comment in (item.top_comments or [])[:2] if getattr(comment, "excerpt", ""))
+        return f"{item.title} {' '.join(item.comment_insights[:3])} {comment_excerpts}".strip()
+    if isinstance(item, schema.WebSearchItem):
+        return f"{item.title} {item.snippet}".strip()
+    if isinstance(item, schema.HackerNewsItem):
+        return item.title
+    return getattr(item, "title", "") or getattr(item, "text", "")
+
+
 def _market_evidence_domain(prompt_domain: str, market_type: str, market_tokens: set[str], market_text: str) -> str:
     lowered = market_text.lower()
     if prompt_domain == "esports" or (market_tokens & eq.ESPORTS_TERMS):
@@ -415,7 +496,12 @@ def _is_spammy_market_evidence(text: str) -> bool:
     lowered = (text or "").lower()
     tokens = _tokens(text)
     ticket_tokens = {"ticket", "tickets", "selling", "sale", "resale", "section", "row", "seat"}
+    recruiting_tokens = {"scholarship", "scholarships", "applications", "campus", "university", "college", "student"}
     if tokens & ticket_tokens and not (tokens & (eq.SPORTS_HIGH_SIGNAL_TERMS - {"available"})):
+        return True
+    if any(term in lowered for term in ("scholar", "rooseveltu", "applications open", "college", "university", "campus")):
+        return True
+    if tokens & recruiting_tokens and not (tokens & eq.ESPORTS_HIGH_SIGNAL_TERMS):
         return True
     if any(phrase in lowered for phrase in _MARKET_WATCHLIST_SPAM_PHRASES):
         return True
@@ -529,9 +615,13 @@ def _is_market_specific_evidence(
         return bool(evidence_tokens & _TECH_STRONG_SIGNAL_TERMS)
 
     if effective_domain == "esports":
+        esports_entities = eq.esports_entity_tokens(market_text)
+        evidence_entities = eq.esports_entity_tokens(text)
         if overlap < 1:
             return False
         if not eq.is_esports_rationale_evidence(text, context, exact_match=True):
+            return False
+        if esports_entities and not (esports_entities & evidence_entities):
             return False
         if tokens := _tokens(f"{text} {context}"):
             market_specific_overlap = len((market_specific_tokens - {"bo1", "bo2", "bo3", "bo5"}) & tokens)
@@ -604,8 +694,9 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
     evidence_items = list(report.x[:12]) + list(report.reddit[:10]) + list(report.web[:10]) + list(report.hackernews[:5])
     for evidence in evidence_items:
         text = _source_text(evidence)
+        primary_text = _primary_source_text(evidence)
         context = getattr(evidence, "source_domain", "") or getattr(evidence, "subreddit", "")
-        tokens = _tokens(text)
+        tokens = _tokens(primary_text)
         overlap = len(market_specific_tokens & tokens)
         catalyst = len(tokens & _CATALYST_TERMS)
         if domain in {"sports", "nba"}:
@@ -625,7 +716,7 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
             continue
         if overlap < 1 and catalyst < 1:
             continue
-        if not _is_market_specific_evidence(report.topic, item, market_type, text, context):
+        if not _is_market_specific_evidence(report.topic, item, market_type, primary_text, context):
             _bump_debug_counter(report, f"rejected_low_signal_evidence:{domain}")
             continue
         base_score = getattr(evidence, "score", 0) / 100.0
@@ -903,10 +994,13 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
 
     domain = _domain(report.topic)
     market_type = _candidate_market_type(item)
+    target_date = _watchlist_target_date(report)
     watchlist_scope = _watchlist_scope(report, item, market_type)
     if _is_nba_watchlist_topic(report.topic) and not watchlist_scope:
         return None
     if not _is_direct_espn_game_market(report, item, market_type):
+        return None
+    if domain == "esports" and market_type == "game_outcome" and not _watchlist_date_compatible(item, target_date):
         return None
 
     relevance = _topic_relevance(report.topic, item)
@@ -923,6 +1017,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     spread = getattr(item, "spread", None)
     spread_quality = _spread_score(spread)
     evidence_score, catalyst_summary, evidence_refs = _evidence_for_market(report, item)
+    if domain == "esports" and _is_spammy_market_evidence(catalyst_summary):
+        evidence_score = 0.0
+        catalyst_summary = "Catalyst context is thin; ranking is mostly market-signal driven."
+        evidence_refs = []
     cross_score, cross_note = _cross_market_note(item, other_items)
     certainty_penalty = _near_certain_penalty(probability, movement, quality, market_type)
     closing_mode = _has_closing_soon_note(report)
@@ -1176,6 +1274,65 @@ def _watch_item_domain(item: schema.MarketWatchItem) -> str:
     )
 
 
+def _esports_subdomain_for_item(item: schema.MarketWatchItem) -> str:
+    text = f"{item.title} {item.question}".lower()
+    tokens = _tokens(text)
+    for name, alias_tokens in _ESPORTS_SUBDOMAINS.items():
+        if tokens & alias_tokens:
+            return name
+    return ""
+
+
+def _should_delay_duplicate_esports_title_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    results: list[schema.MarketWatchItem],
+    remaining: list[schema.MarketWatchItem],
+) -> bool:
+    if _domain(report.topic) != "esports" or eq.is_cs2_query(report.topic):
+        return False
+    candidate_title = _esports_subdomain_for_item(candidate)
+    if not candidate_title:
+        return False
+    existing_titles = {_esports_subdomain_for_item(item) for item in results}
+    existing_titles.discard("")
+    if candidate_title not in existing_titles:
+        return False
+    return any(
+        (title := _esports_subdomain_for_item(other)) and title not in existing_titles
+        for other in remaining
+    )
+
+
+def _should_suppress_stale_esports_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    stronger_items: list[schema.MarketWatchItem],
+    all_candidates: list[schema.MarketWatchItem],
+) -> bool:
+    if _domain(report.topic) != "esports":
+        return False
+    if candidate.market_type != "game_outcome":
+        return False
+    probability = candidate.probability or candidate.market_probability or candidate.implied_probability
+    if probability is None or probability < 0.98:
+        return False
+    if (candidate.market_signal_quality or 0.0) < 0.85:
+        return False
+    if "thin" not in (candidate.catalyst_summary or "").lower():
+        return False
+    same_day_others = [
+        item for item in all_candidates
+        if item is not candidate
+        and item.market_type == "game_outcome"
+        and item.end_date == candidate.end_date
+        and (item.rank_score >= candidate.rank_score - 12)
+    ]
+    if len(same_day_others) < 2:
+        return False
+    return True
+
+
 def _should_delay_duplicate_domain_candidate(
     report: schema.Report,
     candidate: schema.MarketWatchItem,
@@ -1271,11 +1428,17 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         if _should_suppress_low_signal_candidate(report, candidate, results, candidates):
             _bump_debug_counter(report, "suppressed_long_dated_watchlist_candidates")
             continue
+        if _should_suppress_stale_esports_candidate(report, candidate, results, candidates):
+            _bump_debug_counter(report, "suppressed_stale_esports_watchlist_candidates")
+            continue
         if _should_drop_broad_manual_rule_candidate(report, candidate):
             _bump_debug_counter(report, "suppressed_manual_rule_watchlist_candidates")
             continue
         if _should_delay_duplicate_domain_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_domain_watchlist_candidates")
+            continue
+        if _should_delay_duplicate_esports_title_candidate(report, candidate, results, candidates[idx + 1:]):
+            _bump_debug_counter(report, "suppressed_duplicate_esports_title_watchlist_candidates")
             continue
         key = re.sub(r"\W+", " ", f"{candidate.title} {candidate.question}").lower().strip()
         if key in seen:

@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.41] - 2026-04-21
+
+### Changed
+- Tightened CS2 and broad eSports runtime filtering so degraded forecast output suppresses weak X noise, reply chatter, outage/update spam, and generic non-match discussion
+- Hardened eSports watchlist shaping for `today` prompts by filtering non-eSports leakage, demoting stale near-certain rows, and keeping mixed-title boards focused on same-day direct match markets
+
+### Fixed
+- CS2 and broad eSports watchlists no longer surface unrelated recruiting or scholarship chatter as catalyst evidence
+- Added regression coverage for short-tag CS2 match handling, degraded compact-source suppression, mixed-title eSports watchlists, unrelated catalyst rejection, and same-day board filtering
+
 ## [1.0.40] - 2026-04-21
 
 ### Added
