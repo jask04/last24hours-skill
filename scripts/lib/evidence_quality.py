@@ -123,11 +123,12 @@ ESPORTS_LOW_SIGNAL_TERMS = {
     "cases", "inventory", "fragmovie", "ace", "best plays", "montage", "dev", "log",
     "developer", "trailer", "giveaways", "promo", "bet", "bets", "pick", "picks",
     "potd", "deposit", "signup", "sign", "whale", "movements", "prizepicks", "cash",
-    "cashing",
+    "cashing", "watch", "stream", "live", "vod", "vods", "listing", "listings",
+    "schedule", "schedules", "score", "scores", "scored",
 }
 ESPORTS_NOISE_TERMS = {
     "animgraph", "downdetector", "download", "install", "issue", "issues", "status",
-    "outage", "outages", "maintenance", "reply", "replies", "scholarship",
+    "outage", "outages", "maintenance", "reply", "replies", "scholarship", "watchparty",
 }
 ESPORTS_ENTITY_STOP = ESPORTS_TERMS | {
     "match", "matches", "game", "games", "qualifier", "qualifiers", "playoff",
@@ -234,11 +235,15 @@ def is_esports_rationale_evidence(
     lowered = f"{text or ''} {source_context or ''}".lower()
     if lowered.lstrip().startswith("@"):
         return False
+    if any(phrase in lowered for phrase in ("watch live", "live now", "tune in", "match listing", "upcoming matches")):
+        return False
     if tokens & ESPORTS_NOISE_TERMS and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"update"})):
         return False
     if tokens & ESPORTS_LOW_SIGNAL_TERMS:
         if not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool", "patch", "update"})):
             return False
+    if {"score", "scores", "scored"} & tokens and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool"})):
+        return False
     if exact_match and not (tokens & ESPORTS_HIGH_SIGNAL_TERMS):
         return False
     return bool(tokens & ESPORTS_HIGH_SIGNAL_TERMS)

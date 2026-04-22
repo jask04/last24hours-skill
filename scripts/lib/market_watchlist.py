@@ -274,6 +274,26 @@ def _watchlist_date_compatible(item, target_date: Optional[str]) -> bool:
     return bool(refs & allowed)
 
 
+def _watchlist_exact_date_match(item, target_date: Optional[str]) -> bool:
+    if not target_date:
+        return True
+    market_text = " ".join(
+        str(part) for part in (
+            getattr(item, "title", ""),
+            getattr(item, "question", ""),
+            getattr(item, "url", ""),
+            getattr(item, "ticker", ""),
+            getattr(item, "event_ticker", ""),
+            getattr(item, "end_date", ""),
+            getattr(item, "end_datetime", ""),
+        ) if part
+    )
+    refs = set(re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", market_text))
+    if not refs:
+        return True
+    return target_date in refs
+
+
 def _watchlist_scope(report: schema.Report, item, market_type: str) -> str:
     text = _market_text(item).lower()
     if _is_nba_watchlist_topic(report.topic):
@@ -1002,6 +1022,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
     if domain == "esports" and market_type == "game_outcome" and not _watchlist_date_compatible(item, target_date):
         return None
+    if domain == "esports" and "today" in (report.topic or "").lower():
+        if market_type == "game_outcome" and not _watchlist_exact_date_match(item, target_date):
+            return None
 
     relevance = _topic_relevance(report.topic, item)
     if _domain(report.topic) != "broad" and relevance < 0.25:
@@ -1107,6 +1130,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             if days_to_end is not None and days_to_end <= 1:
                 rank_score += 12
             rank_score += 6
+            if probability is not None and probability >= 0.98 and evidence_score < 0.20:
+                rank_score = max(0, rank_score - 12)
+                if same_day_match_exists and quality < 0.95:
+                    rank_score = max(0, rank_score - 10)
         elif market_type == "esports_title":
             if days_to_end is not None and days_to_end > 7:
                 rank_score = max(0, rank_score - 16)
@@ -1150,6 +1177,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.append("fresh catalyst context")
     elif domain == "tech" and evidence_score > 0:
         why_bits.append("light catalyst context")
+    elif domain == "esports" and evidence_score < 0.20:
+        why_bits.append("market-signal driven despite thin catalyst context")
     if cross_score >= 0.05:
         why_bits.append("cross-market disagreement/alignment signal")
     if resolvability == "direct_market_resolution":
@@ -1317,18 +1346,21 @@ def _should_suppress_stale_esports_candidate(
     probability = candidate.probability or candidate.market_probability or candidate.implied_probability
     if probability is None or probability < 0.98:
         return False
-    if (candidate.market_signal_quality or 0.0) < 0.85:
+    if (candidate.market_signal_quality or 0.0) < 0.75:
         return False
     if "thin" not in (candidate.catalyst_summary or "").lower():
         return False
+    candidate_subdomain = _esports_subdomain_for_item(candidate)
     same_day_others = [
         item for item in all_candidates
         if item is not candidate
         and item.market_type == "game_outcome"
         and item.end_date == candidate.end_date
-        and (item.rank_score >= candidate.rank_score - 12)
+        and (item.rank_score >= candidate.rank_score - 18)
+        and (item.probability or item.market_probability or item.implied_probability or 0.0) < 0.98
+        and _esports_subdomain_for_item(item) == candidate_subdomain
     ]
-    if len(same_day_others) < 2:
+    if len(same_day_others) < 1:
         return False
     return True
 
@@ -1363,6 +1395,26 @@ def _should_drop_broad_manual_rule_candidate(report: schema.Report, candidate: s
     if candidate.rank_score >= 26 and (candidate.market_signal_quality or 0.0) >= 0.60:
         return False
     return True
+
+
+def _should_delay_duplicate_esports_board_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    results: list[schema.MarketWatchItem],
+    remaining: list[schema.MarketWatchItem],
+) -> bool:
+    if _domain(report.topic) != "esports" or eq.is_cs2_query(report.topic):
+        return False
+    candidate_domain = _esports_subdomain_for_item(candidate)
+    if not candidate_domain:
+        return False
+    existing_domains = {_esports_subdomain_for_item(item) for item in results}
+    if candidate_domain not in existing_domains:
+        return False
+    return any(
+        (domain := _esports_subdomain_for_item(other)) and domain not in existing_domains
+        for other in remaining
+    )
 
 
 def _should_suppress_nba_series_candidate(
@@ -1436,6 +1488,9 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
             continue
         if _should_delay_duplicate_domain_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_domain_watchlist_candidates")
+            continue
+        if _should_delay_duplicate_esports_board_candidate(report, candidate, results, candidates[idx + 1:]):
+            _bump_debug_counter(report, "suppressed_duplicate_esports_board_candidates")
             continue
         if _should_delay_duplicate_esports_title_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_esports_title_watchlist_candidates")

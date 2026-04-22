@@ -361,6 +361,42 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("thin", items[0].catalyst_summary.lower())
         self.assertNotIn("DEV Log", items[0].catalyst_summary)
 
+    def test_cs2_watchlist_rejects_watch_live_listing_catalyst(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                question="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                url="https://polymarket.com/event/cs2-team1-team2-2026-04-21",
+                outcome_prices=[("Team One", 0.44), ("Team Two", 0.56)],
+                engagement=_engagement(volume=220_000, liquidity=80_000),
+                market_signal_quality=0.74,
+                volume_24h=220_000,
+                best_bid=0.55,
+                best_ask=0.57,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.90,
+                score=86,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Watch live Team One vs Team Two today in Counter-Strike 2. Stream starts in 10 minutes.",
+                url="https://x.com/dev/status/1",
+                author_handle="watchpartyhub",
+                score=90,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("thin", items[0].catalyst_summary.lower())
+        self.assertNotIn("Watch live", items[0].catalyst_summary)
+
     def test_explicit_cs2_map_pool_prompt_allows_title_market(self):
         report = _report("CS2 map pool markets")
         report.polymarket = [
@@ -525,6 +561,52 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(len(forecasts), 2)
         self.assertTrue(all(item.anchor_source == "polymarket" for item in forecasts))
         self.assertTrue(all("Counter-Strike:" in item.title for item in forecasts))
+
+    def test_cs2_watchlist_today_excludes_later_date_rows_from_rendered_board(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-astr-g2-2026-04-21",
+                outcome_prices=[("Astralis", 0.47), ("G2", 0.53)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_signal_quality=0.77,
+                volume_24h=180_000,
+                best_bid=0.52,
+                best_ask=0.54,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.95,
+                score=88,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Counter-Strike: Gentle Mates vs ASTRAL (BO3) - LORGAR RANKINGS Playoffs",
+                question="Counter-Strike: Gentle Mates vs ASTRAL (BO3) - LORGAR RANKINGS Playoffs",
+                url="https://polymarket.com/event/cs2-m8-ast-2026-04-25",
+                outcome_prices=[("Gentle Mates", 0.90), ("ASTRAL", 0.10)],
+                engagement=_engagement(volume=89, liquidity=9_000),
+                market_signal_quality=0.30,
+                volume_24h=89,
+                best_bid=0.89,
+                best_ask=0.91,
+                spread=0.02,
+                movement_24h=-1.0,
+                relevance=0.80,
+                score=28,
+                market_type="game_outcome",
+                end_datetime="2026-04-25T20:00:00Z",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("Astralis vs G2", items[0].title)
 
     def test_cs2_matches_today_handles_short_team_tags(self):
         report = _report("Counter-Strike 2 matches today")
@@ -716,7 +798,7 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertTrue(any("Valorant:" in item.title for item in items))
         self.assertTrue(any("Counter-Strike:" in item.title for item in items))
-        self.assertLessEqual(sum(1 for item in items if item.title.startswith("LoL:")), 2, titles)
+        self.assertLessEqual(sum(1 for item in items if item.title.startswith("LoL:")), 1, titles)
         self.assertFalse(any("2026-04-24" in (item.url or "") for item in items), titles)
 
     def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
