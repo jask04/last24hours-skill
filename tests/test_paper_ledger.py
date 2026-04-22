@@ -610,6 +610,45 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(paper._resolve_weather_pick(pick), ("open", None, "nws_observations"))
         get.assert_not_called()
 
+    def test_crypto_resolver_above_threshold_resolves_yes(self):
+        pick = {"topic": "Bitcoin above 100k this week", "end_date": "2000-01-01"}
+        payload = {"bitcoin": {"usd": 105000.0}}
+        with mock.patch("scripts.paper.http.get", return_value=payload):
+            self.assertEqual(paper._resolve_crypto_pick(pick), ("resolved", 1.0, "coingecko"))
+
+    def test_crypto_resolver_below_threshold_resolves_no(self):
+        pick = {"topic": "Bitcoin above 100k this week", "end_date": "2000-01-01"}
+        payload = {"bitcoin": {"usd": 92000.0}}
+        with mock.patch("scripts.paper.http.get", return_value=payload):
+            self.assertEqual(paper._resolve_crypto_pick(pick), ("resolved", 0.0, "coingecko"))
+
+    def test_crypto_resolver_below_direction_resolves_correctly(self):
+        pick = {"topic": "Ethereum below 3k this week", "end_date": "2000-01-01"}
+        payload = {"ethereum": {"usd": 2500.0}}
+        with mock.patch("scripts.paper.http.get", return_value=payload):
+            self.assertEqual(paper._resolve_crypto_pick(pick), ("resolved", 1.0, "coingecko"))
+
+    def test_crypto_resolver_future_date_stays_open(self):
+        pick = {"topic": "Bitcoin above 100k this week", "end_date": "2999-01-01"}
+        with mock.patch("scripts.paper.http.get") as get:
+            self.assertEqual(paper._resolve_crypto_pick(pick), ("open", None, "coingecko"))
+        get.assert_not_called()
+
+    def test_crypto_resolver_unparseable_threshold_is_manual(self):
+        pick = {"topic": "Bitcoin maybe something", "end_date": "2000-01-01"}
+        with mock.patch("scripts.paper.http.get") as get:
+            status, value, source = paper._resolve_crypto_pick(pick)
+        self.assertEqual(status, "unknown")
+        self.assertIsNone(value)
+        self.assertEqual(source, "manual_required")
+        get.assert_not_called()
+
+    def test_crypto_resolver_parses_k_suffix_and_direction(self):
+        parsed = paper._parse_crypto_threshold("Bitcoin above 100k this week")
+        self.assertEqual(parsed, ("bitcoin", "above", 100_000.0))
+        parsed = paper._parse_crypto_threshold("ETH under 3,500 by end of month")
+        self.assertEqual(parsed, ("ethereum", "below", 3_500.0))
+
 
 class CalibrationTests(unittest.TestCase):
     def test_brier_and_log_loss_calculations(self):

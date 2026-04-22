@@ -974,8 +974,114 @@ def _resolve_weather_pick(pick: Dict[str, Any]) -> tuple[str, Optional[float], s
     return "unknown", None, "nws_observations"
 
 
+COINGECKO_IDS = {
+    "btc": "bitcoin",
+    "bitcoin": "bitcoin",
+    "eth": "ethereum",
+    "ethereum": "ethereum",
+    "sol": "solana",
+    "solana": "solana",
+}
+
+
+def _parse_crypto_threshold(topic: str) -> Optional[tuple[str, str, float]]:
+    lowered = (topic or "").lower()
+    asset_id = None
+    for token, cid in COINGECKO_IDS.items():
+        if re.search(rf"\b{token}\b", lowered):
+            asset_id = cid
+            break
+    if not asset_id:
+        return None
+    direction_match = re.search(r"\b(above|over|greater than|>=|>|below|under|less than|<=|<)\b", lowered)
+    if not direction_match:
+        return None
+    direction_token = direction_match.group(1)
+    direction = "above" if direction_token in {"above", "over", "greater than", ">=", ">"} else "below"
+    amount_match = re.search(r"(\d+(?:[.,]\d+)?)(k|m|b)?\b", lowered[direction_match.end():])
+    if not amount_match:
+        return None
+    raw_value = amount_match.group(1).replace(",", "")
+    try:
+        threshold = float(raw_value)
+    except ValueError:
+        return None
+    suffix = amount_match.group(2)
+    if suffix == "k":
+        threshold *= 1_000
+    elif suffix == "m":
+        threshold *= 1_000_000
+    elif suffix == "b":
+        threshold *= 1_000_000_000
+    return asset_id, direction, threshold
+
+
+def _crypto_target_date(pick: Dict[str, Any]) -> "datetime.date":
+    parsed = _parse_iso_date(pick.get("end_date"))
+    if parsed:
+        return parsed
+    lowered = str(pick.get("topic") or "").lower()
+    base = _parse_iso_date(pick.get("created_at")) or datetime.now().astimezone().date()
+    if "today" in lowered:
+        return base
+    if "tomorrow" in lowered:
+        return base + timedelta(days=1)
+    if "this week" in lowered or "by end of week" in lowered or "eow" in lowered:
+        return base + timedelta(days=(6 - base.weekday()) % 7 or 7)
+    if "this month" in lowered or "by end of month" in lowered:
+        if base.month == 12:
+            return datetime(base.year, 12, 31).date()
+        return (datetime(base.year, base.month + 1, 1) - timedelta(days=1)).date()
+    return base
+
+
+def _fetch_crypto_spot(asset_id: str) -> Optional[float]:
+    try:
+        payload = http.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": asset_id, "vs_currencies": "usd"},
+            timeout=15,
+            retries=2,
+        )
+        price = ((payload or {}).get(asset_id) or {}).get("usd")
+        if price is not None:
+            return float(price)
+    except Exception:
+        pass
+    kraken_pair = {"bitcoin": "XBTUSD", "ethereum": "ETHUSD", "solana": "SOLUSD"}.get(asset_id)
+    if not kraken_pair:
+        return None
+    try:
+        payload = http.get(f"https://api.kraken.com/0/public/Ticker", params={"pair": kraken_pair}, timeout=15, retries=1)
+        result = (payload or {}).get("result") or {}
+        for _, data in result.items():
+            last = (data.get("c") or [None])[0]
+            if last is not None:
+                return float(last)
+    except Exception:
+        return None
+    return None
+
+
+def _resolve_crypto_pick(pick: Dict[str, Any]) -> tuple[str, Optional[float], str]:
+    parsed = _parse_crypto_threshold(str(pick.get("topic") or pick.get("title") or ""))
+    if not parsed:
+        return "unknown", None, "manual_required"
+    asset_id, direction, threshold = parsed
+    target = _crypto_target_date(pick)
+    today = datetime.now().astimezone().date()
+    if target > today:
+        return "open", None, "coingecko"
+    spot = _fetch_crypto_spot(asset_id)
+    if spot is None:
+        return "unknown", None, "coingecko"
+    hit = spot >= threshold if direction == "above" else spot <= threshold
+    return "resolved", 1.0 if hit else 0.0, "coingecko"
+
+
 def _resolve_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
     venue = str(pick.get("venue") or "").lower()
+    topic = str(pick.get("topic") or pick.get("title") or "")
     if venue == "kalshi":
         ticker = pick.get("venue_market_key")
         payload = http.request("GET", f"https://api.elections.kalshi.com/trade-api/v2/markets/{quote(str(ticker))}", timeout=20, retries=1)
@@ -990,6 +1096,8 @@ def _resolve_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
             status, value, source = _resolve_polymarket_payload(pick, payload)
     elif venue == "weather_api":
         status, value, source = _resolve_weather_pick(pick)
+    elif _domain(topic) == "crypto":
+        status, value, source = _resolve_crypto_pick(pick)
     else:
         return {"pick_id": pick["id"], "status": "unknown", "resolution_source": "manual_required"}
     probability = _prob(pick.get("model_probability"))
@@ -1333,7 +1441,11 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             source_rollup[status] = int(source_rollup.get(status, 0) or 0) + 1
         if pick.get("venue") == "model_implied" or pick.get("anchor_source") == "model_implied":
             model_implied += 1
-        has_auto_resolver = pick.get("venue") in {"kalshi", "polymarket", "weather_api"} or pick.get("resolution_source") in {"kalshi", "polymarket", "nws_observations", "espn_nba"}
+        has_auto_resolver = (
+            pick.get("venue") in {"kalshi", "polymarket", "weather_api"}
+            or pick.get("resolution_source") in {"kalshi", "polymarket", "nws_observations", "espn_nba", "coingecko"}
+            or (_domain(str(pick.get("topic") or "")) == "crypto")
+        )
         if not is_paper_bundle and (pick.get("status") == "unknown" or not has_auto_resolver):
             manual_only += 1
     duplicate_market_key_count = sum(1 for count in duplicate_keys.values() if count > 1)

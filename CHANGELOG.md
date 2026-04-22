@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.51] - 2026-04-21
+
+### Added
+- `paper._resolve_crypto_pick()` closes the BTC/ETH/SOL paper-pick loop without manual input: it parses asset symbol, direction (`above`/`below`), and threshold (with `k`/`m`/`b` suffix and comma-separated amounts) from the topic, derives a resolution date from `end_date` or phrases like `today` / `tomorrow` / `this week` / `this month`, fetches the spot price from CoinGecko (`/simple/price`) with a Kraken public ticker fallback, and returns a `(status, value, "coingecko")` tuple consistent with the existing NBA and weather resolvers.
+- `_resolve_pick()` now dispatches to the crypto resolver when `_domain(topic) == "crypto"`, and the `has_auto_resolver` allowlist accepts `coingecko` as a resolution source plus crypto-domain topics so the paper ledger no longer treats the portfolio's `Bitcoin above 100k this week` entry as manual-only.
+
+### Fixed
+- Added `test_paper_ledger` regressions covering above-threshold YES, below-threshold NO, reverse-direction `below` parsing, future-date skip, unparseable-threshold manual fallback, and `_parse_crypto_threshold` k-suffix plus comma-amount handling.
+
 ## [1.0.50] - 2026-04-21
 
 ### Added
