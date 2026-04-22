@@ -27,6 +27,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 # Add lib to path
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -1048,27 +1049,45 @@ def _search_reddit_many(
     to_date: str,
     depth: str,
     mock: bool,
+    total_budget_seconds: Optional[float] = None,
 ) -> tuple:
-    """Run Reddit search for multiple matchup topics and merge."""
+    """Run Reddit search for multiple matchup topics and merge.
+
+    Each worker gets a bounded per-topic slice of the total budget so that a
+    single slow subquery cannot starve the rest. On per-worker timeout, we
+    keep whatever partial results have already landed rather than discarding
+    the whole batch.
+    """
     merged_items = []
     merged_raw = {"queries": []}
     errors = []
     used_scrapecreators = False
+    topic_count = max(1, len(topics) or 1)
+    per_worker_timeout: Optional[float] = None
+    if total_budget_seconds is not None and total_budget_seconds > 0:
+        # Leave a small slack for aggregation; never drop below 20s per worker.
+        per_worker_timeout = max(20.0, float(total_budget_seconds) / topic_count)
 
-    with ThreadPoolExecutor(max_workers=min(4, len(topics) or 1)) as executor:
+    with ThreadPoolExecutor(max_workers=min(4, topic_count)) as executor:
         futures = {
             executor.submit(_search_reddit, topic, config, selected_models, from_date, to_date, depth, mock): topic
             for topic in topics
         }
-        for future in as_completed(futures):
+        for future in as_completed(futures, timeout=None):
             topic = futures[future]
             try:
-                items, raw, err, used_sc = future.result()
+                items, raw, err, used_sc = future.result(timeout=per_worker_timeout)
                 merged_items.extend(items)
                 merged_raw["queries"].append({"topic": topic, "response": raw})
                 used_scrapecreators = used_scrapecreators or used_sc
                 if err:
                     errors.append(f"{topic}: {err}")
+            except TimeoutError:
+                errors.append(f"{topic}: per-topic Reddit timeout after {per_worker_timeout}s")
+                try:
+                    future.cancel()
+                except Exception:
+                    pass
             except Exception as e:
                 errors.append(f"{topic}: {type(e).__name__}: {e}")
 
@@ -1721,7 +1740,8 @@ def run_research(
             if topic_scope and depth != "quick":
                 reddit_future = executor.submit(
                     _search_reddit_many, topic_scope, config, selected_models,
-                    from_date, to_date, depth, mock
+                    from_date, to_date, depth, mock,
+                    timeouts.get("reddit_future", future_timeout),
                 )
             else:
                 reddit_future = executor.submit(

@@ -1008,6 +1008,48 @@ def _is_preferred_tech_company_watch(item: schema.MarketWatchItem) -> bool:
     return _tech_has_company_focus(item.title, item.question) and days_to_end is not None and days_to_end <= 45
 
 
+def _item_effectively_settled(item) -> bool:
+    """True when a market is effectively pinned (>=98.5% / <=1.5%) with a tight spread.
+
+    Mirrors `closing_soon._is_effectively_settled` but operates on schema objects
+    (PolymarketItem / KalshiItem) rather than raw dicts. A pinned-late game-outcome
+    market should not surface on a generic watchlist — the line has converged and
+    there is no remaining price signal to track.
+    """
+    prices: list[float] = []
+    outcome_prices = getattr(item, "outcome_prices", None)
+    if outcome_prices:
+        for pair in outcome_prices:
+            try:
+                _, price = pair
+            except (TypeError, ValueError):
+                continue
+            if price is None:
+                continue
+            try:
+                prices.append(float(price))
+            except (TypeError, ValueError):
+                continue
+    if not prices:
+        prob = (
+            getattr(item, "current_probability", None)
+            or getattr(item, "implied_probability", None)
+        )
+        if prob is not None:
+            try:
+                prob_f = float(prob)
+            except (TypeError, ValueError):
+                prob_f = None
+            if prob_f is not None:
+                prices = [prob_f, 1.0 - prob_f]
+    if not prices:
+        return False
+    top = max(prices)
+    bottom = min(prices)
+    spread = getattr(item, "spread", None)
+    return (top >= 0.985 or bottom <= 0.015) and (spread is None or spread <= 0.01)
+
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     if _is_bad_candidate(report.topic, item):
         return None
@@ -1024,6 +1066,12 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
     if domain == "esports" and "today" in (report.topic or "").lower():
         if market_type == "game_outcome" and not _watchlist_exact_date_match(item, target_date):
+            return None
+
+    if _item_effectively_settled(item):
+        closing_mode_flag = _has_closing_soon_note(report)
+        item_reason = (getattr(item, "closing_soon_reason", "") or "").lower()
+        if not (closing_mode_flag and item_reason in {"live_sports", "starting_soon"}):
             return None
 
     relevance = _topic_relevance(report.topic, item)
@@ -1067,6 +1115,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         if market_type == "esports_title" and not explicit_title and same_day_match_exists:
             return None
         if market_type == "game_outcome" and probability is not None and (probability <= 0.02 or probability >= 0.98):
+            # Pinned game-outcome markets (>=98.5% / <=1.5%) are effectively settled —
+            # high movement into a pin is convergence, not a catalyst. No bypass allowed.
+            if probability >= 0.985 or probability <= 0.015:
+                return None
             if movement < 0.20 and quality < 0.70 and (volume or 0) < 50_000:
                 return None
     if (

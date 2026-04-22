@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.53] - 2026-04-21
+
+### Fixed
+- `market_watchlist._item_effectively_settled()` rejects watchlist candidates pinned at >=98.5% / <=1.5% with <=1¢ spread so effectively-settled markets (e.g. an eSports Game-2 winner pinned at 100%/0%) stop leaking into generic watchlists; in closing-mode the gate defers only when the item's `closing_soon_reason` is `live_sports` or `starting_soon`.
+- Tightened the eSports game-outcome bypass in `_candidate_to_watch_item`: a high-movement near-pinned market (>=98.5% / <=1.5%) is treated as settlement convergence and never bypasses the pinned-probability filter.
+- `_search_reddit_many` now runs each per-topic worker with its own `max(20, total_budget / topic_count)` timeout and returns partial results on timeout rather than discarding completed subqueries when a single subquery hangs. The outer 60s reddit-future budget stays as a safety cap.
+- Added `tests/test_forecast_watchlist.py::EffectivelySettledWatchlistTests` and `tests/test_reddit_fanout.py` regression coverage for both fixes.
+
 ## [1.0.52] - 2026-04-21
 
 ### Fixed

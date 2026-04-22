@@ -1,4 +1,4 @@
-"""Bird X search client - vendored Twitter GraphQL search for /last24hours v1.0.52.
+"""Bird X search client - vendored Twitter GraphQL search for /last24hours v1.0.53.
 
 Uses a vendored subset of @steipete/bird v0.8.0 (MIT License) to search X
 via Twitter's GraphQL API. No external `bird` CLI binary needed - just Node.js 22+.
@@ -162,13 +162,13 @@ def check_npm_available() -> bool:
 
 
 def install_bird() -> Tuple[bool, str]:
-    """No-op - Bird search is vendored in v1.0.52, no installation needed.
+    """No-op - Bird search is vendored in v1.0.53, no installation needed.
 
     Returns:
         Tuple of (success, message).
     """
     if is_bird_installed():
-        return True, "Bird search is bundled with /last24hours v1.0.52 - no installation needed."
+        return True, "Bird search is bundled with /last24hours v1.0.53 - no installation needed."
     if not shutil.which("node"):
         return False, "Node.js 22+ is required for X search. Install Node.js first."
     return False, f"Vendored bird-search.mjs not found at {_BIRD_SEARCH_MJS}"
@@ -187,7 +187,7 @@ def get_bird_status() -> Dict[str, Any]:
         "installed": installed,
         "authenticated": auth_source is not None,
         "username": auth_source,  # Now returns auth source (e.g., "Safari", "env AUTH_TOKEN")
-        "can_install": True,  # Always vendored in v1.0.52
+        "can_install": True,  # Always vendored in v1.0.53
     }
 
 

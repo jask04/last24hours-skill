@@ -1920,5 +1920,102 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual([item.source_item_id for item in items], ["PM1", "PM2", "PM3"])
 
 
+class EffectivelySettledWatchlistTests(unittest.TestCase):
+    def test_effectively_settled_esports_market_is_rejected_from_generic_watchlist(self):
+        report = _report("eSports markets today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_PIN",
+                title="LoL: Cloud9 vs Sentinels, Game 2 Winner",
+                question="LoL: Cloud9 vs Sentinels, Game 2 Winner",
+                url="https://polymarket.com/event/lol-c9-sen-2026-04-21",
+                outcome_prices=[("Cloud9", 0.0), ("Sentinels", 1.0)],
+                engagement=_engagement(volume=948_000, liquidity=244_000),
+                market_type="game_outcome",
+                market_signal_quality=0.78,
+                volume_24h=948_000,
+                best_bid=0.99,
+                best_ask=1.00,
+                spread=0.005,
+                movement_24h=70.5,
+                relevance=0.92,
+                score=95,
+            )
+        ]
+
+        self.assertEqual(market_watchlist.synthesize_market_watchlist(report), [])
+
+    def test_effectively_settled_helper_catches_bottom_pin_too(self):
+        item = schema.PolymarketItem(
+            id="PM_BOT",
+            title="Sentinels vs Cloud9",
+            question="Sentinels vs Cloud9",
+            url="https://polymarket.com/event/lol-sen-c9-2026-04-21",
+            outcome_prices=[("Sentinels", 1.0), ("Cloud9", 0.005)],
+            spread=0.008,
+        )
+        self.assertTrue(market_watchlist._item_effectively_settled(item))
+
+    def test_live_game_watchlist_keeps_pinned_market_when_closing_mode_live(self):
+        report = _report("live sports games on Polymarket right now")
+        report.planning_notes = ["live-games:nba=1"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_LIVE",
+                title="Phoenix Suns vs Oklahoma City Thunder",
+                question="Phoenix Suns vs Oklahoma City Thunder",
+                url="https://polymarket.com/event/nba-phx-okc-2026-04-21",
+                outcome_prices=[("Phoenix Suns", 0.005), ("Oklahoma City Thunder", 0.995)],
+                engagement=_engagement(volume=500_000, liquidity=200_000),
+                market_type="game_outcome",
+                market_signal_quality=0.88,
+                volume_24h=500_000,
+                best_bid=0.994,
+                best_ask=0.996,
+                spread=0.002,
+                movement_24h=5.0,
+                closing_soon_reason="live_sports",
+                minutes_to_close=30.0,
+                live_game_context="Q4 3:45 — OKC 108, PHX 74",
+                live_game_league="nba",
+                live_match_confidence=0.95,
+                live_match_reason="team + league match",
+                resolvability="sports game outcome; verify live score and market rules",
+                relevance=0.94,
+                score=90,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_item_id, "PM_LIVE")
+
+    def test_high_movement_non_pinned_esports_market_still_surfaces(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_MOVING",
+                title="Counter-Strike: Vitality vs NAVI (BO3) - IEM Katowice",
+                question="Counter-Strike: Vitality vs NAVI (BO3) - IEM Katowice",
+                url="https://polymarket.com/event/cs2-vit-navi-2026-04-21",
+                outcome_prices=[("Vitality", 0.12), ("NAVI", 0.88)],
+                engagement=_engagement(volume=400_000, liquidity=160_000),
+                market_type="game_outcome",
+                market_signal_quality=0.80,
+                volume_24h=400_000,
+                best_bid=0.87,
+                best_ask=0.89,
+                spread=0.02,
+                movement_24h=18.0,
+                relevance=0.92,
+                score=88,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_item_id, "PM_MOVING")
+
+
 if __name__ == "__main__":
     unittest.main()
