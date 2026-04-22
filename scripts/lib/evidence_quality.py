@@ -378,23 +378,33 @@ def is_esports_rationale_evidence(
     source_context: str = "",
     *,
     exact_match: bool = False,
+    topic: str = "",
 ) -> bool:
     tokens = tokenize(f"{text or ''} {source_context or ''}")
     lowered = f"{text or ''} {source_context or ''}".lower()
+
+    players = extract_esports_players(topic) if topic else set()
+    has_player_match = False
+    if players:
+        for p in players:
+            if p in lowered:
+                has_player_match = True
+                break
+
     if lowered.lstrip().startswith("@"):
         return False
     if any(phrase in lowered for phrase in ("watch live", "live now", "tune in", "match listing", "upcoming matches")):
         return False
-    if tokens & ESPORTS_NOISE_TERMS and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"update"})):
+    if tokens & ESPORTS_NOISE_TERMS and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"update"})) and not has_player_match:
         return False
-    if tokens & ESPORTS_LOW_SIGNAL_TERMS:
+    if tokens & ESPORTS_LOW_SIGNAL_TERMS and not has_player_match:
         if not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool", "patch", "update"})):
             return False
-    if {"score", "scores", "scored"} & tokens and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool"})):
+    if {"score", "scores", "scored"} & tokens and not (tokens & (ESPORTS_HIGH_SIGNAL_TERMS - {"map", "pool"})) and not has_player_match:
         return False
-    if exact_match and not (tokens & ESPORTS_HIGH_SIGNAL_TERMS):
+    if exact_match and not (tokens & ESPORTS_HIGH_SIGNAL_TERMS) and not has_player_match:
         return False
-    return bool(tokens & ESPORTS_HIGH_SIGNAL_TERMS)
+    return has_player_match or bool(tokens & ESPORTS_HIGH_SIGNAL_TERMS)
 
 
 def esports_entity_tokens(text: str) -> set[str]:

@@ -737,7 +737,7 @@ def _compact_esports_items(items: list, source: str, report: schema.Report, limi
             continue
         if tokens & {"down", "downdetector", "funny", "install", "players", "hours", "reported"} and not (tokens & {"patch", "update", "roster", "standin", "stand-in", "sub", "substitute", "veto", "map", "pool", "qualifier", "playoff", "playoffs", "bracket", "lan"}):
             continue
-        if not eq.is_esports_rationale_evidence(text, context, exact_match=True):
+        if not eq.is_esports_rationale_evidence(text, context, exact_match=True, topic=report.topic):
             continue
         filtered.append(item)
     return filtered[:limit] if filtered else []

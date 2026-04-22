@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.56] - 2026-04-21
+
+### Added
+- Wired the v1.0.55 CS2/Valorant/LoL player-prop detection helpers through forecast and watchlist pipes. Player-prop queries now return `esports_prop` markets and bias catalyst snippets toward the named player.
+- `scripts/lib/market_watchlist.py`: Expanded `_is_explicit_esports_prop_prompt()` to use `eq.extract_esports_players(topic)` to unsuppress the `esports_prop` branch for player-named queries. Added `_esports_player_name_match_bonus()` to bump relevance scores when the market text mentions the named player.
+- `scripts/lib/forecast.py`: Updated `_is_direct_game_market()` with an opt-in `allow_esports_prop` parameter to allow player-prop markets in single-market forecasts. Skipped the eSports match-slate branch for player-prop queries.
+- `scripts/lib/evidence_quality.py`: Updated `is_esports_rationale_evidence()` to accept `topic` and bypass strict noise-term rejection for evidence snippets that mention the queried player. Updated callers in `market_watchlist.py`, `forecast.py`, and `render.py` to pass the `topic`.
+- `fixtures/paper_portfolio.json`: Added "donk kills vs Vitality tonight" (forecast) and "CS2 player-prop markets to watch today" (watchlist) test entries.
+- `tests/test_esports_player_props.py`: Added end-to-end surfacing tests for the single-market forecast path and the watchlist relevance bonuses.
+
 ## [1.0.55] - 2026-04-21
 
 ### Added

@@ -975,7 +975,7 @@ def _esports_candidate_score(
         return None
     if tokens & low_signal_terms and not (tokens & {"patch", "update", "roster", "standin", "stand-in", "sub", "substitute", "veto", "map", "pool", "qualifier", "playoff", "playoffs", "bracket", "lan"}):
         return None
-    if not eq.is_esports_rationale_evidence(text, source_context, exact_match=exact_match):
+    if not eq.is_esports_rationale_evidence(text, source_context, exact_match=exact_match, topic=title):
         return None
     if eq.is_cs2_query(title) and not eq.is_cs2_market_text(context):
         return None
@@ -1390,7 +1390,7 @@ def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[in
     return signature_match, _month_match_score(topic, market_text), overlap, item.relevance
 
 
-def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_target_date: Optional[str] = None) -> Optional[schema.PolymarketItem]:
+def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_target_date: Optional[str] = None, allow_esports_prop: bool = False) -> Optional[schema.PolymarketItem]:
     if not items:
         return None
     items = [item for item in items if _threshold_market_compatible(topic, item)]
@@ -1407,7 +1407,7 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_targ
     if _is_sports_query(topic) or _is_esports_match_query(topic):
         items = [
             item for item in items
-            if _is_direct_game_market(item)
+            if _is_direct_game_market(item, allow_esports_prop=allow_esports_prop)
             and _sports_market_date_compatible(item, sports_target_date)
             and (_is_sports_query(topic) or _is_esports_market_item(item))
         ]
@@ -1425,7 +1425,7 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_targ
     return ranked[0]
 
 
-def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date: Optional[str] = None) -> Optional[schema.KalshiItem]:
+def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date: Optional[str] = None, allow_esports_prop: bool = False) -> Optional[schema.KalshiItem]:
     if not items:
         return None
     items = [item for item in items if _threshold_market_compatible(topic, item)]
@@ -1442,7 +1442,7 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     if _is_sports_query(topic) or _is_esports_match_query(topic):
         items = [
             item for item in items
-            if _is_direct_game_market(item)
+            if _is_direct_game_market(item, allow_esports_prop=allow_esports_prop)
             and _sports_market_date_compatible(item, sports_target_date)
             and (_is_sports_query(topic) or _is_esports_market_item(item))
         ]
@@ -1480,13 +1480,14 @@ def _matching_kalshi_for_polymarket(
     poly_item: schema.PolymarketItem,
     kalshi_items: list[schema.KalshiItem],
     sports_target_date: Optional[str] = None,
+    allow_esports_prop: bool = False,
 ) -> Optional[schema.KalshiItem]:
     kalshi_items = [item for item in kalshi_items if _threshold_market_compatible(f"{poly_item.title} {poly_item.question}", item)]
     signature = _item_matchup_signature(poly_item)
     if signature:
         for item in kalshi_items:
             if (
-                _is_direct_game_market(item)
+                _is_direct_game_market(item, allow_esports_prop=allow_esports_prop)
                 and _sports_market_date_compatible(item, sports_target_date)
                 and _item_matchup_signature(item) == signature
             ):
@@ -1512,9 +1513,11 @@ def _is_esports_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> 
     return item_type == "unknown" and eq.is_esports_query(text) and _is_direct_game_market(item)
 
 
-def _is_direct_game_market(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
+def _is_direct_game_market(item: schema.PolymarketItem | schema.KalshiItem, allow_esports_prop: bool = False) -> bool:
     item_type = getattr(item, "market_type", "unknown")
     if item_type == "game_outcome":
+        return True
+    if allow_esports_prop and item_type == "esports_prop":
         return True
     if item_type != "unknown":
         return False
@@ -2093,7 +2096,7 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     forecasts: list[schema.ForecastItem] = []
     topic_lower = report.topic.lower()
     is_nba_slate = "nba" in topic_lower and any(term in topic_lower for term in ("games", "matchups", "slate"))
-    is_esports_slate = _is_esports_match_query(report.topic) and any(term in topic_lower for term in ("matches", "games"))
+    is_esports_slate = _is_esports_match_query(report.topic) and any(term in topic_lower for term in ("matches", "games")) and not _is_esports_player_prop_query(report.topic)
     sports_target_date = _sports_target_date(report) if (_is_sports_query(report.topic) or _is_esports_query(report.topic)) else None
 
     if is_nba_slate and (report.polymarket or report.kalshi):
@@ -2166,10 +2169,11 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
         if forecasts:
             return forecasts
 
-    top_poly = _best_polymarket(report.topic, report.polymarket, sports_target_date)
-    top_kalshi = _best_kalshi(report.topic, report.kalshi, sports_target_date)
+    allow_esports_prop = _is_esports_player_prop_query(report.topic)
+    top_poly = _best_polymarket(report.topic, report.polymarket, sports_target_date, allow_esports_prop=allow_esports_prop)
+    top_kalshi = _best_kalshi(report.topic, report.kalshi, sports_target_date, allow_esports_prop=allow_esports_prop)
     if top_poly and top_kalshi and _item_matchup_signature(top_poly):
-        matched_kalshi = _matching_kalshi_for_polymarket(top_poly, report.kalshi, sports_target_date)
+        matched_kalshi = _matching_kalshi_for_polymarket(top_poly, report.kalshi, sports_target_date, allow_esports_prop=allow_esports_prop)
         if matched_kalshi:
             top_kalshi = matched_kalshi
 

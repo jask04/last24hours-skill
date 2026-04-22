@@ -141,5 +141,75 @@ class StatMarkerHelperTests(unittest.TestCase):
         self.assertFalse(eq.has_player_prop_stat_marker("match winner prediction"))
 
 
+class V1056SurfacingTests(unittest.TestCase):
+    def setUp(self):
+        from scripts.lib import schema
+        self.prop_item = schema.PolymarketItem(
+            id="PM1",
+            title="donk total kills > 18.5 - Map 1",
+            question="Will donk get more than 18.5 kills?",
+            url="https://polymarket.com/event/cs2-donk-kills",
+            market_type="esports_prop",
+            relevance=0.8,
+            outcome_prices=[("Yes", 0.55), ("No", 0.45)],
+            spread=0.01,
+            movement_24h=0.05
+        )
+        self.prop_item.score = 100.0
+        self.prop_item.volume = 5000
+        self.prop_item.liquidity = 5000
+        self.prop_item.open_interest = 5000
+
+        self.match_item = schema.PolymarketItem(
+            id="PM2",
+            title="CS2: NAVI vs Vitality - Match Winner",
+            question="Will NAVI win?",
+            url="https://polymarket.com/event/cs2-navi-vitality",
+            market_type="game_outcome",
+            relevance=0.8,
+            outcome_prices=[("Yes", 0.60), ("No", 0.40)],
+            spread=0.01,
+            movement_24h=0.02
+        )
+        self.match_item.score = 150.0
+        self.match_item.volume = 10000
+        self.match_item.liquidity = 10000
+        self.match_item.open_interest = 10000
+        self.report = schema.Report(
+            topic="",
+            range_from="",
+            range_to="",
+            generated_at="",
+            mode="quick",
+            polymarket=[self.prop_item, self.match_item],
+            kalshi=[]
+        )
+
+    def test_watchlist_surfaces_prop_for_prop_topic(self):
+        from scripts.lib import market_watchlist
+        self.report.topic = "donk kills vs Vitality tonight"
+        item = market_watchlist._candidate_to_watch_item(0, self.report, self.prop_item, "Polymarket", [])
+        self.assertIsNotNone(item)
+
+    def test_watchlist_suppresses_prop_for_generic_topic(self):
+        from scripts.lib import market_watchlist
+        self.report.topic = "CS2 markets to watch today"
+        item = market_watchlist._candidate_to_watch_item(0, self.report, self.prop_item, "Polymarket", [])
+        self.assertIsNone(item)
+
+    def test_forecast_single_market_returns_prop_for_prop_topic(self):
+        from scripts.lib import forecast
+        self.report.topic = "donk kills vs Vitality tonight"
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertTrue(any("donk" in (f.title or "").lower() for f in forecasts))
+
+    def test_forecast_regression_returns_match_for_match_topic(self):
+        from scripts.lib import forecast
+        self.report.topic = "Counter-Strike 2 matches today"
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertTrue(any("navi" in (f.title or "").lower() for f in forecasts))
+        self.assertFalse(any("donk" in (f.title or "").lower() for f in forecasts))
+
+
 if __name__ == "__main__":
     unittest.main()

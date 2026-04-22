@@ -223,8 +223,19 @@ def _is_explicit_nba_series_prompt(topic: str) -> bool:
 
 
 def _is_explicit_esports_prop_prompt(topic: str) -> bool:
+    """True when the topic explicitly asks for eSports prop markets.
+
+    A topic qualifies when either (a) it matches _ESPORTS_PROP_TERMS in an
+    eSports domain, or (b) it names a known CS2/Valorant/LoL pro player.
+    Player-name matching goes through evidence_quality.extract_esports_players
+    so the roster stays curated in one place.
+    """
     lowered = (topic or "").lower()
-    return _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_PROP_TERMS)
+    if _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_PROP_TERMS):
+        return True
+    if eq.extract_esports_players(topic or ""):
+        return True
+    return False
 
 
 def _is_explicit_esports_title_prompt(topic: str) -> bool:
@@ -639,7 +650,7 @@ def _is_market_specific_evidence(
         evidence_entities = eq.esports_entity_tokens(text)
         if overlap < 1:
             return False
-        if not eq.is_esports_rationale_evidence(text, context, exact_match=True):
+        if not eq.is_esports_rationale_evidence(text, context, exact_match=True, topic=report_topic):
             return False
         if esports_entities and not (esports_entities & evidence_entities):
             return False
@@ -661,7 +672,7 @@ def _is_signal_evidence(topic: str, text: str, context: str = "") -> bool:
     tokens = _tokens(f"{text} {context}")
     topic_tokens = _tokens(topic)
     if domain == "esports":
-        return eq.is_esports_rationale_evidence(text, context, exact_match=True)
+        return eq.is_esports_rationale_evidence(text, context, exact_match=True, topic=topic)
     if domain in {"sports", "nba"}:
         if tokens & eq.SPORTS_LOW_SIGNAL_TERMS and not (tokens & _SPORTS_CORE_SIGNAL):
             return False
@@ -1050,6 +1061,18 @@ def _item_effectively_settled(item) -> bool:
     return (top >= 0.985 or bottom <= 0.015) and (spread is None or spread <= 0.01)
 
 
+def _esports_player_name_match_bonus(topic: str, item) -> float:
+    if not _is_explicit_esports_prop_prompt(topic):
+        return 0.0
+    players = eq.extract_esports_players(topic or "")
+    if not players:
+        return 0.0
+    market_text = _market_text(item).lower()
+    for player in players:
+        if player in market_text:
+            return 0.15
+    return 0.0
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     if _is_bad_candidate(report.topic, item):
         return None
@@ -1075,6 +1098,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             return None
 
     relevance = _topic_relevance(report.topic, item)
+    relevance += _esports_player_name_match_bonus(report.topic, item)
     if _domain(report.topic) != "broad" and relevance < 0.25:
         return None
 
