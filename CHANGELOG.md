@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.48] - 2026-04-21
+
+### Changed
+- `paper.py` calibration summary now builds per-axis group rollups (`venue`, `anchor_source`, `pick_type`, `market_type`, `confidence`, `domain`, `subdomain`, `probability_bucket`, `watchlist_scope`) through a single `_add_scope_groups()` / `_scope_summary()` pair so new sports subdomains can slot in without duplicated loops.
+- Output JSON keys and shapes are unchanged; the refactor is backward-compatible for existing `paper.py report` consumers.
+
+### Fixed
+- Added regressions asserting axis coverage and synthetic `valorant` / `lol` subdomain grouping so future eSports subdomains stay addressable.
+
 ## [1.0.47] - 2026-04-21
 
 ### Changed

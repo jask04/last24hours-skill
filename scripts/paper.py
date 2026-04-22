@@ -1020,6 +1020,34 @@ def resolve_open_picks(limit: int = 200) -> List[Dict[str, Any]]:
     return results
 
 
+def _scope_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    n = len(rows)
+    return {
+        "count": n,
+        "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / n,
+        "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / n,
+        "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / n,
+    }
+
+
+def _add_scope_groups(
+    groups: Dict[str, Dict[str, Any]],
+    resolved: List[Dict[str, Any]],
+    axis: str,
+    bucket_fn,
+    *,
+    skip_empty: bool = False,
+) -> None:
+    values = {bucket_fn(p) for p in resolved}
+    if skip_empty:
+        values = {v for v in values if v}
+    for value in sorted(values):
+        rows = [p for p in resolved if bucket_fn(p) == value]
+        if not rows:
+            continue
+        groups[f"{axis}:{value}"] = _scope_summary(rows)
+
+
 def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     resolved_all = [p for p in picks if p.get("status") == "resolved" and p.get("resolution_value") is not None]
     legacy_noisy_count = sum(1 for pick in resolved_all if _is_legacy_noisy_rationale(pick))
@@ -1041,47 +1069,16 @@ def calibration_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     longshot_count = sum(1 for probability in probabilities if probability <= 0.30)
     groups: Dict[str, Dict[str, Any]] = {}
     for field in ("venue", "anchor_source", "pick_type", "market_type", "confidence"):
-        for value in sorted({str(p.get(field) or "unknown") for p in resolved}):
-            rows = [p for p in resolved if str(p.get(field) or "unknown") == value]
-            groups[f"{field}:{value}"] = {
-                "count": len(rows),
-                "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
-                "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
-                "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
-            }
-    for value in sorted({_domain(str(p.get("topic") or "")) for p in resolved}):
-        rows = [p for p in resolved if _domain(str(p.get("topic") or "")) == value]
-        groups[f"domain:{value}"] = {
-            "count": len(rows),
-            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
-            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
-            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
-        }
-    for value in sorted({_pick_subdomain(p) for p in resolved if _pick_subdomain(p)}):
-        rows = [p for p in resolved if _pick_subdomain(p) == value]
-        groups[f"subdomain:{value}"] = {
-            "count": len(rows),
-            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
-            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
-            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
-        }
-    for value in sorted({_probability_bucket(float(p.get("model_probability") or 0)) for p in resolved}):
-        rows = [p for p in resolved if _probability_bucket(float(p.get("model_probability") or 0)) == value]
-        groups[f"probability_bucket:{value}"] = {
-            "count": len(rows),
-            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
-            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
-            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
-        }
-    watchlist_scopes = sorted({_pick_watchlist_scope(p) for p in resolved if _pick_watchlist_scope(p)})
-    for value in watchlist_scopes:
-        rows = [p for p in resolved if _pick_watchlist_scope(p) == value]
-        groups[f"watchlist_scope:{value}"] = {
-            "count": len(rows),
-            "avg_probability": sum(float(p.get("model_probability") or 0) for p in rows) / len(rows),
-            "observed_rate": sum(float(p.get("resolution_value") or 0) for p in rows) / len(rows),
-            "avg_brier": sum(float(p.get("brier_score") or 0) for p in rows) / len(rows),
-        }
+        _add_scope_groups(groups, resolved, field, lambda p, f=field: str(p.get(f) or "unknown"))
+    _add_scope_groups(groups, resolved, "domain", lambda p: _domain(str(p.get("topic") or "")))
+    _add_scope_groups(groups, resolved, "subdomain", _pick_subdomain, skip_empty=True)
+    _add_scope_groups(
+        groups,
+        resolved,
+        "probability_bucket",
+        lambda p: _probability_bucket(float(p.get("model_probability") or 0)),
+    )
+    _add_scope_groups(groups, resolved, "watchlist_scope", _pick_watchlist_scope, skip_empty=True)
     return {
         "count": len(resolved),
         "raw_resolved_count": len(resolved_all),

@@ -1004,6 +1004,88 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(summary["groups"]["domain:esports"]["count"], 1)
         self.assertEqual(summary["groups"]["subdomain:cs2"]["count"], 1)
 
+    def test_calibration_summary_scope_filter_preserves_axes(self):
+        summary = paper.calibration_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.10,
+                "log_loss": 0.35,
+                "model_probability": 0.72,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "forecast",
+                "market_type": "game_outcome",
+                "confidence": "moderate",
+                "topic": "tomorrows nba games",
+                "notes_json": json.dumps({"domain": "nba", "watchlist_scope": "game"}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 0.0,
+                "brier_score": 0.40,
+                "log_loss": 0.80,
+                "model_probability": 0.55,
+                "venue": "kalshi",
+                "anchor_source": "kalshi",
+                "pick_type": "forecast",
+                "market_type": "macro_binary",
+                "confidence": "watchlist",
+                "topic": "Fed rate cut by June",
+                "notes_json": json.dumps({"domain": "macro"}),
+            },
+        ])
+
+        groups = summary["groups"]
+        for axis in ("venue", "anchor_source", "pick_type", "market_type", "confidence", "domain", "probability_bucket"):
+            axis_keys = [key for key in groups if key.startswith(f"{axis}:")]
+            self.assertTrue(axis_keys, f"expected {axis} groups")
+            for key in axis_keys:
+                row = groups[key]
+                self.assertIn("count", row)
+                self.assertIn("avg_probability", row)
+                self.assertIn("observed_rate", row)
+                self.assertIn("avg_brier", row)
+        self.assertIn("domain:nba", groups)
+        self.assertIn("domain:macro", groups)
+        self.assertIn("watchlist_scope:game", groups)
+
+    def test_calibration_summary_groups_future_subdomain_axes(self):
+        summary = paper.calibration_summary([
+            {
+                "status": "resolved",
+                "resolution_value": 1.0,
+                "brier_score": 0.18,
+                "log_loss": 0.50,
+                "model_probability": 0.60,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "game_outcome",
+                "confidence": "watchlist",
+                "topic": "Valorant markets to watch today",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "valorant"}),
+            },
+            {
+                "status": "resolved",
+                "resolution_value": 0.0,
+                "brier_score": 0.30,
+                "log_loss": 0.70,
+                "model_probability": 0.55,
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "pick_type": "watchlist",
+                "market_type": "game_outcome",
+                "confidence": "watchlist",
+                "topic": "League of Legends markets to watch today",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "lol"}),
+            },
+        ])
+
+        groups = summary["groups"]
+        self.assertEqual(groups.get("subdomain:valorant", {}).get("count"), 1)
+        self.assertEqual(groups.get("subdomain:lol", {}).get("count"), 1)
+
     def test_current_skill_comparable_summary_filters_pre_current_and_unversioned_rows(self):
         summary = paper.current_skill_comparable_summary([
             {
