@@ -29,6 +29,7 @@ LOG_DIR = DATA_DIR / "logs"
 DEFAULT_PORTFOLIO = REPO_ROOT / "fixtures" / "paper_portfolio.json"
 LAUNCHD_LABEL = "com.jask.last24hours.paper-daily"
 LAUNCHD_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+DRY_RUN_TOPIC_TIMEOUT_SECONDS = 45
 
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -653,13 +654,19 @@ def _store_picks(run_id: int, picks: List[Dict[str, Any]]) -> List[int]:
     return ids
 
 
-def _run_last24hours(topic: str, quick: bool, extra_args: Optional[List[str]] = None) -> Dict[str, Any]:
+def _run_last24hours(
+    topic: str,
+    quick: bool,
+    extra_args: Optional[List[str]] = None,
+    *,
+    timeout_seconds: int = 180,
+) -> Dict[str, Any]:
     cmd = [sys.executable, str(SCRIPT_DIR / "last24hours.py"), topic, "--emit=json", "--no-native-web"]
     if quick:
         cmd.append("--quick")
     for arg in extra_args or []:
         cmd.append(str(arg))
-    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=180, check=False)
+    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=timeout_seconds, check=False)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"last24hours exited {result.returncode}")
     return json.loads(result.stdout)
@@ -1164,6 +1171,7 @@ def post_1_0_38_esports_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     summary["subdomain_visibility"] = sorted({_pick_subdomain(pick) for pick in filtered if _pick_subdomain(pick)})
     if summary.get("count", 0) == 0:
         summary["empty_reason"] = "No resolved post-1.0.38 esports paper rows yet."
+        summary["operator_note"] = "eSports reporting is wired up, but no post-1.0.38 esports paper rows have resolved yet."
     return summary
 
 
@@ -1185,7 +1193,26 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         "warnings": [],
     }
     debug_counters: Dict[str, int] = {}
-    report = _run_last24hours(entry["topic"], quick=quick, extra_args=entry.get("last24hours_args", []))
+    started = time.time()
+    try:
+        report = _run_last24hours(
+            entry["topic"],
+            quick=quick,
+            extra_args=entry.get("last24hours_args", []),
+            timeout_seconds=DRY_RUN_TOPIC_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        result["status"] = "error"
+        result["elapsed_seconds"] = round(time.time() - started, 2)
+        result["warnings"].append(
+            f"{entry['topic']}: dry-run timed out after {DRY_RUN_TOPIC_TIMEOUT_SECONDS}s before a usable paper result was produced."
+        )
+        return result
+    except Exception as exc:
+        result["status"] = "error"
+        result["elapsed_seconds"] = round(time.time() - started, 2)
+        result["warnings"].append(f"{entry['topic']}: dry-run failed with {type(exc).__name__}: {exc}")
+        return result
     picks = extract_paper_picks(report)
     result["extracted_pick_count"] = len(picks)
     picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
@@ -1209,6 +1236,7 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         result["status"] = "ready"
     if debug_counters:
         result["debug_counters"] = debug_counters
+    result["elapsed_seconds"] = round(time.time() - started, 2)
     return result
 
 
@@ -1237,6 +1265,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     legacy_noisy_by_reason: Dict[str, int] = {}
     legacy_noisy_examples: List[Dict[str, Any]] = []
     source_health_status_rollup: Dict[str, Dict[str, int]] = {}
+    esports_rows: List[Dict[str, Any]] = []
     now = datetime.now()
     for pick in open_picks:
         is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
@@ -1263,6 +1292,14 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         subdomain = _pick_subdomain(pick)
         if subdomain:
             by_subdomain[subdomain] = by_subdomain.get(subdomain, 0) + 1
+        if domain == "esports":
+            esports_rows.append({
+                "id": pick.get("id"),
+                "title": pick.get("title") or pick.get("topic") or "",
+                "subdomain": subdomain,
+                "pick_type": pick_type,
+                "status": pick.get("status"),
+            })
         watchlist_scope = _pick_watchlist_scope(pick)
         if watchlist_scope:
             by_watchlist_scope[watchlist_scope] = by_watchlist_scope.get(watchlist_scope, 0) + 1
@@ -1393,6 +1430,15 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_noisy_by_reason": dict(sorted(legacy_noisy_by_reason.items())),
         "legacy_noisy_examples": legacy_noisy_examples,
         "source_health_status_rollup": {key: dict(sorted(value.items())) for key, value in sorted(source_health_status_rollup.items())},
+        "esports_open_slice": {
+            "count": len(esports_rows),
+            "by_subdomain": {
+                key: value for key, value in sorted(by_subdomain.items())
+                if key in {row["subdomain"] for row in esports_rows if row["subdomain"]}
+            },
+            "rows": esports_rows[:8],
+            "empty_reason": "" if esports_rows else "No open esports paper rows right now.",
+        },
         "warnings": warnings,
     }
 
@@ -1453,6 +1499,7 @@ def cmd_daily(args) -> None:
         results = []
         errors = []
         for entry in entries:
+            print(f"[dry-run] evaluating {entry['topic']}", file=sys.stderr)
             try:
                 results.append(_daily_dry_run_entry(entry, quick=args.quick))
             except Exception as exc:

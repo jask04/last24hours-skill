@@ -2,6 +2,7 @@ import io
 import math
 import json
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from argparse import Namespace
@@ -346,7 +347,7 @@ class PaperExtractionTests(unittest.TestCase):
             "market_watchlist": [{"pick_type": "watchlist", "venue": "polymarket", "title": "Stored watchlist", "question": "Stored watchlist", "outcome_label": "Yes", "probability": 0.61, "url": "https://polymarket.com/event/stored-watchlist"}],
         }
 
-        def fake_run(topic, quick, extra_args=None):
+        def fake_run(topic, quick, extra_args=None, timeout_seconds=None):
             captured.append((topic, quick, list(extra_args or [])))
             return report
 
@@ -383,7 +384,7 @@ class PaperExtractionTests(unittest.TestCase):
             },
         }
 
-        with mock.patch("scripts.paper._run_last24hours", side_effect=lambda topic, quick, extra_args=None: reports[topic]), \
+        with mock.patch("scripts.paper._run_last24hours", side_effect=lambda topic, quick, extra_args=None, timeout_seconds=None: reports[topic]), \
              mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
             paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
 
@@ -391,6 +392,23 @@ class PaperExtractionTests(unittest.TestCase):
         by_topic = {entry["topic"]: entry for entry in payload["results"]}
         self.assertEqual(by_topic["Counter-Strike 2 matches today"]["status"], "no_compatible_pick")
         self.assertEqual(by_topic["Fed rate cut by June"]["status"], "degraded_run")
+
+    def test_cmd_daily_dry_run_reports_timeout_as_error_status(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Counter-Strike 2 matches today", "enabled": True},
+        ]), encoding="utf-8")
+
+        with mock.patch(
+            "scripts.paper._run_last24hours",
+            side_effect=subprocess.TimeoutExpired(cmd=["python3"], timeout=paper.DRY_RUN_TOPIC_TIMEOUT_SECONDS),
+        ), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        entry = payload["results"][0]
+        self.assertEqual(entry["status"], "error")
+        self.assertIn("timed out", " ".join(entry["warnings"]).lower())
 
     def test_cmd_daily_skips_open_duplicates_under_entry_policy(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
@@ -1123,6 +1141,7 @@ class CalibrationTests(unittest.TestCase):
         empty = paper.post_1_0_38_esports_summary([])
         self.assertEqual(empty["count"], 0)
         self.assertIn("No resolved post-1.0.38 esports paper rows yet.", empty["empty_reason"])
+        self.assertIn("no post-1.0.38 esports paper rows have resolved yet", empty["operator_note"].lower())
 
     def test_open_pick_diagnostics_rolls_up_source_health_statuses(self):
         diagnostics = paper.open_pick_diagnostics([
@@ -1147,6 +1166,27 @@ class CalibrationTests(unittest.TestCase):
 
         self.assertEqual(diagnostics["source_health_status_rollup"]["x"]["degraded"], 1)
         self.assertEqual(diagnostics["source_health_status_rollup"]["web"]["empty"], 1)
+
+    def test_open_pick_diagnostics_exposes_esports_open_slice(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "id": 77,
+                "status": "open",
+                "topic": "Counter-Strike 2 matches today",
+                "title": "Counter-Strike: Astralis vs G2 (BO3)",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "model_probability": 0.61,
+                "resolution_source": "",
+                "skill_version": "1.0.40",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "cs2"}),
+                "evidence_json": json.dumps({}),
+            }
+        ])
+
+        self.assertEqual(diagnostics["esports_open_slice"]["count"], 1)
+        self.assertEqual(diagnostics["esports_open_slice"]["by_subdomain"]["cs2"], 1)
+        self.assertEqual(diagnostics["esports_open_slice"]["rows"][0]["subdomain"], "cs2")
 
 
 class LaunchdTests(unittest.TestCase):
