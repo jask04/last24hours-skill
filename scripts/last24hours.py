@@ -2734,6 +2734,25 @@ def main():
         except Exception as e:
             polymarket_error = f"{polymarket_error}; closing-soon scan failed: {e}" if polymarket_error else f"closing-soon scan failed: {e}"
 
+        if not live_sports_mode:
+            try:
+                kalshi_closing_diagnostics: dict = {}
+                closing_raw_ka = closing_soon.scan_kalshi_closing_soon(
+                    args.topic,
+                    from_date,
+                    to_date,
+                    window_hours=max(1, args.closing_window_hours),
+                    diagnostics=kalshi_closing_diagnostics,
+                )
+                if closing_raw_ka:
+                    closing_ka = normalize.normalize_kalshi_items(closing_raw_ka, from_date, to_date)
+                    closing_ka = score.score_kalshi_items(closing_ka)
+                    combined_ka = closing_ka + (deduped_ka or [])
+                    deduped_ka = dedupe.dedupe_kalshi(score.sort_items(combined_ka, query_type=query_type))
+                    plan.notes.append(f"kalshi-closing-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
+            except Exception as e:
+                kalshi_error = f"{kalshi_error}; kalshi closing-soon scan failed: {e}" if kalshi_error else f"kalshi closing-soon scan failed: {e}"
+
     # Post-retrieval relevance filter: drop low-relevance items per source
     deduped_reddit = score.relevance_filter(deduped_reddit, "REDDIT")
     deduped_x = score.relevance_filter(deduped_x, "X")

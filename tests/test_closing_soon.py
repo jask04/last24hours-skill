@@ -471,5 +471,125 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertIn("ESPN found 2 live/starting-soon game(s)", render.render_compact(no_market))
 
 
+class ScanKalshiClosingSoonTests(unittest.TestCase):
+    def _kalshi_market(
+        self,
+        ticker: str,
+        title: str,
+        close_time: str,
+        *,
+        liquidity: float = 20_000,
+        volume: float = 10_000,
+        current_probability: float = 0.52,
+        spread: float = 0.03,
+    ):
+        return {
+            "ticker": ticker,
+            "title": title,
+            "subtitle": title,
+            "event_ticker": ticker.split("-")[0] if "-" in ticker else ticker,
+            "close_time": close_time,
+            "expiration_time": close_time,
+            "liquidity_dollars": liquidity,
+            "volume_24h": volume,
+            "yes_bid_dollars": max(0.0, current_probability - spread / 2),
+            "yes_ask_dollars": min(1.0, current_probability + spread / 2),
+            "candlestick_open_interest": 500,
+        }
+
+    def _patched_search(self, markets):
+        def _search(seed, from_date, to_date, depth="default"):
+            return {"markets": markets, "event_titles": {}, "_cap": 200}
+        return _search
+
+    def test_scans_near_expiry_kalshi_markets(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        markets = [
+            self._kalshi_market("KXRATE-26APR22", "Will Fed cut on Apr 22?", "2026-04-21T22:30:00Z"),
+            self._kalshi_market("KXRATE-26MAY01", "Will Fed cut in May?", "2026-05-01T00:00:00Z"),  # outside window
+            self._kalshi_market("KXRATE-OLD", "Expired contract", "2026-04-20T00:00:00Z"),  # past
+        ]
+        with mock.patch("scripts.lib.kalshi.search_kalshi", side_effect=self._patched_search(markets)):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+            )
+        tickers = {item.get("ticker") for item in result}
+        self.assertIn("KXRATE-26APR22", tickers)
+        self.assertNotIn("KXRATE-26MAY01", tickers)
+        self.assertNotIn("KXRATE-OLD", tickers)
+        for item in result:
+            self.assertEqual(item.get("closing_soon_reason"), "closing_soon")
+            self.assertIsNotNone(item.get("minutes_to_close"))
+
+    def test_rejects_zero_liquidity_kalshi_markets(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        markets = [
+            self._kalshi_market(
+                "KXEMPTY-26APR22",
+                "Dead market",
+                "2026-04-21T22:00:00Z",
+                liquidity=0,
+                volume=0,
+            ),
+        ]
+        diagnostics: dict = {}
+        with mock.patch("scripts.lib.kalshi.search_kalshi", side_effect=self._patched_search(markets)):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+                diagnostics=diagnostics,
+            )
+        self.assertEqual(result, [])
+        self.assertEqual(diagnostics.get("kalshi_skipped_no_liquidity"), 1)
+
+    def test_skips_effectively_settled_kalshi_markets(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        markets = [
+            self._kalshi_market(
+                "KXLOCKED-26APR22",
+                "Near-certain contract",
+                "2026-04-21T22:00:00Z",
+                current_probability=0.99,
+                spread=0.005,
+            ),
+        ]
+        diagnostics: dict = {}
+        with mock.patch("scripts.lib.kalshi.search_kalshi", side_effect=self._patched_search(markets)):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+                diagnostics=diagnostics,
+            )
+        self.assertEqual(result, [])
+        self.assertEqual(diagnostics.get("kalshi_skipped_settled"), 1)
+
+    def test_ranks_nearest_close_first(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        markets = [
+            self._kalshi_market("KXFAR", "Closes in 5h", "2026-04-22T01:00:00Z"),
+            self._kalshi_market("KXSOON", "Closes in 1h", "2026-04-21T21:00:00Z"),
+        ]
+        with mock.patch("scripts.lib.kalshi.search_kalshi", side_effect=self._patched_search(markets)):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+            )
+        self.assertGreaterEqual(len(result), 2)
+        self.assertEqual(result[0].get("ticker"), "KXSOON")
+
+
 if __name__ == "__main__":
     unittest.main()

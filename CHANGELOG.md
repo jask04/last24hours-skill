@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.50] - 2026-04-21
+
+### Added
+- `closing_soon.scan_kalshi_closing_soon()` scans Kalshi for near-expiry contracts using each market's `close_time`, with bounded window filtering, zero-liquidity rejection, effectively-settled skipping, and nearest-close-first ranking that mirrors the Polymarket pattern shipped in v1.0.14.
+- `parse_kalshi_response` now emits `end_datetime` (full timestamp) alongside the existing date-only `end_date` so downstream consumers can compute minutes-to-close without losing precision.
+- Paper portfolio carries a `Kalshi markets closing soon` entry with `--closing-window-hours 6` so Kalshi closing-soon coverage shows up in the calibration ledger.
+
+### Changed
+- When a closing-soon or market-watchlist query runs outside live-sports mode, `last24hours.py` now also performs the Kalshi closing-soon scan and merges the results into the deduplicated Kalshi list, emitting a `kalshi-closing-candidates:N` planning note.
+
+### Fixed
+- Added `test_closing_soon.ScanKalshiClosingSoonTests` regressions covering near-expiry inclusion, expired/out-of-window rejection, zero-liquidity rejection, effectively-settled skipping, and nearest-close-first ranking.
+
 ## [1.0.49] - 2026-04-21
 
 ### Added

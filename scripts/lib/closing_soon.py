@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
 
-from . import dates, market_types, polymarket, sports_schedule
+from . import dates, kalshi, market_types, polymarket, sports_schedule
 
 
 _INTENT_RE = re.compile(
@@ -194,6 +194,85 @@ def _closing_score(item: dict, minutes: float, live_match: Optional[sports_sched
     volume_score = min(1.0, math.log1p(volume) / math.log1p(250_000))
     live_bonus = 0.25 if live_match and live_match.is_live else 0.12 if live_match else 0.0
     return 100 * (0.34 * close_score + 0.24 * liquidity_score + 0.18 * spread_quality + 0.14 * volume_score + live_bonus)
+
+
+def _kalshi_is_effectively_settled(item: dict) -> bool:
+    prob = item.get("current_probability")
+    spread = item.get("spread")
+    if prob is None:
+        return False
+    near_edge = prob >= 0.985 or prob <= 0.015
+    tight_spread = spread is None or spread <= 0.01
+    return near_edge and tight_spread
+
+
+def scan_kalshi_closing_soon(
+    topic: str,
+    from_date: str,
+    to_date: str,
+    *,
+    window_hours: int = 12,
+    include_effectively_settled: bool = False,
+    now: Optional[datetime] = None,
+    diagnostics: Optional[dict] = None,
+) -> List[dict]:
+    """Return normalized raw Kalshi dicts for near-expiry markets.
+
+    Mirrors scan_polymarket_closing_soon but uses Kalshi's close_time field and
+    skips the live-sports / matchup-rejection paths that only apply to Polymarket
+    game-outcome markets.
+    """
+    local_now = _now_local(now)
+    now_utc = local_now.astimezone(timezone.utc)
+    window_minutes = int(window_hours * 60)
+    markets_by_ticker: dict[str, dict] = {}
+    for seed in closing_search_topics(topic):
+        response = kalshi.search_kalshi(seed, from_date, to_date, depth="default")
+        for market in kalshi.parse_kalshi_response(response, topic=topic):
+            ticker = market.get("ticker") or market.get("url")
+            if ticker and ticker not in markets_by_ticker:
+                markets_by_ticker[ticker] = market
+    candidates: List[dict] = []
+    skipped_no_close = 0
+    skipped_expired = 0
+    skipped_no_liquidity = 0
+    skipped_settled = 0
+    for item in markets_by_ticker.values():
+        end_dt = _parse_end(item.get("end_datetime") or item.get("end_date"))
+        if not end_dt:
+            skipped_no_close += 1
+            continue
+        minutes = (end_dt - now_utc).total_seconds() / 60.0
+        if minutes < 0:
+            skipped_expired += 1
+            continue
+        if minutes > window_minutes:
+            continue
+        liquidity = float(item.get("liquidity") or 0.0)
+        volume = float(item.get("volume") or 0.0)
+        if liquidity <= 0 and volume <= 0:
+            skipped_no_liquidity += 1
+            continue
+        if _kalshi_is_effectively_settled(item) and not include_effectively_settled:
+            skipped_settled += 1
+            continue
+        close_score = max(0.0, 1.0 - min(1.0, minutes / max(1, window_minutes)))
+        liquidity_score = min(1.0, math.log1p(max(liquidity, volume)) / math.log1p(500_000))
+        rank = 100 * (0.5 * close_score + 0.35 * liquidity_score + 0.15)
+        item["minutes_to_close"] = round(minutes, 1)
+        item["closing_soon_reason"] = "closing_soon"
+        item["resolvability"] = "Kalshi market; verify contract rules before treating as resolved"
+        item["relevance"] = max(float(item.get("relevance") or 0.0), min(1.0, rank / 100.0))
+        item["_closing_rank"] = rank
+        candidates.append(item)
+    candidates.sort(key=lambda item: item.get("_closing_rank", 0), reverse=True)
+    if diagnostics is not None:
+        diagnostics["kalshi_closing_candidates"] = len(candidates)
+        diagnostics["kalshi_skipped_no_close"] = skipped_no_close
+        diagnostics["kalshi_skipped_expired"] = skipped_expired
+        diagnostics["kalshi_skipped_no_liquidity"] = skipped_no_liquidity
+        diagnostics["kalshi_skipped_settled"] = skipped_settled
+    return candidates[:25]
 
 
 def scan_polymarket_closing_soon(

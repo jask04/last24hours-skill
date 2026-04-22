@@ -782,10 +782,9 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
         spread = max(0.0, best_ask - best_bid) if best_bid is not None and best_ask is not None else None
         midpoint = (best_bid + best_ask) / 2 if best_bid is not None and best_ask is not None else None
 
-        end_date = (
-            (market.get("expiration_time") or market.get("close_time") or market.get("expected_expiration_time") or "")[:10]
-            or None
-        )
+        raw_close_ts = market.get("close_time") or market.get("expiration_time") or market.get("expected_expiration_time") or ""
+        end_datetime = raw_close_ts or None
+        end_date = (raw_close_ts[:10] or None) if raw_close_ts else None
         updated = (market.get("updated_time") or market.get("open_time") or "")[:10] or None
 
         relevance = _market_relevance(topic, market, event_title) if topic else market.get("relevance", 0.5)
@@ -827,6 +826,7 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
             "signal_missing_reason": signal_missing_reason,
             "date": updated,
             "end_date": end_date,
+            "end_datetime": end_datetime,
             "volume": volume,
             "liquidity": liquidity,
             "open_interest": open_interest,
