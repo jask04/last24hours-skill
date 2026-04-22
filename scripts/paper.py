@@ -108,9 +108,7 @@ def _domain(topic: str) -> str:
 
 def _subdomain(topic: str) -> str:
     lowered = (topic or "").lower()
-    if eq.is_cs2_query(lowered):
-        return "cs2"
-    return ""
+    return eq.esports_subdomain_of(lowered)
 
 
 def _probability_bucket(probability: float) -> str:

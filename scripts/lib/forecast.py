@@ -1385,10 +1385,11 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_targ
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
-    if _is_esports_match_query(topic) and eq.is_cs2_query(topic):
+    topic_esports_subdomain = eq.esports_subdomain_of(topic)
+    if _is_esports_match_query(topic) and topic_esports_subdomain:
         items = [
             item for item in items
-            if eq.is_cs2_market_text(f"{item.title} {item.question} {item.url}")
+            if eq.esports_subdomain_of(f"{item.title} {item.question} {item.url}") == topic_esports_subdomain
         ]
         if not items:
             return None
@@ -1419,10 +1420,11 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
-    if _is_esports_match_query(topic) and eq.is_cs2_query(topic):
+    topic_esports_subdomain = eq.esports_subdomain_of(topic)
+    if _is_esports_match_query(topic) and topic_esports_subdomain:
         items = [
             item for item in items
-            if eq.is_cs2_market_text(f"{item.title} {item.question} {item.url}")
+            if eq.esports_subdomain_of(f"{item.title} {item.question} {item.url}") == topic_esports_subdomain
         ]
         if not items:
             return None
@@ -2131,7 +2133,7 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     if is_esports_slate and report.polymarket:
         slate_rows: dict[str, schema.PolymarketItem] = {}
         slate_order: dict[str, int] = {}
-        cs2_only = eq.is_cs2_query(report.topic)
+        topic_subdomain = eq.esports_subdomain_of(report.topic)
         for poly_item in report.polymarket:
             if (
                 not _is_esports_market_item(poly_item)
@@ -2139,7 +2141,7 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
                 or not _sports_market_date_compatible(poly_item, sports_target_date)
             ):
                 continue
-            if cs2_only and not eq.is_cs2_market_text(f"{poly_item.title} {poly_item.question} {poly_item.url}"):
+            if topic_subdomain and eq.esports_subdomain_of(f"{poly_item.title} {poly_item.question} {poly_item.url}") != topic_subdomain:
                 continue
             signature = _item_matchup_signature(poly_item)
             if not signature:

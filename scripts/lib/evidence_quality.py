@@ -225,6 +225,39 @@ def is_cs2_query(text: str) -> bool:
     return is_cs2_market_text(text)
 
 
+def is_valorant_market_text(text: str) -> bool:
+    lowered = (text or "").lower()
+    return bool(re.search(r"\bvalorant\b|\bvct\b", lowered))
+
+
+def is_valorant_query(text: str) -> bool:
+    return is_valorant_market_text(text)
+
+
+def is_lol_market_text(text: str) -> bool:
+    lowered = (text or "").lower()
+    if re.search(r"\bleague of legends\b|\blcs\b|\blec\b|\blck\b|\blpl\b", lowered):
+        return True
+    if re.search(r"\blol\b", lowered) and is_esports_query(text):
+        return True
+    return False
+
+
+def is_lol_query(text: str) -> bool:
+    return is_lol_market_text(text)
+
+
+def esports_subdomain_of(text: str) -> str:
+    """Return the specific eSports subdomain label ('cs2', 'valorant', 'lol') or '' when text is not subdomain-specific."""
+    if is_cs2_market_text(text):
+        return "cs2"
+    if is_valorant_market_text(text):
+        return "valorant"
+    if is_lol_market_text(text):
+        return "lol"
+    return ""
+
+
 def is_esports_rationale_evidence(
     text: str,
     source_context: str = "",

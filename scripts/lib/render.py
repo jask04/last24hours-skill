@@ -722,14 +722,14 @@ def _compact_esports_items(items: list, source: str, report: schema.Report, limi
         return items[:limit]
 
     topic_lower = report.topic.lower()
-    cs2_prompt = eq.is_cs2_query(report.topic)
+    topic_subdomain = eq.esports_subdomain_of(report.topic)
     filtered = []
     for item in items:
         text = getattr(item, "text", "") or getattr(item, "title", "") or ""
         context = getattr(item, "author_handle", "") or getattr(item, "subreddit", "") or getattr(item, "source_domain", "")
         lowered = f"{text} {context}".lower()
         tokens = eq.tokenize(lowered)
-        if cs2_prompt and not eq.is_cs2_market_text(lowered):
+        if topic_subdomain and eq.esports_subdomain_of(lowered) != topic_subdomain:
             continue
         if text.strip().startswith("@"):
             continue

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.49] - 2026-04-21
+
+### Added
+- `evidence_quality.esports_subdomain_of()` plus `is_valorant_market_text` / `is_valorant_query` / `is_lol_market_text` / `is_lol_query` helpers so Valorant and League of Legends prompts get the same direct-match anchoring and cross-title rejection that CS2 prompts shipped in v1.0.38–1.0.45.
+- Paper portfolio entries for Valorant and League of Legends (watchlist + forecast each) so calibration coverage is symmetric with CS2.
+
+### Changed
+- Polymarket, Kalshi, and rationale-evidence filtering in `forecast.py` and `render.py` now route eSports cross-title rejection through the generic subdomain helper instead of CS2-specific checks, so Valorant and LoL prompts reject CS2/cross-title rows automatically.
+- `paper._subdomain()` now emits `valorant` and `lol` labels alongside `cs2`, so the v1.0.48 scope-filter refactor surfaces them in report rollups without further changes.
+
+### Fixed
+- Added `tests/test_esports.py` regression coverage for CS2/Valorant/LoL market-text detection, subdomain routing, and cross-title mismatch rejection.
+
 ## [1.0.48] - 2026-04-21
 
 ### Changed
