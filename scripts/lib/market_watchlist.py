@@ -250,6 +250,17 @@ def _topic_esports_subdomain(topic: str) -> str:
 
 
 def _report_base_date(report: schema.Report) -> date:
+    for value in (
+        getattr(report, "generated_at", ""),
+        getattr(report, "range_to", ""),
+        getattr(report, "range_from", ""),
+    ):
+        if not value:
+            continue
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            continue
     return dates.current_local_date()
 
 
@@ -388,14 +399,15 @@ def _topic_relevance(topic: str, item) -> float:
     return max(0.0, min(1.0, relevance))
 
 
-def _is_bad_candidate(topic: str, item) -> bool:
+def _is_bad_candidate(topic: str, item, *, base_date: Optional[date] = None) -> bool:
     market_lower = _market_text(item).lower()
     domain = _domain(topic)
     market_type = _candidate_market_type(item)
     end_date = getattr(item, "end_date", None)
+    current_date = base_date or dates.current_local_date()
     if end_date:
         try:
-            if date.fromisoformat(str(end_date)[:10]) < date.today():
+            if date.fromisoformat(str(end_date)[:10]) < current_date:
                 return True
         except ValueError:
             pass
@@ -959,13 +971,14 @@ def _is_direct_espn_game_market(report: schema.Report, item, market_type: str) -
 
 
 def _esports_same_day_match_exists(other_items: list, report: schema.Report) -> bool:
+    base_date = _report_base_date(report)
     for other in other_items:
         other_type = _candidate_market_type(other)
         if other_type != "game_outcome":
             continue
         if not eq.is_esports_query(_market_text(other)):
             continue
-        days_to_end = _days_to_end(getattr(other, "end_date", None))
+        days_to_end = _days_to_end(getattr(other, "end_date", None), reference_date=base_date)
         if days_to_end is not None and days_to_end <= 1:
             return True
     return False
@@ -994,11 +1007,11 @@ def _closing_score(minutes_to_close: Optional[float], reason: str) -> float:
     return min(1.0, base)
 
 
-def _days_to_end(end_date: Optional[str]) -> Optional[int]:
+def _days_to_end(end_date: Optional[str], *, reference_date: Optional[date] = None) -> Optional[int]:
     if not end_date:
         return None
     try:
-        return (date.fromisoformat(str(end_date)[:10]) - date.today()).days
+        return (date.fromisoformat(str(end_date)[:10]) - (reference_date or dates.current_local_date())).days
     except ValueError:
         return None
 
@@ -1095,7 +1108,8 @@ def _esports_prop_rank_adjust(base_score: int, evidence: float, movement: float,
     return int(max(0, min(100, base_score + shift)))
 
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
-    if _is_bad_candidate(report.topic, item):
+    base_date = _report_base_date(report)
+    if _is_bad_candidate(report.topic, item, base_date=base_date):
         return None
 
     domain = _domain(report.topic)
@@ -1156,7 +1170,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         explicit_props = _is_explicit_esports_prop_prompt(report.topic)
         explicit_title = _is_explicit_esports_title_prompt(report.topic)
         same_day_match_exists = _esports_same_day_match_exists(other_items, report)
-        days_to_end = _days_to_end(getattr(item, "end_date", None))
+        days_to_end = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
         if market_type == "esports_prop" and not explicit_props:
             return None
         if explicit_props and market_type != "esports_prop":
@@ -1211,7 +1225,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     if rank_score < 24 and _domain(report.topic) != "broad":
         return None
     if domain == "tech":
-        days_to_end = _days_to_end(getattr(item, "end_date", None))
+        days_to_end = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
         if _tech_has_company_focus(getattr(item, "title", ""), getattr(item, "question", "")) and days_to_end is not None and days_to_end <= 45:
             rank_score += 18
         rank_score = int(max(0, min(100, rank_score + round(14 * tech_actionability))))
@@ -1386,12 +1400,13 @@ def _should_suppress_low_signal_candidate(
     stronger_items: list[schema.MarketWatchItem],
     all_candidates: list[schema.MarketWatchItem],
 ) -> bool:
+    base_date = _report_base_date(report)
     domain = _domain(report.topic)
     if domain not in {"tech", "crypto"}:
         return False
     if len(stronger_items) < 2:
         return False
-    days_to_end = _days_to_end(item.end_date)
+    days_to_end = _days_to_end(item.end_date, reference_date=base_date)
     long_dated = days_to_end is not None and days_to_end >= 90
     low_volume = (item.volume or 0) <= 0 and (item.volume_24h or 0) <= 0
     low_signal = (item.market_signal_quality or 0) < 0.45
@@ -1418,11 +1433,39 @@ def _watch_item_domain(item: schema.MarketWatchItem) -> str:
 
 def _esports_subdomain_for_item(item: schema.MarketWatchItem) -> str:
     text = f"{item.title} {item.question}".lower()
+    inferred = eq.inferred_esports_subdomain(text)
+    if inferred:
+        return inferred
     tokens = _tokens(text)
     for name, alias_tokens in _ESPORTS_SUBDOMAINS.items():
         if tokens & alias_tokens:
             return name
     return ""
+
+
+def _is_valid_esports_watchlist_item(report: schema.Report, item: schema.MarketWatchItem) -> bool:
+    if _domain(report.topic) != "esports":
+        return True
+    item_text = f"{item.title} {item.question} {item.url or ''}"
+    item_subdomain = _esports_subdomain_for_item(item)
+    topic_subdomain = _topic_esports_subdomain(report.topic)
+    explicit_props = _is_explicit_esports_prop_prompt(report.topic)
+    explicit_title = _is_explicit_esports_title_prompt(report.topic)
+    if not eq.is_esports_query(item_text):
+        return False
+    if explicit_props:
+        if item.market_type != "esports_prop":
+            return False
+        if topic_subdomain and item_subdomain != topic_subdomain:
+            return False
+    elif explicit_title:
+        if item.market_type != "esports_title":
+            return False
+        if topic_subdomain and item_subdomain and item_subdomain != topic_subdomain:
+            return False
+    elif topic_subdomain and item_subdomain and item_subdomain != topic_subdomain:
+        return False
+    return True
 
 
 def _should_delay_duplicate_esports_title_candidate(
@@ -1452,6 +1495,7 @@ def _should_suppress_stale_esports_candidate(
     stronger_items: list[schema.MarketWatchItem],
     all_candidates: list[schema.MarketWatchItem],
 ) -> bool:
+    base_date = _report_base_date(report)
     if _domain(report.topic) != "esports":
         return False
     if candidate.market_type != "game_outcome":
@@ -1607,6 +1651,9 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
             continue
         if _should_delay_duplicate_esports_title_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_esports_title_watchlist_candidates")
+            continue
+        if not _is_valid_esports_watchlist_item(report, candidate):
+            _bump_debug_counter(report, "suppressed_invalid_esports_watchlist_candidates")
             continue
         key = re.sub(r"\W+", " ", f"{candidate.title} {candidate.question}").lower().strip()
         if key in seen:

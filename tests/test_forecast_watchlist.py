@@ -7,9 +7,9 @@ from scripts.lib import evidence_fusion, forecast, market_watchlist, render, sch
 def _report(topic: str) -> schema.Report:
     return schema.Report(
         topic=topic,
-        range_from="2026-04-10",
-        range_to="2026-04-11",
-        generated_at="2026-04-11T00:00:00+00:00",
+        range_from="2026-04-20",
+        range_to="2026-04-21",
+        generated_at="2026-04-21T00:00:00+00:00",
         mode="both",
     )
 

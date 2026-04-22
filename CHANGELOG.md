@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.63] - 2026-04-22
+
+### Fixed
+- `scripts/lib/market_watchlist.py`: Watchlist date and recency checks now key off the report's own generation window instead of the wall clock, which restores deterministic same-day eSports ranking and the intended mixed-board NBA suppression behavior.
+- `tests/test_forecast_watchlist.py`: Updated the shared report fixture dates to a stable April 21, 2026 base so relative-date watchlist assertions stay aligned with the market fixtures they are exercising.
+
 ## [1.0.62] - 2026-04-22
 
 ### Added
