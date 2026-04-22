@@ -231,6 +231,8 @@ def _is_explicit_esports_prop_prompt(topic: str) -> bool:
     so the roster stays curated in one place.
     """
     lowered = (topic or "").lower()
+    if _is_explicit_esports_title_prompt(topic):
+        return False
     if _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_PROP_TERMS):
         return True
     if eq.extract_esports_players(topic or ""):
@@ -241,6 +243,10 @@ def _is_explicit_esports_prop_prompt(topic: str) -> bool:
 def _is_explicit_esports_title_prompt(topic: str) -> bool:
     lowered = (topic or "").lower()
     return _domain(topic) == "esports" and any(term in lowered for term in _ESPORTS_TITLE_TERMS)
+
+
+def _topic_esports_subdomain(topic: str) -> str:
+    return eq.esports_subdomain_of(topic or "")
 
 
 def _report_base_date(report: schema.Report) -> date:
@@ -397,6 +403,14 @@ def _is_bad_candidate(topic: str, item) -> bool:
         return True
     if domain == "nba" and not eq.is_nba_market_text(market_lower):
         return True
+    if domain == "esports" and _is_explicit_esports_prop_prompt(topic):
+        if market_type != "esports_prop":
+            return True
+        if not _is_esports_market_candidate(item, market_type):
+            return True
+        topic_subdomain = _topic_esports_subdomain(topic)
+        if topic_subdomain and eq.esports_subdomain_of(market_lower) not in {"", topic_subdomain}:
+            return True
     if (
         domain == "esports"
         and not _is_explicit_esports_prop_prompt(topic)
@@ -1077,7 +1091,7 @@ def _esports_player_name_match_bonus(topic: str, item) -> float:
 
 def _esports_prop_rank_adjust(base_score: int, evidence: float, movement: float, quality: float) -> int:
     """Tune ranking for player props: they move thin, so weigh evidence/movement more than liquidity."""
-    shift = 100 * (0.20 * evidence + 0.15 * movement - 0.35 * quality)
+    shift = 100 * (0.24 * evidence + 0.18 * movement - 0.16 * quality)
     return int(max(0, min(100, base_score + shift)))
 
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
@@ -1096,6 +1110,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         return None
     if domain == "esports" and "today" in (report.topic or "").lower():
         if market_type == "game_outcome" and not _watchlist_exact_date_match(item, target_date):
+            return None
+        if market_type == "esports_prop" and not _watchlist_date_compatible(item, target_date):
             return None
 
     if _item_effectively_settled(item):
@@ -1143,6 +1159,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         days_to_end = _days_to_end(getattr(item, "end_date", None))
         if market_type == "esports_prop" and not explicit_props:
             return None
+        if explicit_props and market_type != "esports_prop":
+            return None
         if market_type == "esports_title" and not explicit_title and same_day_match_exists:
             return None
         if market_type == "game_outcome" and probability is not None and (probability <= 0.02 or probability >= 0.98):
@@ -1185,6 +1203,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
 
     if domain == "esports" and market_type == "esports_prop":
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)
+        if _is_explicit_esports_prop_prompt(report.topic) and quality >= 0.45 and relevance >= 0.30:
+            rank_score = max(rank_score, 24)
 
     if closing_mode and not closing_signal:
         return None
@@ -1220,6 +1240,13 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
                 rank_score = max(0, rank_score - 12)
                 if same_day_match_exists and quality < 0.95:
                     rank_score = max(0, rank_score - 10)
+        elif market_type == "esports_prop":
+            if days_to_end is not None and days_to_end <= 1:
+                rank_score += 10
+            if evidence_score >= 0.25:
+                rank_score += 6
+            if probability is not None and probability >= 0.95 and evidence_score < 0.20:
+                rank_score = max(0, rank_score - 8)
         elif market_type == "esports_title":
             if days_to_end is not None and days_to_end > 7:
                 rank_score = max(0, rank_score - 16)

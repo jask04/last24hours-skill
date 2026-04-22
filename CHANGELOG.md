@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.59] - 2026-04-21
+
+### Added
+- `scripts/lib/market_watchlist.py`: Tightened eSports prop watchlist admission so explicit CS2/Valorant/LoL prop prompts only admit compatible `esports_prop` rows and reject wrong-domain markets before ranking.
+- `scripts/lib/render.py`: Added a prop-specific empty-state explanation when no compatible same-day eSports prop rows survive the domain, subdomain, and date/type filters.
+- `tests/test_forecast_watchlist.py`: Added regressions for wrong-domain market rejection and precise eSports prop empty-state rendering.
+
 ## [1.0.58] - 2026-04-21
 
 ### Added

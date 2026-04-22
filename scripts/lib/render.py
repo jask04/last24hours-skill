@@ -442,6 +442,8 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             lines.append(f"Live-sports filter: ESPN found {live_games_count} live/starting-soon game(s), but only {matched} direct matching Polymarket game-outcome market(s) cleared the scanner.")
         elif "closing_soon" in getattr(report, "planning_notes", []):
             lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
+        elif eq.is_esports_player_prop_query(report.topic):
+            lines.append("eSports prop filter: no compatible same-day player-prop markets survived domain, subdomain, and date/type compatibility filters.")
         else:
             lines.append("Filters: needed topic-relevant Polymarket/Kalshi candidates with enough market depth, movement, catalyst evidence, or cross-market signal.")
         lines.append("If the prompt is broad, narrow it by domain, league, asset, or macro theme for a cleaner scan.")

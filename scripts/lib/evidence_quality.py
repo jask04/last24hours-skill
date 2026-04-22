@@ -130,6 +130,12 @@ ESPORTS_NOISE_TERMS = {
     "animgraph", "downdetector", "download", "install", "issue", "issues", "status",
     "outage", "outages", "maintenance", "reply", "replies", "scholarship", "watchparty",
 }
+ESPORTS_PROP_REJECT_TERMS = {
+    "giveaway", "giveaways", "promo", "promotional", "clip", "clips", "highlight",
+    "highlights", "watch", "stream", "live", "listing", "listings", "schedule",
+    "schedules", "score", "scores", "vod", "vods", "recap", "recaps", "org",
+    "organization", "announcement", "announcements",
+}
 ESPORTS_ENTITY_STOP = ESPORTS_TERMS | {
     "match", "matches", "game", "games", "qualifier", "qualifiers", "playoff",
     "playoffs", "bracket", "round", "group", "stage", "series", "main",
@@ -339,7 +345,10 @@ def has_player_prop_stat_marker(text: str) -> bool:
     tokens = tokenize(text)
     if tokens & ESPORTS_PROP_STAT_MARKERS:
         return True
-    return any(phrase in lowered for phrase in ("first kill", "first blood", "bomb plant", "pistol round"))
+    return any(
+        phrase in lowered
+        for phrase in ("first kill", "first blood", "bomb plant", "pistol round", "player prop", "player-prop")
+    )
 
 
 def is_esports_player_prop_query(text: str) -> bool:
@@ -371,6 +380,42 @@ def is_esports_player_prop_query(text: str) -> bool:
     if has_player and not (has_domain or has_stat):
         return False
     return True
+
+
+def is_esports_prop_evidence(
+    text: str,
+    source_context: str = "",
+    *,
+    topic: str = "",
+    strict_player_match: bool = False,
+) -> bool:
+    raw = f"{text or ''} {source_context or ''}"
+    lowered = raw.lower()
+    tokens = tokenize(raw)
+    topic_subdomain = esports_subdomain_of(topic)
+    text_subdomain = esports_subdomain_of(raw)
+    topic_players = extract_esports_players(topic, subdomain=topic_subdomain)
+    text_players = extract_esports_players(raw, subdomain=topic_subdomain)
+
+    if lowered.lstrip().startswith("@"):
+        return False
+    if topic_subdomain and text_subdomain and text_subdomain != topic_subdomain:
+        return False
+    if topic_players and not (topic_players & text_players):
+        return False
+    if strict_player_match and not text_players:
+        return False
+    if tokens & ESPORTS_PROP_REJECT_TERMS:
+        high_signal = ESPORTS_HIGH_SIGNAL_TERMS | {"kill", "kills", "headshot", "headshots", "adr", "solo"}
+        if not (tokens & high_signal and text_players):
+            return False
+    if tokens & ESPORTS_NOISE_TERMS and not text_players:
+        return False
+    if topic_players and text_players:
+        return True
+    if strict_player_match:
+        return False
+    return bool((tokens & ESPORTS_HIGH_SIGNAL_TERMS) and has_player_prop_stat_marker(raw))
 
 
 def is_esports_rationale_evidence(

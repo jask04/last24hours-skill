@@ -897,6 +897,60 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("thin", items[0].catalyst_summary.lower())
         self.assertNotIn("Lakers Esports", items[0].catalyst_summary)
 
+    def test_cs2_player_prop_watchlist_rejects_non_esports_market(self):
+        report = _report("CS2 player-prop markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="How many different countries will the US conduct military action against in 2026?",
+                question="How many different countries will the US conduct military action against in 2026?",
+                url="https://polymarket.com/event/how-many-different-countries-will-the-us-strike-in-2026",
+                outcome_prices=[("No", 0.89), ("Yes", 0.11)],
+                engagement=_engagement(volume=28_000, liquidity=159_000),
+                market_signal_quality=0.74,
+                volume_24h=28_000,
+                best_bid=0.88,
+                best_ask=0.89,
+                spread=0.01,
+                movement_24h=0.2,
+                relevance=0.31,
+                score=61,
+                market_type="unknown",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Counter-Strike 2: donk total kills > 18.5 - Map 1",
+                question="Will donk get more than 18.5 kills?",
+                url="https://polymarket.com/event/cs2-donk-kills-2026-04-21",
+                outcome_prices=[("Yes", 0.56), ("No", 0.44)],
+                engagement=_engagement(volume=12_000, liquidity=8_000),
+                market_signal_quality=0.52,
+                volume_24h=12_000,
+                best_bid=0.55,
+                best_ask=0.57,
+                spread=0.02,
+                movement_24h=2.0,
+                relevance=0.82,
+                score=54,
+                market_type="esports_prop",
+                end_date="2026-04-21",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("donk", items[0].title.lower())
+        self.assertEqual(items[0].market_type, "esports_prop")
+
+    def test_esports_prop_empty_state_is_precise(self):
+        report = _report("CS2 player-prop markets to watch today")
+
+        compact = render.render_compact(report)
+
+        self.assertIn("No high-quality watchlist markets found.", compact)
+        self.assertIn("no compatible same-day player-prop markets survived", compact.lower())
+
     def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
         poly_item = schema.PolymarketItem(
             id="PM1",
