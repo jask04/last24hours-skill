@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.45] - 2026-04-21
+
+### Changed
+- Generic `Counter-Strike 2 matches today` forecasts now accept clean direct CS2 match rows even when market typing is still sparse, reducing unnecessary model-implied fallbacks.
+- CS2 forecast boards now reject non-CS2 titles from the anchor path, while Kalshi source diagnostics show `SKIP` on eSports surfaces where Kalshi is not part of the intended venue path.
+- Tightened Kalshi macro compatibility so CPI and jobs prompts do not anchor on the wrong macro family even when the month matches.
+
+### Fixed
+- Added regressions for CS2 unknown direct-match anchoring, CS2 cross-title rejection, Kalshi `SKIP` rendering, and CPI/jobs macro mismatch filtering.
+
 ## [1.0.44] - 2026-04-21
 
 ### Changed

@@ -562,6 +562,66 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertTrue(all(item.anchor_source == "polymarket" for item in forecasts))
         self.assertTrue(all("Counter-Strike:" in item.title for item in forecasts))
 
+    def test_cs2_matches_today_accepts_unknown_direct_match_market_types(self):
+        report = _report("Counter-Strike 2 matches today")
+        report.generated_at = "2026-04-21T18:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-astr-g2-2026-04-21",
+                outcome_prices=[("Astralis", 0.47), ("G2", 0.53)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_signal_quality=0.77,
+                volume_24h=180_000,
+                best_bid=0.52,
+                best_ask=0.54,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.95,
+                score=88,
+                market_type="unknown",
+                end_date="2026-04-21",
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+        self.assertIn("Astralis vs G2", forecasts[0].title)
+
+    def test_cs2_matches_today_rejects_other_esports_titles_from_forecast_board(self):
+        report = _report("Counter-Strike 2 matches today")
+        report.generated_at = "2026-04-21T18:00:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Valorant: Team One vs Team Two (BO3) - Group Stage",
+                question="Valorant: Team One vs Team Two (BO3) - Group Stage",
+                url="https://polymarket.com/event/val-team1-team2-2026-04-21",
+                outcome_prices=[("Team One", 0.40), ("Team Two", 0.60)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_signal_quality=0.77,
+                volume_24h=180_000,
+                best_bid=0.59,
+                best_ask=0.61,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.95,
+                score=88,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
+        self.assertIn("DEGRADED RUN WARNING", forecasts[0].degraded_warning)
+
     def test_cs2_watchlist_today_excludes_later_date_rows_from_rendered_board(self):
         report = _report("Counter-Strike 2 markets to watch today")
         report.polymarket = [

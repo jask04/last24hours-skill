@@ -756,6 +756,12 @@ def _macro_market_allowed(topic: str, market_text: str) -> bool:
     if topic_tokens & {"cut", "cuts", "hike", "hikes"}:
         if not (market_tokens & {"cut", "cuts", "hike", "hikes"}):
             return False
+    if topic_tokens & {"cpi", "inflation"}:
+        if not (market_tokens & {"cpi", "inflation"}):
+            return False
+    if topic_tokens & {"jobs", "job", "payroll", "payrolls"}:
+        if not (market_tokens & {"jobs", "job", "payroll", "payrolls"}):
+            return False
     topic_core = _topic_tokens(topic) - _MONTH_TOKENS - {"meeting", "meetings"}
     market_core = market_tokens - _MONTH_TOKENS - {"meeting", "meetings", "interest"}
     if topic_core & {"fed", "fomc", "powell", "rates", "rate", "cut", "cuts", "hike", "hikes"}:
@@ -1379,6 +1385,13 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_targ
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
+    if _is_esports_match_query(topic) and eq.is_cs2_query(topic):
+        items = [
+            item for item in items
+            if eq.is_cs2_market_text(f"{item.title} {item.question} {item.url}")
+        ]
+        if not items:
+            return None
     if _is_sports_query(topic) or _is_esports_match_query(topic):
         items = [
             item for item in items
@@ -1406,6 +1419,13 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
+    if _is_esports_match_query(topic) and eq.is_cs2_query(topic):
+        items = [
+            item for item in items
+            if eq.is_cs2_market_text(f"{item.title} {item.question} {item.url}")
+        ]
+        if not items:
+            return None
     if _is_sports_query(topic) or _is_esports_match_query(topic):
         items = [
             item for item in items
@@ -1474,7 +1494,9 @@ def _is_nba_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> bool
 def _is_esports_market_item(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
     text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
     item_type = getattr(item, "market_type", "unknown")
-    return item_type in {"game_outcome", "esports_prop", "esports_title"} and eq.is_esports_query(text)
+    if item_type in {"game_outcome", "esports_prop", "esports_title"} and eq.is_esports_query(text):
+        return True
+    return item_type == "unknown" and eq.is_esports_query(text) and _is_direct_game_market(item)
 
 
 def _is_direct_game_market(item: schema.PolymarketItem | schema.KalshiItem) -> bool:
@@ -2109,12 +2131,15 @@ def synthesize_forecasts(report: schema.Report) -> list[schema.ForecastItem]:
     if is_esports_slate and report.polymarket:
         slate_rows: dict[str, schema.PolymarketItem] = {}
         slate_order: dict[str, int] = {}
+        cs2_only = eq.is_cs2_query(report.topic)
         for poly_item in report.polymarket:
             if (
                 not _is_esports_market_item(poly_item)
                 or not _is_direct_game_market(poly_item)
                 or not _sports_market_date_compatible(poly_item, sports_target_date)
             ):
+                continue
+            if cs2_only and not eq.is_cs2_market_text(f"{poly_item.title} {poly_item.question} {poly_item.url}"):
                 continue
             signature = _item_matchup_signature(poly_item)
             if not signature:

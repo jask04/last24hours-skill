@@ -911,6 +911,52 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertIsNone(forecasts[0].kalshi_market_id)
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
 
+    def test_kalshi_macro_forecast_does_not_anchor_jobs_prompt_on_cpi_market(self):
+        report = _report("Jobs report in June")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="CPI in Jun 2026?",
+                question="Will CPI inflation be above 3.0% in June 2026?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXCPI-26JUN-T3.0",
+                ticker="KXCPI-26JUN-T3.0",
+                event_ticker="KXCPI-26JUN",
+                current_probability=0.64,
+                engagement=schema.Engagement(volume=400_000, open_interest=150_000),
+                market_type="macro_binary",
+                score=92,
+                relevance=0.92,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIsNone(forecasts[0].kalshi_market_id)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
+
+    def test_kalshi_macro_forecast_does_not_anchor_cpi_prompt_on_jobs_market(self):
+        report = _report("CPI in June")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Jobs in Jun 2026?",
+                question="Will nonfarm payrolls beat expectations in June 2026?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXJOBS-26JUN-BEAT",
+                ticker="KXJOBS-26JUN-BEAT",
+                event_ticker="KXJOBS-26JUN",
+                current_probability=0.58,
+                engagement=schema.Engagement(volume=250_000, open_interest=125_000),
+                market_type="macro_binary",
+                score=90,
+                relevance=0.90,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIsNone(forecasts[0].kalshi_market_id)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
+
     def test_compact_render_suppresses_unused_prediction_markets(self):
         report = _report("Will the Fed cut rates by June")
         report.polymarket = [

@@ -137,6 +137,28 @@ class RedditBlueskyDebugTests(unittest.TestCase):
         footer = render.render_source_status(report, {"source_status": payload["source_status"]})
         self.assertIn("NORESULT Kalshi", footer)
 
+    def test_source_health_marks_kalshi_skip_for_esports_surface(self):
+        report = last24hours.schema.Report(
+            topic="Counter-Strike 2 matches today",
+            range_from="2026-04-10",
+            range_to="2026-04-11",
+            generated_at="2026-04-11T00:00:00Z",
+            mode="both",
+        )
+        report.forecasts = [
+            last24hours.schema.ForecastItem(
+                title="Counter-Strike 2 matches today",
+                model_implied=True,
+            )
+        ]
+
+        last24hours._populate_source_health(report, "prediction", None)
+
+        payload = report.to_dict()["evidence_fusion_stats"]["source_health"]
+        self.assertEqual(payload["source_status"]["kalshi"]["status"], "skip")
+        footer = render.render_source_status(report, {"source_status": payload["source_status"]})
+        self.assertIn("SKIP Kalshi", footer)
+
     def test_source_health_serializes_kalshi_degraded_status(self):
         report = last24hours.schema.Report(
             topic="Fed rate cut by June",

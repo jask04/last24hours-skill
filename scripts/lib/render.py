@@ -1645,6 +1645,8 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  DEGRADED Kalshi: {kalshi_detail or 'source degraded during this run'}")
     elif kalshi_status == "error":
         lines.append(f"  ERROR Kalshi: {kalshi_detail or 'source failed during this run'}")
+    elif kalshi_status == "skip":
+        lines.append(f"  SKIP Kalshi: {kalshi_detail or 'not used for this run'}")
     elif kalshi_status == "empty":
         lines.append(f"  NORESULT Kalshi: {kalshi_detail or 'no compatible markets'}")
 
