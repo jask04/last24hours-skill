@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.62] - 2026-04-22
+
+### Added
+- `fixtures/paper_portfolio.json`: Added `esports markets to watch today` so the paper ledger collects a mixed-title eSports watchlist row that already produces a clean same-day candidate in live dry-runs.
+- `fixtures/paper_portfolio.json`: Added `CPI in June` as a Kalshi macro forecast sample so the paper ledger keeps collecting post-`v1.0.42` month-compatible CPI anchors outside sports.
+
+### Changed
+- `fixtures/paper_portfolio.json`: Replaced `donk player-prop markets to watch today` with `donk total kills markets to watch today` after live testing showed the older wording could still drift into wrong-domain draft markets instead of a usable CS2 prop row.
+
 ## [1.0.61] - 2026-04-21
 
 ### Added

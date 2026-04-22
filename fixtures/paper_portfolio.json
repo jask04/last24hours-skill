@@ -54,6 +54,15 @@
     "notes": "Macro policy calibration sample; should avoid adjacent-month and non-Fed markets."
   },
   {
+    "topic": "CPI in June",
+    "query_type": "prediction",
+    "enabled": true,
+    "expected_pick_types": ["forecast"],
+    "pick_policy": "forecast_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "Kalshi CPI calibration sample; should anchor on month-compatible CPI contracts without drifting into jobs or Fed ladders."
+  },
+  {
     "topic": "NYC rain tomorrow",
     "query_type": "prediction",
     "enabled": true,
@@ -88,6 +97,15 @@
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
     "notes": "CS2 direct-match forecast sample; should anchor on same-day Counter-Strike match winner markets."
+  },
+  {
+    "topic": "esports markets to watch today",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "notes": "Broad eSports watchlist sample; should store a clean mixed-title same-day market instead of a wrong-domain fallback."
   },
   {
     "topic": "Valorant markets to watch today",
@@ -165,13 +183,13 @@
     "notes": "CS2 player-prop forecast sample."
   },
   {
-    "topic": "donk player-prop markets to watch today",
+    "topic": "donk total kills markets to watch today",
     "query_type": "market_watchlist",
     "enabled": true,
     "expected_pick_types": ["watchlist"],
     "pick_policy": "watchlist_only",
     "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "CS2 player-prop watchlist sample."
+    "notes": "CS2 player-prop watchlist sample; phrased around total kills so the watchlist path stays on stat-compatible surfaces."
   },
   {
     "topic": "TenZ total kills tonight",

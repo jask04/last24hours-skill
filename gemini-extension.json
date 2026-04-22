@@ -1,6 +1,6 @@
 {
   "name": "last24hours",
-  "version": "1.0.61",
+  "version": "1.0.62",
   "description": "Real-time forecasting and topic-scoped market-watchlist discovery across Polymarket, Kalshi, official NWS weather data, X, Reddit, Hacker News, sports, elections, macro, crypto, and the web, focused on the last 24 hours.",
   "author": "Jaskaran Singh",
   "homepage": "https://github.com/jask04/last24hours-skill",
