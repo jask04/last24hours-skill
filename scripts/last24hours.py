@@ -564,6 +564,17 @@ def _populate_source_health(
     if not report.web:
         _bucket_source_health_status(report, "web", web_status)
 
+    kalshi_status = "used" if report.kalshi else "empty"
+    kalshi_detail = ""
+    if report.kalshi_error:
+        kalshi_status = "degraded" if _is_degraded_source_error(report.kalshi_error) else "error"
+        kalshi_detail = report.kalshi_error or ""
+    elif not report.kalshi and query_type == "prediction":
+        kalshi_detail = "no compatible Kalshi contract found after topic/date compatibility filters"
+    _set_source_health_status(report, "kalshi", kalshi_status, kalshi_detail)
+    if not report.kalshi:
+        _bucket_source_health_status(report, "kalshi", kalshi_status)
+
 
 def _enrich_reddit_item_free(item: dict, config: dict, timeout: int, retries: int) -> dict:
     """Enrich Reddit item via OAuth when selected, falling back to public JSON."""

@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from scripts import last24hours
-from scripts.lib import bluesky, http, openai_reddit
+from scripts.lib import bluesky, http, openai_reddit, render
 
 
 class RedditBlueskyDebugTests(unittest.TestCase):
@@ -113,6 +113,51 @@ class RedditBlueskyDebugTests(unittest.TestCase):
         self.assertEqual(payload["source_status"]["web"]["status"], "degraded")
         self.assertEqual(payload["degraded_source_buckets"]["x"], 1)
         self.assertEqual(payload["degraded_source_buckets"]["web"], 1)
+
+    def test_source_health_serializes_kalshi_empty_and_render_footer(self):
+        report = last24hours.schema.Report(
+            topic="Fed rate cut by June",
+            range_from="2026-04-10",
+            range_to="2026-04-11",
+            generated_at="2026-04-11T00:00:00Z",
+            mode="kalshi",
+        )
+        report.forecasts = [
+            last24hours.schema.ForecastItem(
+                title="Fed rate cut by June",
+                model_implied=True,
+            )
+        ]
+
+        last24hours._populate_source_health(report, "prediction", None)
+
+        payload = report.to_dict()["evidence_fusion_stats"]["source_health"]
+        self.assertEqual(payload["source_status"]["kalshi"]["status"], "empty")
+        self.assertIn("no compatible Kalshi contract", payload["source_status"]["kalshi"]["detail"])
+        footer = render.render_source_status(report, {"source_status": payload["source_status"]})
+        self.assertIn("NORESULT Kalshi", footer)
+
+    def test_source_health_serializes_kalshi_degraded_status(self):
+        report = last24hours.schema.Report(
+            topic="Fed rate cut by June",
+            range_from="2026-04-10",
+            range_to="2026-04-11",
+            generated_at="2026-04-11T00:00:00Z",
+            mode="kalshi",
+        )
+        report.forecasts = [
+            last24hours.schema.ForecastItem(
+                title="Fed rate cut by June",
+                model_implied=True,
+            )
+        ]
+        report.kalshi_error = "Kalshi search timed out after 12s"
+
+        last24hours._populate_source_health(report, "prediction", None)
+
+        payload = report.to_dict()["evidence_fusion_stats"]["source_health"]
+        self.assertEqual(payload["source_status"]["kalshi"]["status"], "degraded")
+        self.assertEqual(payload["degraded_source_buckets"]["kalshi"], 1)
 
     def test_disabled_scrapecreators_gates_legacy_x_paid_path(self):
         config = {

@@ -888,6 +888,29 @@ class PlannerFusionTests(unittest.TestCase):
         self.assertEqual(forecasts[0].kalshi_market_id, "KA2")
         self.assertAlmostEqual(forecasts[0].forecast_probability, 0.42)
 
+    def test_kalshi_macro_forecast_does_not_anchor_on_threshold_ladder_for_cut_prompt(self):
+        report = _report("Fed rate cut by June")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Fed target rate in Jun 2026?",
+                question="Will the upper bound of the Fed funds target rate be above 4.25% after the June 2026 meeting?",
+                url="https://api.elections.kalshi.com/trade-api/v2/markets/KXFED-26JUN-T4.25",
+                ticker="KXFED-26JUN-T4.25",
+                event_ticker="KXFED-26JUN",
+                current_probability=0.64,
+                engagement=schema.Engagement(volume=400_000, open_interest=150_000),
+                market_type="macro_binary",
+                score=92,
+                relevance=0.92,
+            ),
+        ]
+
+        forecasts = forecast.synthesize_forecasts(report)
+
+        self.assertIsNone(forecasts[0].kalshi_market_id)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
+
     def test_compact_render_suppresses_unused_prediction_markets(self):
         report = _report("Will the Fed cut rates by June")
         report.polymarket = [

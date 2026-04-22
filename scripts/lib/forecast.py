@@ -702,6 +702,15 @@ def _threshold_market_compatible(topic: str, item) -> bool:
     market_spec = _threshold_spec(market_text)
     market_type = getattr(item, "market_type", "unknown")
     looks_threshold_like = market_type == "threshold" or market_spec.threshold is not None or market_spec.direction in {"above", "below", "range"}
+    topic_tokens = _tokenize(topic)
+    market_tokens = _tokenize(market_text)
+    if (
+        topic_spec.threshold is None
+        and topic_tokens & {"fed", "fomc", "powell", "cut", "cuts", "hike", "hikes"}
+        and looks_threshold_like
+        and not (market_tokens & {"cut", "cuts", "hike", "hikes"})
+    ):
+        return False
 
     if topic_spec.threshold is not None and looks_threshold_like and market_spec.threshold is None:
         return False

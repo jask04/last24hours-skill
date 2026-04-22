@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed README, skill instructions, and agent development guides to showcase current forecasting, watchlist, closing-soon, live-sports, paper-ledger, cleanup, and testing workflows
 - Backfilled explicit release-discipline guidance after the published v1.0.17 -> v1.0.23 history jump so future work must ship as one versioned commit and push per patch release without silent gaps
 
+## [1.0.42] - 2026-04-21
+
+### Changed
+- Kalshi source-health tracking now distinguishes successful-but-empty prediction runs from degraded or errored runs, and the compact source footer reports those states explicitly
+- Macro Kalshi compatibility is stricter for Fed-cut prompts so neighboring threshold ladders no longer qualify as fallback anchors for narrower policy-direction questions
+
+### Fixed
+- Added regressions for empty Kalshi source-status rendering, degraded Kalshi status bucketing, and threshold-ladder non-anchoring on Fed cut prompts
+
 ## [1.0.41] - 2026-04-21
 
 ### Changed

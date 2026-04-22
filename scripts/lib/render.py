@@ -1635,10 +1635,18 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  OK Polymarket: {len(report.polymarket)} markets")
     # Hide when zero results
 
+    kalshi_status = status_map.get("kalshi", {}).get("status")
+    kalshi_detail = status_map.get("kalshi", {}).get("detail", "")
     if report.kalshi_error:
         lines.append(f"  ERROR Kalshi: {report.kalshi_error}")
     elif report.kalshi:
         lines.append(f"  OK Kalshi: {len(report.kalshi)} markets")
+    elif kalshi_status == "degraded":
+        lines.append(f"  DEGRADED Kalshi: {kalshi_detail or 'source degraded during this run'}")
+    elif kalshi_status == "error":
+        lines.append(f"  ERROR Kalshi: {kalshi_detail or 'source failed during this run'}")
+    elif kalshi_status == "empty":
+        lines.append(f"  NORESULT Kalshi: {kalshi_detail or 'no compatible markets'}")
 
     # Web
     web_status = status_map.get("web", {}).get("status")
