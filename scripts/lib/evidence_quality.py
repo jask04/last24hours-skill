@@ -264,6 +264,16 @@ def esports_subdomain_of(text: str) -> str:
     return ""
 
 
+def inferred_esports_subdomain(text: str) -> str:
+    explicit = esports_subdomain_of(text)
+    if explicit:
+        return explicit
+    for subdomain in ("cs2", "valorant", "lol"):
+        if extract_esports_players(text, subdomain=subdomain):
+            return subdomain
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # eSports player-prop detection (v1.0.55 groundwork)
 #
@@ -396,12 +406,16 @@ def is_esports_prop_evidence(
     text_subdomain = esports_subdomain_of(raw)
     topic_players = extract_esports_players(topic, subdomain=topic_subdomain)
     text_players = extract_esports_players(raw, subdomain=topic_subdomain)
+    topic_has_stat = has_player_prop_stat_marker(topic)
+    text_has_stat = has_player_prop_stat_marker(raw)
 
     if lowered.lstrip().startswith("@"):
         return False
     if topic_subdomain and text_subdomain and text_subdomain != topic_subdomain:
         return False
     if topic_players and not (topic_players & text_players):
+        return False
+    if topic_has_stat and not text_has_stat:
         return False
     if strict_player_match and not text_players:
         return False

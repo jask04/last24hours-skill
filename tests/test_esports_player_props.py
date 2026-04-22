@@ -268,6 +268,70 @@ class ValorantAndLoLSurfacingTests(unittest.TestCase):
         forecasts = forecast.synthesize_forecasts(self.report)
         self.assertTrue(any("faker" in (f.title or "").lower() for f in forecasts))
 
+    def test_forecast_prefers_player_and_subdomain_compatible_prop(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "TenZ kills vs Sentinels tonight"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM5",
+                title="yay total kills > 17.5 - Map 1",
+                question="Will yay get more than 17.5 kills?",
+                url="https://polymarket.com/event/val-yay-kills",
+                market_type="esports_prop",
+                relevance=0.9,
+                outcome_prices=[("Yes", 0.58), ("No", 0.42)],
+                spread=0.01,
+                movement_24h=0.05,
+            ),
+            schema.PolymarketItem(
+                id="PM6",
+                title="TenZ total kills > 18.5 - Map 1",
+                question="Will TenZ get more than 18.5 kills during the VCT match?",
+                url="https://polymarket.com/event/val-tenz-kills",
+                market_type="esports_prop",
+                relevance=0.7,
+                outcome_prices=[("Yes", 0.55), ("No", 0.45)],
+                spread=0.01,
+                movement_24h=0.05,
+            ),
+        ]
+        for item in self.report.polymarket:
+            item.score = 100.0
+            item.volume = 5000
+            item.liquidity = 5000
+            item.open_interest = 5000
+
+        forecasts = forecast.synthesize_forecasts(self.report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertIn("tenz", forecasts[0].title.lower())
+
+    def test_forecast_rejects_cross_title_prop_anchor(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "TenZ kills vs Sentinels tonight"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM7",
+                title="Counter-Strike 2: donk total kills > 18.5 - Map 1",
+                question="Will donk get more than 18.5 kills?",
+                url="https://polymarket.com/event/cs2-donk-kills",
+                market_type="esports_prop",
+                relevance=0.95,
+                outcome_prices=[("Yes", 0.62), ("No", 0.38)],
+                spread=0.01,
+                movement_24h=0.08,
+            ),
+        ]
+        self.report.polymarket[0].score = 120.0
+        self.report.polymarket[0].volume = 8000
+        self.report.polymarket[0].liquidity = 8000
+        self.report.polymarket[0].open_interest = 8000
+
+        forecasts = forecast.synthesize_forecasts(self.report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
+
 
 if __name__ == "__main__":
     unittest.main()

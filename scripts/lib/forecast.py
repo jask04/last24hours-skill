@@ -788,7 +788,7 @@ def _is_sports_query(text: str) -> bool:
 
 
 def _is_esports_query(text: str) -> bool:
-    return eq.is_esports_query(text)
+    return eq.is_esports_query(text) or eq.is_esports_player_prop_query(text)
 
 
 def _is_esports_match_query(text: str) -> bool:
@@ -969,13 +969,17 @@ def _esports_candidate_score(
         "animgraph", "down", "downdetector", "hours", "funny", "free", "favorite", "thanks",
         "status", "reported", "players", "install", "download",
     }
+    prop_query = _is_esports_player_prop_query(title)
     if any(phrase in lowered for phrase in low_signal_phrases):
         return None
     if text.strip().startswith("@"):
         return None
     if tokens & low_signal_terms and not (tokens & {"patch", "update", "roster", "standin", "stand-in", "sub", "substitute", "veto", "map", "pool", "qualifier", "playoff", "playoffs", "bracket", "lan"}):
         return None
-    if not eq.is_esports_rationale_evidence(text, source_context, exact_match=exact_match, topic=title):
+    if prop_query:
+        if not eq.is_esports_prop_evidence(text, source_context, topic=title, strict_player_match=True):
+            return None
+    elif not eq.is_esports_rationale_evidence(text, source_context, exact_match=exact_match, topic=title):
         return None
     if eq.is_cs2_query(title) and not eq.is_cs2_market_text(context):
         return None
@@ -1390,12 +1394,82 @@ def _polymarket_match_score(topic: str, item: schema.PolymarketItem) -> tuple[in
     return signature_match, _month_match_score(topic, market_text), overlap, item.relevance
 
 
+def _esports_prop_stat_tokens(text: str) -> set[str]:
+    lowered = (text or "").lower()
+    tokens = _tokenize(lowered)
+    stats = set()
+    if "kill" in lowered:
+        stats.add("kills")
+    if "headshot" in lowered:
+        stats.add("headshots")
+    if "adr" in tokens:
+        stats.add("adr")
+    if "solo" in tokens:
+        stats.add("solo")
+    if "assist" in lowered:
+        stats.add("assists")
+    if "death" in lowered:
+        stats.add("deaths")
+    if "rating" in lowered:
+        stats.add("rating")
+    return stats
+
+
+def _esports_prop_market_compatible(topic: str, item: schema.PolymarketItem | schema.KalshiItem) -> bool:
+    item_text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    item_type = getattr(item, "market_type", "unknown")
+    if item_type not in {"esports_prop", "unknown"}:
+        return False
+    if item_type == "unknown" and not (eq.is_esports_query(item_text) and eq.has_player_prop_stat_marker(item_text)):
+        return False
+
+    topic_subdomain = eq.inferred_esports_subdomain(topic)
+    item_subdomain = eq.inferred_esports_subdomain(item_text)
+    if topic_subdomain and item_subdomain and topic_subdomain != item_subdomain:
+        return False
+
+    topic_players = eq.extract_esports_players(topic, subdomain=topic_subdomain)
+    item_players = eq.extract_esports_players(item_text, subdomain=topic_subdomain)
+    if topic_players and not (topic_players & item_players):
+        return False
+
+    topic_stats = _esports_prop_stat_tokens(topic)
+    item_stats = _esports_prop_stat_tokens(item_text)
+    if topic_stats and item_stats and not (topic_stats & item_stats):
+        return False
+    return True
+
+
+def _esports_prop_match_score(topic: str, item: schema.PolymarketItem | schema.KalshiItem) -> tuple[int, int, int, int, float]:
+    item_text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    topic_subdomain = eq.inferred_esports_subdomain(topic)
+    item_subdomain = eq.inferred_esports_subdomain(item_text)
+    topic_players = eq.extract_esports_players(topic, subdomain=topic_subdomain)
+    item_players = eq.extract_esports_players(item_text, subdomain=topic_subdomain)
+    topic_stats = _esports_prop_stat_tokens(topic)
+    item_stats = _esports_prop_stat_tokens(item_text)
+    topic_entities = eq.esports_entity_tokens(topic)
+    item_entities = eq.esports_entity_tokens(item_text)
+
+    player_match = int(bool(topic_players and (topic_players & item_players)))
+    stat_match = int(bool(topic_stats and item_stats and (topic_stats & item_stats)))
+    subdomain_match = int(bool(topic_subdomain and item_subdomain and topic_subdomain == item_subdomain))
+    entity_overlap = len(topic_entities & item_entities)
+    return player_match, stat_match, subdomain_match, entity_overlap, getattr(item, "relevance", 0.0)
+
+
 def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_target_date: Optional[str] = None, allow_esports_prop: bool = False) -> Optional[schema.PolymarketItem]:
     if not items:
         return None
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
+    if allow_esports_prop and _is_esports_player_prop_query(topic):
+        items = [item for item in items if _esports_prop_market_compatible(topic, item)]
+        if not items:
+            return None
+        ranked = sorted(items, key=lambda item: (_esports_prop_match_score(topic, item), item.score), reverse=True)
+        return ranked[0]
     topic_esports_subdomain = eq.esports_subdomain_of(topic)
     if _is_esports_match_query(topic) and topic_esports_subdomain:
         items = [
@@ -1431,6 +1505,12 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     items = [item for item in items if _threshold_market_compatible(topic, item)]
     if not items:
         return None
+    if allow_esports_prop and _is_esports_player_prop_query(topic):
+        items = [item for item in items if _esports_prop_market_compatible(topic, item)]
+        if not items:
+            return None
+        ranked = sorted(items, key=lambda item: (_esports_prop_match_score(topic, item), item.score), reverse=True)
+        return ranked[0]
     topic_esports_subdomain = eq.esports_subdomain_of(topic)
     if _is_esports_match_query(topic) and topic_esports_subdomain:
         items = [

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.60] - 2026-04-21
+
+### Added
+- `scripts/lib/forecast.py`: Added stricter eSports player-prop anchor matching so named CS2/Valorant/LoL prop prompts prefer compatible player+subdomain+stat markets instead of falling back on loose title overlap.
+- `scripts/last24hours.py`: Kalshi source health now stays `SKIP` on non-Kalshi eSports surfaces even if the background Kalshi search errors or times out.
+- `tests/test_esports_player_props.py` and `tests/test_reddit_bluesky_debug.py`: Added regressions for named prop compatibility, cross-title prop rejection, and eSports Kalshi `SKIP` footer behavior.
+
 ## [1.0.59] - 2026-04-21
 
 ### Added

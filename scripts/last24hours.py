@@ -570,17 +570,17 @@ def _populate_source_health(
         _bucket_source_health_status(report, "web", web_status)
 
     kalshi_relevant = True
-    if eq.is_esports_query(report.topic) and report.mode != "kalshi":
+    if (eq.is_esports_query(report.topic) or eq.is_esports_player_prop_query(report.topic)) and report.mode != "kalshi":
         kalshi_relevant = False
 
     kalshi_status = "used" if report.kalshi else "empty"
     kalshi_detail = ""
-    if report.kalshi_error:
-        kalshi_status = "degraded" if _is_degraded_source_error(report.kalshi_error) else "error"
-        kalshi_detail = report.kalshi_error or ""
-    elif not kalshi_relevant:
+    if not kalshi_relevant:
         kalshi_status = "skip"
         kalshi_detail = "Kalshi not used for this eSports surface."
+    elif report.kalshi_error:
+        kalshi_status = "degraded" if _is_degraded_source_error(report.kalshi_error) else "error"
+        kalshi_detail = report.kalshi_error or ""
     elif not report.kalshi and query_type == "prediction":
         kalshi_detail = "no compatible Kalshi contract found after topic/date compatibility filters"
     _set_source_health_status(report, "kalshi", kalshi_status, kalshi_detail)

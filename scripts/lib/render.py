@@ -172,7 +172,7 @@ def _matchup_signature(text: str) -> Optional[str]:
 
 def _prediction_domain(topic: str) -> Optional[str]:
     topic_lower = (topic or "").lower()
-    if eq.is_esports_query(topic_lower):
+    if eq.is_esports_query(topic_lower) or eq.is_esports_player_prop_query(topic_lower):
         return "esports"
     if _is_nba_slate_topic(topic) or _matchup_signature(topic):
         return "sports"
@@ -720,11 +720,12 @@ def _compact_sports_items(items: list, source: str, report: schema.Report, limit
 def _compact_esports_items(items: list, source: str, report: schema.Report, limit: int) -> list:
     if qt.detect_query_type(report.topic) == "market_watchlist":
         return []
-    if qt.detect_query_type(report.topic) != "prediction" or not eq.is_esports_query(report.topic):
+    if qt.detect_query_type(report.topic) != "prediction" or not (eq.is_esports_query(report.topic) or eq.is_esports_player_prop_query(report.topic)):
         return items[:limit]
 
     topic_lower = report.topic.lower()
     topic_subdomain = eq.esports_subdomain_of(report.topic)
+    prop_query = eq.is_esports_player_prop_query(report.topic)
     filtered = []
     for item in items:
         text = getattr(item, "text", "") or getattr(item, "title", "") or ""
@@ -739,7 +740,10 @@ def _compact_esports_items(items: list, source: str, report: schema.Report, limi
             continue
         if tokens & {"down", "downdetector", "funny", "install", "players", "hours", "reported"} and not (tokens & {"patch", "update", "roster", "standin", "stand-in", "sub", "substitute", "veto", "map", "pool", "qualifier", "playoff", "playoffs", "bracket", "lan"}):
             continue
-        if not eq.is_esports_rationale_evidence(text, context, exact_match=True, topic=report.topic):
+        if prop_query:
+            if not eq.is_esports_prop_evidence(text, context, topic=report.topic, strict_player_match=True):
+                continue
+        elif not eq.is_esports_rationale_evidence(text, context, exact_match=True, topic=report.topic):
             continue
         filtered.append(item)
     return filtered[:limit] if filtered else []
@@ -1639,7 +1643,9 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
 
     kalshi_status = status_map.get("kalshi", {}).get("status")
     kalshi_detail = status_map.get("kalshi", {}).get("detail", "")
-    if report.kalshi_error:
+    if kalshi_status == "skip":
+        lines.append(f"  SKIP Kalshi: {kalshi_detail or 'not used for this run'}")
+    elif report.kalshi_error:
         lines.append(f"  ERROR Kalshi: {report.kalshi_error}")
     elif report.kalshi:
         lines.append(f"  OK Kalshi: {len(report.kalshi)} markets")
@@ -1647,8 +1653,6 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
         lines.append(f"  DEGRADED Kalshi: {kalshi_detail or 'source degraded during this run'}")
     elif kalshi_status == "error":
         lines.append(f"  ERROR Kalshi: {kalshi_detail or 'source failed during this run'}")
-    elif kalshi_status == "skip":
-        lines.append(f"  SKIP Kalshi: {kalshi_detail or 'not used for this run'}")
     elif kalshi_status == "empty":
         lines.append(f"  NORESULT Kalshi: {kalshi_detail or 'no compatible markets'}")
 

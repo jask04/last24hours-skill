@@ -784,6 +784,45 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertNotIn("Animgraph 2", compact)
         self.assertNotIn("@nikitabier", compact)
 
+    def test_render_compact_esports_prop_degraded_suppresses_generic_player_name_noise(self):
+        report = _report("Faker solo kills tonight")
+        report.forecasts = [
+            schema.ForecastItem(
+                title="Faker solo kills tonight",
+                forecast_probability=0.53,
+                forecast_range_low=0.48,
+                forecast_range_high=0.58,
+                favorite_label="Yes",
+                anchor_source="model_implied",
+                market_view="No clean Polymarket or Kalshi market found.",
+                why_line="No clean market exists and no high-signal player-specific driver surfaced in the last 24 hours.",
+                confidence_level="low",
+                uncertainty="No clean market exists, so this is model-implied and should be treated cautiously.",
+                degraded_warning="DEGRADED RUN WARNING: no clean Polymarket/Kalshi market cleared anchoring, so this is a lower-confidence model-implied forecast.",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="solo faker de la xenofobia y el rey demonio de japon entero",
+                url="https://x.com/example/status/1",
+                author_handle="randomfan",
+                score=52,
+            ),
+            schema.XItem(
+                id="X2",
+                text="buenos dias solo a faker",
+                url="https://x.com/example/status/2",
+                author_handle="anotherfan",
+                score=40,
+            ),
+        ]
+
+        compact = render.render_compact(report)
+
+        self.assertIn("No high-signal X posts found for this esports forecast.", compact)
+        self.assertNotIn("buenos dias solo a faker", compact.lower())
+
     def test_broad_esports_watchlist_prefers_mixed_titles_over_only_stale_lol(self):
         report = _report("esports markets to watch today")
         report.polymarket = [
