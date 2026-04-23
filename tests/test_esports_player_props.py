@@ -87,17 +87,23 @@ class PlayerPropQueryClassifierTests(unittest.TestCase):
 class PolymarketEsportsQueryExpansionTests(unittest.TestCase):
     def test_named_valorant_prop_uses_domain_aware_queries(self):
         queries = polymarket._expand_queries("TenZ total kills tonight")
-        self.assertEqual(
-            queries,
-            ["tenz valorant kills", "tenz valorant", "tenz kills", "valorant kills"],
-        )
+        self.assertEqual(queries[:4], [
+            "tenz valorant kills",
+            "tenz valorant kills over",
+            "tenz valorant kills map 1",
+            "tenz valorant kills game 1",
+        ])
+        self.assertIn("tenz kills o/u", queries)
 
     def test_named_lol_prop_uses_domain_aware_queries(self):
         queries = polymarket._expand_queries("Faker solo kills tonight")
-        self.assertEqual(
-            queries,
-            ["faker league of legends solo kills", "faker league of legends", "faker solo kills", "league of legends solo kills"],
-        )
+        self.assertEqual(queries[:4], [
+            "faker league of legends solo kills",
+            "faker league of legends solo kills over",
+            "faker league of legends solo kills map 1",
+            "faker league of legends solo kills game 1",
+        ])
+        self.assertIn("faker solo kills o/u", queries)
 
     def test_generic_esports_prop_watchlist_keeps_broader_query_fanout(self):
         queries = polymarket._expand_queries("Counter-Strike 2 player props today")
@@ -392,6 +398,77 @@ class ValorantAndLoLSurfacingTests(unittest.TestCase):
         self.assertIn("2026-04-22", self.report.polymarket[1].url)
         self.assertIn("tenz", forecasts[0].title.lower())
         self.assertEqual(forecasts[0].anchor_source, "polymarket")
+
+    def test_forecast_matches_threshold_style_valorant_prop_phrasing(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "TenZ total kills tonight"
+        self.report.generated_at = "2026-04-22T18:00:00+00:00"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM9B",
+                title="TenZ kill line - Map 1",
+                question="Will TenZ record more than 17.5 kills on Map 1 in the VCT match?",
+                url="https://polymarket.com/event/val-tenz-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.74,
+                outcome_prices=[("Over", 0.53), ("Under", 0.47)],
+                spread=0.01,
+                movement_24h=0.02,
+                end_date="2026-04-22",
+            ),
+        ]
+        self.report.polymarket[0].score = 100.0
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+        self.assertIn("tenz", forecasts[0].title.lower())
+
+    def test_forecast_matches_lol_game1_prop_phrasing(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "Faker total kills tonight"
+        self.report.generated_at = "2026-04-22T18:00:00+00:00"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM9C",
+                title="Faker kill line - Game 1",
+                question="Will Faker record more than 4.5 kills in Game 1 tonight?",
+                url="https://polymarket.com/event/lol-faker-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.72,
+                outcome_prices=[("Over", 0.54), ("Under", 0.46)],
+                spread=0.01,
+                movement_24h=0.03,
+                end_date="2026-04-22",
+            ),
+        ]
+        self.report.polymarket[0].score = 100.0
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+        self.assertIn("faker", forecasts[0].title.lower())
+
+    def test_forecast_keeps_solo_kills_distinct_from_generic_kills(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "Faker solo kills tonight"
+        self.report.generated_at = "2026-04-22T18:00:00+00:00"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM9D",
+                title="Faker kill line - Game 1",
+                question="Will Faker record more than 4.5 kills in Game 1 tonight?",
+                url="https://polymarket.com/event/lol-faker-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.78,
+                outcome_prices=[("Over", 0.54), ("Under", 0.46)],
+                spread=0.01,
+                movement_24h=0.03,
+                end_date="2026-04-22",
+            ),
+        ]
+        self.report.polymarket[0].score = 120.0
+        forecasts = forecast.synthesize_forecasts(self.report)
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "model_implied")
 
     def test_named_valorant_match_prefers_compatible_game_outcome_anchor(self):
         from scripts.lib import schema, forecast

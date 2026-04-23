@@ -627,6 +627,77 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(entry["reason_class"], "wrong_subdomain")
         self.assertIn("wrong_subdomain", " ".join(entry["warnings"]))
 
+    def test_cmd_daily_dry_run_reports_named_prop_reason_classes(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "TenZ total kills tonight", "enabled": True},
+            {"topic": "Faker total kills tonight", "enabled": True},
+            {"topic": "Faker solo kills tonight", "enabled": True},
+        ]), encoding="utf-8")
+        reports = {
+            "TenZ total kills tonight": {
+                "topic": "TenZ total kills tonight",
+                "query_type": "prediction",
+                "generated_at": "2026-04-22T18:00:00+00:00",
+                "forecasts": [{"title": "TenZ total kills tonight", "forecast_probability": 0.52, "anchor_source": "model_implied"}],
+                "market_watchlist": [],
+                "polymarket": [
+                    {
+                        "title": "yay total kills > 17.5 - Map 1",
+                        "question": "Will yay get more than 17.5 kills tonight?",
+                        "url": "https://polymarket.com/event/val-yay-kills-2026-04-22",
+                        "market_type": "esports_prop",
+                        "end_date": "2026-04-22",
+                    }
+                ],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+            },
+            "Faker total kills tonight": {
+                "topic": "Faker total kills tonight",
+                "query_type": "prediction",
+                "generated_at": "2026-04-22T18:00:00+00:00",
+                "forecasts": [{"title": "Faker total kills tonight", "forecast_probability": 0.51, "anchor_source": "model_implied"}],
+                "market_watchlist": [],
+                "polymarket": [
+                    {
+                        "title": "Faker kill line - Game 1",
+                        "question": "Will Faker record more than 4.5 kills on 2026-04-24?",
+                        "url": "https://polymarket.com/event/lol-faker-kill-line-2026-04-24",
+                        "market_type": "esports_prop",
+                        "end_date": "2026-04-24",
+                    }
+                ],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+            },
+            "Faker solo kills tonight": {
+                "topic": "Faker solo kills tonight",
+                "query_type": "prediction",
+                "generated_at": "2026-04-22T18:00:00+00:00",
+                "forecasts": [{"title": "Faker solo kills tonight", "forecast_probability": 0.5, "anchor_source": "model_implied"}],
+                "market_watchlist": [],
+                "polymarket": [
+                    {
+                        "title": "Faker kill line - Game 1",
+                        "question": "Will Faker record more than 4.5 kills tonight?",
+                        "url": "https://polymarket.com/event/lol-faker-kill-line-2026-04-22",
+                        "market_type": "esports_prop",
+                        "end_date": "2026-04-22",
+                    }
+                ],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+            },
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", side_effect=lambda topic, quick, extra_args=None, timeout_seconds=None: reports[topic]), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        by_topic = {entry["topic"]: entry for entry in payload["results"]}
+        self.assertEqual(by_topic["TenZ total kills tonight"]["degraded_reason_class"], "no_matching_player_market")
+        self.assertEqual(by_topic["Faker total kills tonight"]["degraded_reason_class"], "no_same_day_prop_market")
+        self.assertEqual(by_topic["Faker solo kills tonight"]["degraded_reason_class"], "wrong_stat_family")
+
     def test_cmd_daily_dry_run_reports_wrong_domain_and_market_type_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
@@ -1631,6 +1702,35 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(flagged["by_reason"]["prop_contract_mismatch"], 1)
         self.assertEqual(flagged["rows"][0]["id"], 85)
         self.assertIn("audit-only samples", " ".join(diagnostics["warnings"]))
+
+    def test_open_pick_diagnostics_exposes_named_prop_slice(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "id": 86,
+                "status": "unknown",
+                "topic": "TenZ total kills tonight",
+                "title": "TenZ total kills tonight",
+                "question": "TenZ total kills tonight",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "market_type": "model_implied",
+                "model_probability": 0.52,
+                "resolution_source": "",
+                "skill_version": "1.0.74",
+                "market_url": "",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "valorant", "degraded_reason_class": "no_matching_player_market"}),
+                "evidence_json": json.dumps({}),
+            }
+        ])
+
+        named_prop = diagnostics["esports_named_prop_slice"]
+        self.assertEqual(named_prop["count"], 1)
+        self.assertEqual(named_prop["by_subdomain"]["valorant"], 1)
+        self.assertEqual(named_prop["by_market_type"]["model_implied"], 1)
+        self.assertEqual(named_prop["by_anchor_source"]["model_implied"], 1)
+        self.assertEqual(named_prop["by_degraded_reason_class"]["no_matching_player_market"], 1)
+        self.assertEqual(named_prop["rows"][0]["subdomain"], "valorant")
 
 
 class LaunchdTests(unittest.TestCase):

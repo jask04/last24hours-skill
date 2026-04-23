@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.74] - 2026-04-23
+
+### Changed
+- `scripts/lib/polymarket.py` and `scripts/lib/forecast.py`: Named Valorant and LoL prop prompts now search more like real threshold-style market titles (`over`, `map 1`, `game 1`, `o/u`) and keep `solo kills` distinct from generic `kills` so same-player props can anchor without reopening bad stat-family matches.
+- `scripts/paper.py`: Named eSports prop model-implied rows now record and report prop-specific degraded reason classes such as `no_matching_player_market`, `wrong_stat_family`, and `no_same_day_prop_market`, while preserving the existing paper-only storage contract.
+- `tests/test_esports_player_props.py` and `tests/test_paper_ledger.py`: Added regressions for named prop query shaping, threshold-style prop anchor recovery, `solo kills` mismatch rejection, dry-run degraded reason classes, and the new named-prop diagnostics slice in `paper.py report`.
+
 ## [1.0.73] - 2026-04-23
 
 ### Changed

@@ -152,6 +152,129 @@ def _watchlist_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
     return ""
 
 
+def _esports_prop_target_date(topic: str, created_at: Optional[str] = None) -> Optional[str]:
+    lowered = (topic or "").lower()
+    if "today" not in lowered and "tonight" not in lowered:
+        return None
+    return _target_date_for_topic(topic, created_at).isoformat()
+
+
+def _esports_prop_stat_markers(text: str) -> set[str]:
+    lowered = (text or "").lower()
+    stats: set[str] = set()
+    if "solo kill" in lowered:
+        stats.add("solo_kills")
+    if any(phrase in lowered for phrase in ("kill", "kills", "kill line", "kills o/u", "kill o/u", "over", "under", "more than", "less than")):
+        stats.add("kills")
+    if "headshot" in lowered:
+        stats.add("headshots")
+    if "adr" in lowered:
+        stats.add("adr")
+    if "assist" in lowered:
+        stats.add("assists")
+    if "death" in lowered:
+        stats.add("deaths")
+    if "rating" in lowered:
+        stats.add("rating")
+    return stats
+
+
+def _esports_prop_market_rows(report: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for bucket in ("polymarket", "kalshi"):
+        for item in report.get(bucket) or []:
+            market_text = " ".join(
+                str(part or "")
+                for part in (
+                    item.get("title", ""),
+                    item.get("question", ""),
+                    item.get("url", ""),
+                    item.get("ticker", ""),
+                    item.get("event_ticker", ""),
+                )
+            )
+            market_type = str(item.get("market_type") or "")
+            if market_type == "esports_prop" or (market_type == "unknown" and eq.is_esports_query(market_text) and eq.has_player_prop_stat_marker(market_text)):
+                rows.append(item)
+    return rows
+
+
+def _item_day_matches_target(item: Dict[str, Any], target_date: Optional[str]) -> bool:
+    if not target_date:
+        return True
+    for field in ("end_date", "end_datetime"):
+        value = item.get(field)
+        if not value:
+            continue
+        try:
+            return str(value)[:10] == target_date
+        except Exception:
+            continue
+    market_text = " ".join(
+        str(part or "")
+        for part in (
+            item.get("title", ""),
+            item.get("question", ""),
+            item.get("url", ""),
+            item.get("ticker", ""),
+            item.get("event_ticker", ""),
+        )
+    )
+    refs = set(re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", market_text))
+    return not refs or target_date in refs
+
+
+def _named_esports_prop_reason_class_for_report(topic: str, report: Dict[str, Any]) -> str:
+    if not eq.is_esports_player_prop_query(topic):
+        return ""
+    forecasts = report.get("forecasts") or []
+    if not forecasts or not any(str(item.get("anchor_source") or "") == "model_implied" for item in forecasts):
+        return ""
+    topic_subdomain = eq.inferred_esports_subdomain(topic)
+    topic_players = eq.extract_esports_players(topic, subdomain=topic_subdomain)
+    topic_stats = _esports_prop_stat_markers(topic)
+    target_date = _esports_prop_target_date(topic, report.get("generated_at"))
+    rows = _esports_prop_market_rows(report)
+    if not rows:
+        return "degraded_model_implied_only"
+
+    player_rows = []
+    for item in rows:
+        market_text = " ".join(
+            str(part or "")
+            for part in (
+                item.get("title", ""),
+                item.get("question", ""),
+                item.get("url", ""),
+            )
+        )
+        item_subdomain = eq.inferred_esports_subdomain(market_text)
+        item_players = eq.extract_esports_players(market_text, subdomain=topic_subdomain)
+        item_stats = _esports_prop_stat_markers(market_text)
+        if topic_players and topic_players & item_players:
+            player_rows.append((item, market_text, item_subdomain, item_stats))
+
+    if not player_rows:
+        return "no_matching_player_market"
+
+    subdomain_rows = [row for row in player_rows if not (topic_subdomain and row[2] and row[2] != topic_subdomain)]
+    if not subdomain_rows:
+        return "wrong_subdomain_market"
+
+    if "solo_kills" in topic_stats:
+        stat_rows = [row for row in subdomain_rows if row[3] == {"solo_kills", "kills"} or row[3] == {"solo_kills"}]
+    elif any("solo_kills" in row[3] for row in subdomain_rows):
+        stat_rows = [row for row in subdomain_rows if "solo_kills" not in row[3] and not (topic_stats and row[3] and not (topic_stats & row[3]))]
+    else:
+        stat_rows = [row for row in subdomain_rows if not (topic_stats and row[3] and not (topic_stats & row[3]))]
+    if not stat_rows:
+        return "wrong_stat_family"
+
+    if target_date and not any(_item_day_matches_target(row[0], target_date) for row in stat_rows):
+        return "no_same_day_prop_market"
+    return "degraded_model_implied_only"
+
+
 def _closing_soon_supported_market_type(item: Dict[str, Any]) -> bool:
     return str(item.get("market_type") or "") in {"crypto_daily", "threshold", "weather_binary", "game_outcome"}
 
@@ -608,6 +731,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     poly_by_id = _market_map(report.get("polymarket", []))
     kalshi_by_id = _market_map(report.get("kalshi", []))
     skill_version = _skill_version()
+    esports_prop_reason_class = _named_esports_prop_reason_class_for_report(topic, report)
     picks: List[Dict[str, Any]] = []
 
     for forecast in report.get("forecasts", []):
@@ -686,6 +810,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "domain": _domain(topic),
                 "subdomain": _subdomain(topic),
                 "paper_only": True,
+                "degraded_reason_class": esports_prop_reason_class if venue == "model_implied" and eq.is_esports_player_prop_query(topic) else "",
             }, sort_keys=True),
             "skill_version": skill_version,
         })
@@ -1591,6 +1716,9 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
     if _is_degraded_report(report):
         return "degraded_evidence_only"
     topic = str(entry.get("topic") or "")
+    prop_reason = _named_esports_prop_reason_class_for_report(topic, report)
+    if prop_reason:
+        return prop_reason
     if str(entry.get("pick_policy") or "").strip().lower() == "bundle_only":
         reason = _bundle_reason_class_for_report(report)
         if reason:
@@ -1651,6 +1779,15 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
     result["warnings"].extend(_validate_expected_pick_types(entry, picks))
     if picks:
         result["warnings"].extend(pick_quality_warnings(picks))
+        if eq.is_esports_player_prop_query(entry["topic"]) and all(
+            str(pick.get("anchor_source") or "") == "model_implied" for pick in picks
+        ):
+            degraded_reason = _named_esports_prop_reason_class_for_report(entry["topic"], report)
+            if degraded_reason:
+                result["degraded_reason_class"] = degraded_reason
+                result["warnings"].append(
+                    f"{entry['topic']}: anchored paper pick is still model-implied because no compatible eSports prop market survived ({degraded_reason})."
+                )
     duplicate_skip = any("skipped duplicate" in warning for warning in result["warnings"])
     if not picks and duplicate_skip:
         result["status"] = "duplicate_skip"
@@ -1700,6 +1837,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     esports_rows: List[Dict[str, Any]] = []
     esports_flagged_rows: List[Dict[str, Any]] = []
     esports_flagged_by_reason: Dict[str, int] = {}
+    esports_prop_rows: List[Dict[str, Any]] = []
+    esports_prop_degraded_by_reason: Dict[str, int] = {}
     now = datetime.now()
     for pick in open_picks:
         is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
@@ -1781,6 +1920,14 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "status": str(pick.get("status") or ""),
             }
             esports_rows.append(esports_row)
+            if eq.is_esports_player_prop_query(str(pick.get("topic") or "")):
+                degraded_reason = str(_safe_json_loads(pick.get("notes_json")).get("degraded_reason_class") or "")
+                prop_row = dict(esports_row)
+                prop_row["anchor_source"] = str(pick.get("anchor_source") or "")
+                prop_row["degraded_reason_class"] = degraded_reason
+                esports_prop_rows.append(prop_row)
+                if degraded_reason:
+                    esports_prop_degraded_by_reason[degraded_reason] = esports_prop_degraded_by_reason.get(degraded_reason, 0) + 1
             warning_reasons = _esports_open_warning_reasons(pick)
             if warning_reasons:
                 flagged_row = dict(esports_row)
@@ -1905,6 +2052,24 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "by_reason": dict(sorted(esports_flagged_by_reason.items())),
             "rows": esports_flagged_rows[:8],
             "empty_reason": "" if esports_flagged_rows else "No open esports audit-warning rows right now.",
+        },
+        "esports_named_prop_slice": {
+            "count": len(esports_prop_rows),
+            "by_subdomain": {
+                key: sum(1 for row in esports_prop_rows if row.get("subdomain") == key)
+                for key in sorted({str(row.get("subdomain") or "") for row in esports_prop_rows if row.get("subdomain")})
+            },
+            "by_market_type": {
+                key: sum(1 for row in esports_prop_rows if row.get("market_type") == key)
+                for key in sorted({str(row.get("market_type") or "") for row in esports_prop_rows if row.get("market_type")})
+            },
+            "by_anchor_source": {
+                key: sum(1 for row in esports_prop_rows if row.get("anchor_source") == key)
+                for key in sorted({str(row.get("anchor_source") or "") for row in esports_prop_rows if row.get("anchor_source")})
+            },
+            "by_degraded_reason_class": dict(sorted(esports_prop_degraded_by_reason.items())),
+            "rows": esports_prop_rows[:8],
+            "empty_reason": "" if esports_prop_rows else "No open named eSports prop rows right now.",
         },
         "warnings": warnings,
     }

@@ -1398,14 +1398,14 @@ def _esports_prop_stat_tokens(text: str) -> set[str]:
     lowered = (text or "").lower()
     tokens = _tokenize(lowered)
     stats = set()
-    if "kill" in lowered:
+    if any(phrase in lowered for phrase in ("solo kill", "solo kills")):
+        stats.add("solo_kills")
+    if any(phrase in lowered for phrase in ("kill", "kills", "kill line", "kills o/u", "kill o/u", "over", "under", "more than", "less than")):
         stats.add("kills")
     if "headshot" in lowered:
         stats.add("headshots")
     if "adr" in tokens:
         stats.add("adr")
-    if "solo" in tokens:
-        stats.add("solo")
     if "assist" in lowered:
         stats.add("assists")
     if "death" in lowered:
@@ -1500,6 +1500,8 @@ def _esports_prop_market_compatible(
 
     topic_stats = _esports_prop_stat_tokens(topic)
     item_stats = _esports_prop_stat_tokens(item_text)
+    if "solo_kills" in topic_stats or "solo_kills" in item_stats:
+        return topic_stats == item_stats
     if topic_stats and item_stats and not (topic_stats & item_stats):
         return False
     return True

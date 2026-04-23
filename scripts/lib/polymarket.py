@@ -168,10 +168,12 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
     queries = []
     if domain_label and stat:
         queries.append(f"{player} {domain_label} {stat}")
-    if domain_label:
-        queries.append(f"{player} {domain_label}")
+        queries.append(f"{player} {domain_label} {stat} over")
+        queries.append(f"{player} {domain_label} {stat} map 1")
+        queries.append(f"{player} {domain_label} {stat} game 1")
     if stat:
         queries.append(f"{player} {stat}")
+        queries.append(f"{player} {stat} o/u")
     if domain_label and stat:
         queries.append(f"{domain_label} {stat}")
 
@@ -183,7 +185,7 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         if cleaned and key not in seen:
             seen.add(key)
             unique.append(cleaned)
-    return unique[:4]
+    return unique[:6]
 
 
 def _expand_queries(topic: str) -> List[str]:
