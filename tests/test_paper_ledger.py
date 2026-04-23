@@ -1459,6 +1459,34 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["esports_open_slice"]["missing_subdomain_count"], 0)
         self.assertEqual(diagnostics["esports_open_slice"]["rows"][0]["subdomain"], "cs2")
 
+    def test_open_pick_diagnostics_flags_legacy_degraded_esports_rows(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "id": 85,
+                "status": "open",
+                "topic": "donk total kills markets to watch today",
+                "title": "NBA Playoffs: Rockets vs. Lakers Total Games O/U 5.5",
+                "question": "NBA Playoffs: Rockets vs. Lakers Total Games O/U 5.5",
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "market_type": "player_prop",
+                "model_probability": 0.82,
+                "resolution_source": "polymarket",
+                "skill_version": "1.0.62",
+                "market_url": "https://polymarket.com/event/nba-playoffs-rockets-vs-lakers-total-games-ou-5pt5",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "cs2"}),
+                "evidence_json": json.dumps({}),
+            }
+        ])
+
+        flagged = diagnostics["esports_legacy_degraded_slice"]
+        self.assertEqual(flagged["count"], 1)
+        self.assertEqual(flagged["by_reason"]["non_esports_market"], 1)
+        self.assertEqual(flagged["by_reason"]["unsupported_subdomain_label"], 1)
+        self.assertEqual(flagged["by_reason"]["prop_contract_mismatch"], 1)
+        self.assertEqual(flagged["rows"][0]["id"], 85)
+        self.assertIn("audit-only samples", " ".join(diagnostics["warnings"]))
+
 
 class LaunchdTests(unittest.TestCase):
     def test_launchd_plist_contains_expected_daily_runner(self):

@@ -489,6 +489,41 @@ def _pick_subdomain(pick: Dict[str, Any]) -> str:
     return _subdomain(str(pick.get("topic") or ""))
 
 
+def _esports_market_text(pick: Dict[str, Any]) -> str:
+    return " ".join(
+        str(part or "")
+        for part in (
+            pick.get("title", ""),
+            pick.get("question", ""),
+            pick.get("market_url", ""),
+            pick.get("venue_market_key", ""),
+        )
+    ).strip()
+
+
+def _esports_open_warning_reasons(pick: Dict[str, Any]) -> List[str]:
+    if _domain(str(pick.get("topic") or "")) != "esports":
+        return []
+    reasons: List[str] = []
+    market_text = _esports_market_text(pick)
+    stored_subdomain = _pick_subdomain(pick)
+    inferred_subdomain = eq.inferred_esports_subdomain(market_text)
+    market_type = str(pick.get("market_type") or "").strip().lower()
+    if not eq.is_esports_query(market_text):
+        reasons.append("non_esports_market")
+    if stored_subdomain and not inferred_subdomain:
+        reasons.append("unsupported_subdomain_label")
+    elif stored_subdomain and inferred_subdomain and stored_subdomain != inferred_subdomain:
+        reasons.append("subdomain_mismatch")
+    if market_type in {"player_prop", "esports_prop"} and not eq.is_esports_player_prop_query(market_text):
+        reasons.append("prop_contract_mismatch")
+    if market_type == "model_implied":
+        reasons.append("model_implied_open")
+    if not stored_subdomain:
+        reasons.append("missing_subdomain")
+    return reasons
+
+
 def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract paper picks from a last24hours JSON report."""
     topic = report.get("topic", "")
@@ -1485,6 +1520,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     legacy_noisy_examples: List[Dict[str, Any]] = []
     source_health_status_rollup: Dict[str, Dict[str, int]] = {}
     esports_rows: List[Dict[str, Any]] = []
+    esports_flagged_rows: List[Dict[str, Any]] = []
+    esports_flagged_by_reason: Dict[str, int] = {}
     now = datetime.now()
     for pick in open_picks:
         is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
@@ -1511,15 +1548,6 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         subdomain = _pick_subdomain(pick)
         if subdomain:
             by_subdomain[subdomain] = by_subdomain.get(subdomain, 0) + 1
-        if domain == "esports":
-            esports_rows.append({
-                "id": pick.get("id"),
-                "title": pick.get("title") or pick.get("topic") or "",
-                "subdomain": subdomain,
-                "pick_type": pick_type,
-                "market_type": str(pick.get("market_type") or ""),
-                "status": pick.get("status"),
-            })
         watchlist_scope = _pick_watchlist_scope(pick)
         if watchlist_scope:
             by_watchlist_scope[watchlist_scope] = by_watchlist_scope.get(watchlist_scope, 0) + 1
@@ -1565,6 +1593,23 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         )
         if not is_paper_bundle and (pick.get("status") == "unknown" or not has_auto_resolver):
             manual_only += 1
+        if domain == "esports":
+            esports_row = {
+                "id": pick.get("id"),
+                "title": str(pick.get("title") or pick.get("question") or pick.get("topic") or ""),
+                "subdomain": subdomain,
+                "pick_type": pick_type,
+                "market_type": str(pick.get("market_type") or ""),
+                "status": str(pick.get("status") or ""),
+            }
+            esports_rows.append(esports_row)
+            warning_reasons = _esports_open_warning_reasons(pick)
+            if warning_reasons:
+                flagged_row = dict(esports_row)
+                flagged_row["warning_reasons"] = warning_reasons
+                esports_flagged_rows.append(flagged_row)
+                for reason in warning_reasons:
+                    esports_flagged_by_reason[reason] = esports_flagged_by_reason.get(reason, 0) + 1
     duplicate_market_key_count = sum(1 for count in duplicate_keys.values() if count > 1)
     duplicate_row_count = sum(count - 1 for count in duplicate_keys.values() if count > 1)
     duplicate_clusters = {key: count for key, count in sorted(duplicate_keys.items()) if count > 1}
@@ -1620,6 +1665,10 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     if legacy_noisy_by_reason:
         top_reason = max(sorted(legacy_noisy_by_reason.items()), key=lambda row: row[1])[0]
         warnings.append(f"Top legacy rationale failure mode: {top_reason.replace('_', ' ')}.")
+    if esports_flagged_rows:
+        warnings.append(
+            f"{len(esports_flagged_rows)} open esports row(s) have domain/subdomain/type mismatches or degraded labels and should be treated as audit-only samples."
+        )
     if duplicate_market_key_count:
         warnings.append(
             f"{duplicate_row_count} open paper rows overlap with an already-open market key across {duplicate_market_key_count} repeated market key(s); broader sampling should avoid redundant duplicates."
@@ -1672,6 +1721,12 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "rows_missing_subdomain": [row for row in esports_rows if not row.get("subdomain")][:5],
             "rows": esports_rows[:8],
             "empty_reason": "" if esports_rows else "No open esports paper rows right now.",
+        },
+        "esports_legacy_degraded_slice": {
+            "count": len(esports_flagged_rows),
+            "by_reason": dict(sorted(esports_flagged_by_reason.items())),
+            "rows": esports_flagged_rows[:8],
+            "empty_reason": "" if esports_flagged_rows else "No open esports audit-warning rows right now.",
         },
         "warnings": warnings,
     }

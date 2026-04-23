@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.68] - 2026-04-22
+
+### Changed
+- `scripts/paper.py`: Added an explicit open-row eSports audit slice that flags legacy and degraded rows whose stored market text conflicts with their topic domain, subdomain label, or prop contract type.
+- `scripts/paper.py`: Open-portfolio warnings now call out these mismatched eSports rows as audit-only samples so historical contamination is harder to misread as live-ready calibration data.
+- `tests/test_paper_ledger.py`: Added regression coverage for legacy contaminated eSports rows such as the stored `cs2`/`player_prop` row that actually contains an NBA totals market.
+
 ## [1.0.67] - 2026-04-22
 
 ### Changed
