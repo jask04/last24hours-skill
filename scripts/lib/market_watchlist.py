@@ -322,6 +322,25 @@ def _watchlist_exact_date_match(item, target_date: Optional[str]) -> bool:
     return target_date in refs
 
 
+def _watchlist_end_day_compatible(item, target_date: Optional[str], *, slack_days: int = 1) -> bool:
+    if not target_date:
+        return True
+    try:
+        target = date.fromisoformat(target_date)
+    except ValueError:
+        return True
+    for value in (getattr(item, "end_date", None), getattr(item, "end_datetime", None)):
+        if not value:
+            continue
+        try:
+            item_day = date.fromisoformat(str(value)[:10])
+        except ValueError:
+            continue
+        day_delta = (item_day - target).days
+        return 0 <= day_delta <= max(0, slack_days)
+    return True
+
+
 def _watchlist_scope(report: schema.Report, item, market_type: str) -> str:
     text = _market_text(item).lower()
     if _is_nba_watchlist_topic(report.topic):
@@ -971,15 +990,14 @@ def _is_direct_espn_game_market(report: schema.Report, item, market_type: str) -
 
 
 def _esports_same_day_match_exists(other_items: list, report: schema.Report) -> bool:
-    base_date = _report_base_date(report)
+    target_date = _watchlist_target_date(report)
     for other in other_items:
         other_type = _candidate_market_type(other)
         if other_type != "game_outcome":
             continue
         if not eq.is_esports_query(_market_text(other)):
             continue
-        days_to_end = _days_to_end(getattr(other, "end_date", None), reference_date=base_date)
-        if days_to_end is not None and days_to_end <= 1:
+        if _watchlist_end_day_compatible(other, target_date, slack_days=1):
             return True
     return False
 
@@ -1123,9 +1141,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     if domain == "esports" and market_type == "game_outcome" and not _watchlist_date_compatible(item, target_date):
         return None
     if domain == "esports" and "today" in (report.topic or "").lower():
-        if market_type == "game_outcome" and not _watchlist_exact_date_match(item, target_date):
+        if market_type == "game_outcome" and not _watchlist_end_day_compatible(item, target_date, slack_days=1):
             return None
-        if market_type == "esports_prop" and not _watchlist_date_compatible(item, target_date):
+        if market_type == "esports_prop" and not _watchlist_end_day_compatible(item, target_date, slack_days=1):
             return None
 
     if _item_effectively_settled(item):

@@ -900,6 +900,51 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertLessEqual(sum(1 for item in items if item.title.startswith("LoL:")), 1, titles)
         self.assertFalse(any("2026-04-24" in (item.url or "") for item in items), titles)
 
+    def test_broad_esports_watchlist_drops_rows_more_than_one_day_past_today_window(self):
+        report = _report("esports markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="LoL: Hanwha Life Esports Challengers vs Dplus KIA Challengers (BO3) - LCK Challengers League Rounds 1-2",
+                question="LoL: Hanwha Life Esports Challengers vs Dplus KIA Challengers (BO3) - LCK Challengers League Rounds 1-2",
+                url="https://polymarket.com/event/lol-hle-dkc-2026-04-22",
+                outcome_prices=[("Hanwha Life Esports Challengers", 0.34), ("Dplus KIA Challengers", 0.66)],
+                engagement=_engagement(volume=121_000, liquidity=146_000),
+                market_signal_quality=0.86,
+                volume_24h=121_000,
+                best_bid=0.34,
+                best_ask=0.35,
+                spread=0.01,
+                movement_24h=-12.5,
+                relevance=0.91,
+                score=82,
+                end_date="2026-04-22",
+            ),
+            schema.PolymarketItem(
+                id="PM2",
+                title="Valorant: 9z Team vs Melser Kindergarten (BO3) - VCL Latin America South: ACE Masters Group A",
+                question="Valorant: 9z Team vs Melser Kindergarten (BO3) - VCL Latin America South: ACE Masters Group A",
+                url="https://polymarket.com/event/val-9z-mk-2026-04-24",
+                outcome_prices=[("9z Team", 0.34), ("Melser Kindergarten", 0.66)],
+                engagement=_engagement(volume=6_000, liquidity=3_000),
+                market_signal_quality=0.56,
+                volume_24h=6_000,
+                best_bid=0.31,
+                best_ask=0.36,
+                spread=0.05,
+                movement_24h=0.0,
+                relevance=0.88,
+                score=54,
+                end_date="2026-04-24",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("LoL:", items[0].title)
+        self.assertNotIn("2026-04-24", items[0].url or "")
+
     def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
         report = _report("esports markets to watch today")
         report.polymarket = [
@@ -981,6 +1026,33 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertIn("donk", items[0].title.lower())
         self.assertEqual(items[0].market_type, "esports_prop")
+
+    def test_cs2_watchlist_still_rejects_prop_only_board_for_generic_prompt(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike 2: donk total kills > 18.5 - Map 1",
+                question="Will donk get more than 18.5 kills?",
+                url="https://polymarket.com/event/cs2-donk-kills-2026-04-22",
+                outcome_prices=[("Yes", 0.56), ("No", 0.44)],
+                engagement=_engagement(volume=12_000, liquidity=8_000),
+                market_signal_quality=0.52,
+                volume_24h=12_000,
+                best_bid=0.55,
+                best_ask=0.57,
+                spread=0.02,
+                movement_24h=2.0,
+                relevance=0.82,
+                score=54,
+                market_type="esports_prop",
+                end_date="2026-04-22",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items, [])
 
     def test_esports_prop_empty_state_is_precise(self):
         report = _report("CS2 player-prop markets to watch today")

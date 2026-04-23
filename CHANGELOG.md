@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.67] - 2026-04-22
+
+### Changed
+- `scripts/lib/market_watchlist.py`: Same-day eSports watchlists now keep a tighter end-date window so later-date rows do not crowd the board just because they happen to be high-signal elsewhere in the week.
+- `scripts/lib/market_watchlist.py`: Broad eSports boards still fail closed on wrong-domain rows, but they now preserve thin market-signal-driven same-day boards without requiring fragile social evidence to survive first.
+- `tests/test_forecast_watchlist.py`: Added regressions for later-date eSports row suppression while keeping generic CS2 watchlists direct-match-only unless the prompt explicitly asks for props.
+
 ## [1.0.66] - 2026-04-22
 
 ### Changed

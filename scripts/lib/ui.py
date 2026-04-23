@@ -462,7 +462,7 @@ def show_diagnostic_banner(diag: dict):
 
     if IS_TTY:
         lines.append(f"{Colors.DIM}┌─────────────────────────────────────────────────────┐{Colors.RESET}")
-        lines.append(f"{Colors.DIM}│{Colors.RESET} {Colors.BOLD}/last24hours v1.0.66 — Source Status{Colors.RESET}                    {Colors.DIM}│{Colors.RESET}")
+        lines.append(f"{Colors.DIM}│{Colors.RESET} {Colors.BOLD}/last24hours v1.0.67 — Source Status{Colors.RESET}                    {Colors.DIM}│{Colors.RESET}")
         lines.append(f"{Colors.DIM}│{Colors.RESET}                                                     {Colors.DIM}│{Colors.RESET}")
 
         # Reddit
@@ -513,7 +513,7 @@ def show_diagnostic_banner(diag: dict):
     else:
         # Plain text for non-TTY (Claude Code / Codex)
         lines.append("┌─────────────────────────────────────────────────────┐")
-        lines.append("│ /last24hours v1.0.66 — Source Status                    │")
+        lines.append("│ /last24hours v1.0.67 — Source Status                    │")
         lines.append("│                                                     │")
 
         if has_openai:
