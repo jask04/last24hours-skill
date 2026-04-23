@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.69] - 2026-04-22
+
+### Changed
+- `scripts/lib/forecast.py`: Tightened eSports anchor matching so named CS2 / Valorant / LoL prompts now rank compatible same-day `game_outcome` and `esports_prop` markets by subdomain, entity overlap, market semantics, and end-date compatibility before falling back to model-implied output.
+- `scripts/lib/forecast.py`: Generic same-day eSports match prompts now use the stronger compatibility path too, which preserves thin direct-match boards without reopening prop/title fallback leakage.
+- `tests/test_esports_player_props.py` and `tests/test_forecast_watchlist.py`: Added regressions for same-day eSports prop preference, named-match anchor selection, and hard rejection of prop-only or match-only fallback on the wrong prompt type.
+
 ## [1.0.68] - 2026-04-22
 
 ### Changed

@@ -1415,12 +1415,77 @@ def _esports_prop_stat_tokens(text: str) -> set[str]:
     return stats
 
 
-def _esports_prop_market_compatible(topic: str, item: schema.PolymarketItem | schema.KalshiItem) -> bool:
+def _esports_match_signature(text: str) -> Optional[str]:
+    sides = _esports_matchup_side_tokens(text)
+    if len(sides) != 2:
+        return None
+    normalized = [" ".join(sorted(side)) for side in sides]
+    normalized.sort()
+    return " | ".join(normalized)
+
+
+def _esports_match_market_compatible(
+    topic: str,
+    item: schema.PolymarketItem | schema.KalshiItem,
+    sports_target_date: Optional[str] = None,
+) -> bool:
+    item_text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    if not _is_direct_game_market(item):
+        return False
+    if not _is_esports_market_item(item):
+        return False
+    if not _sports_market_date_compatible(item, sports_target_date):
+        return False
+
+    topic_subdomain = eq.esports_subdomain_of(topic)
+    item_subdomain = eq.esports_subdomain_of(item_text)
+    if topic_subdomain and item_subdomain and topic_subdomain != item_subdomain:
+        return False
+
+    topic_signature = _esports_match_signature(topic)
+    if not topic_signature:
+        return True
+    item_signature = _item_matchup_signature(item) or _esports_match_signature(item_text)
+    if item_signature and item_signature == topic_signature:
+        return True
+
+    topic_entities = eq.esports_entity_tokens(topic)
+    item_entities = eq.esports_entity_tokens(item_text)
+    return len(topic_entities & item_entities) >= 2
+
+
+def _esports_match_score(
+    topic: str,
+    item: schema.PolymarketItem | schema.KalshiItem,
+    sports_target_date: Optional[str] = None,
+) -> tuple[int, int, int, int, float]:
+    item_text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
+    topic_subdomain = eq.esports_subdomain_of(topic)
+    item_subdomain = eq.esports_subdomain_of(item_text)
+    topic_signature = _esports_match_signature(topic)
+    item_signature = _item_matchup_signature(item) or _esports_match_signature(item_text)
+    topic_entities = eq.esports_entity_tokens(topic)
+    item_entities = eq.esports_entity_tokens(item_text)
+
+    signature_match = int(bool(topic_signature and item_signature and topic_signature == item_signature))
+    subdomain_match = int(bool(topic_subdomain and item_subdomain and topic_subdomain == item_subdomain))
+    date_match = int(_sports_market_date_compatible(item, sports_target_date))
+    entity_overlap = len(topic_entities & item_entities)
+    return signature_match, subdomain_match, date_match, entity_overlap, getattr(item, "relevance", 0.0)
+
+
+def _esports_prop_market_compatible(
+    topic: str,
+    item: schema.PolymarketItem | schema.KalshiItem,
+    sports_target_date: Optional[str] = None,
+) -> bool:
     item_text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
     item_type = getattr(item, "market_type", "unknown")
     if item_type not in {"esports_prop", "unknown"}:
         return False
     if item_type == "unknown" and not (eq.is_esports_query(item_text) and eq.has_player_prop_stat_marker(item_text)):
+        return False
+    if not _sports_market_date_compatible(item, sports_target_date):
         return False
 
     topic_subdomain = eq.inferred_esports_subdomain(topic)
@@ -1440,7 +1505,11 @@ def _esports_prop_market_compatible(topic: str, item: schema.PolymarketItem | sc
     return True
 
 
-def _esports_prop_match_score(topic: str, item: schema.PolymarketItem | schema.KalshiItem) -> tuple[int, int, int, int, float]:
+def _esports_prop_match_score(
+    topic: str,
+    item: schema.PolymarketItem | schema.KalshiItem,
+    sports_target_date: Optional[str] = None,
+) -> tuple[int, int, int, int, int, float]:
     item_text = f"{getattr(item, 'title', '')} {getattr(item, 'question', '')} {getattr(item, 'url', '')}"
     topic_subdomain = eq.inferred_esports_subdomain(topic)
     item_subdomain = eq.inferred_esports_subdomain(item_text)
@@ -1455,7 +1524,8 @@ def _esports_prop_match_score(topic: str, item: schema.PolymarketItem | schema.K
     stat_match = int(bool(topic_stats and item_stats and (topic_stats & item_stats)))
     subdomain_match = int(bool(topic_subdomain and item_subdomain and topic_subdomain == item_subdomain))
     entity_overlap = len(topic_entities & item_entities)
-    return player_match, stat_match, subdomain_match, entity_overlap, getattr(item, "relevance", 0.0)
+    date_match = int(_sports_market_date_compatible(item, sports_target_date))
+    return player_match, stat_match, subdomain_match, date_match, entity_overlap, getattr(item, "relevance", 0.0)
 
 
 def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_target_date: Optional[str] = None, allow_esports_prop: bool = False) -> Optional[schema.PolymarketItem]:
@@ -1465,10 +1535,16 @@ def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_targ
     if not items:
         return None
     if allow_esports_prop and _is_esports_player_prop_query(topic):
-        items = [item for item in items if _esports_prop_market_compatible(topic, item)]
+        items = [item for item in items if _esports_prop_market_compatible(topic, item, sports_target_date)]
         if not items:
             return None
-        ranked = sorted(items, key=lambda item: (_esports_prop_match_score(topic, item), item.score), reverse=True)
+        ranked = sorted(items, key=lambda item: (_esports_prop_match_score(topic, item, sports_target_date), item.score), reverse=True)
+        return ranked[0]
+    if _is_esports_match_query(topic):
+        items = [item for item in items if _esports_match_market_compatible(topic, item, sports_target_date)]
+        if not items:
+            return None
+        ranked = sorted(items, key=lambda item: (_esports_match_score(topic, item, sports_target_date), item.score), reverse=True)
         return ranked[0]
     topic_esports_subdomain = eq.esports_subdomain_of(topic)
     if _is_esports_match_query(topic) and topic_esports_subdomain:
@@ -1506,10 +1582,16 @@ def _best_kalshi(topic: str, items: list[schema.KalshiItem], sports_target_date:
     if not items:
         return None
     if allow_esports_prop and _is_esports_player_prop_query(topic):
-        items = [item for item in items if _esports_prop_market_compatible(topic, item)]
+        items = [item for item in items if _esports_prop_market_compatible(topic, item, sports_target_date)]
         if not items:
             return None
-        ranked = sorted(items, key=lambda item: (_esports_prop_match_score(topic, item), item.score), reverse=True)
+        ranked = sorted(items, key=lambda item: (_esports_prop_match_score(topic, item, sports_target_date), item.score), reverse=True)
+        return ranked[0]
+    if _is_esports_match_query(topic):
+        items = [item for item in items if _esports_match_market_compatible(topic, item, sports_target_date)]
+        if not items:
+            return None
+        ranked = sorted(items, key=lambda item: (_esports_match_score(topic, item, sports_target_date), item.score), reverse=True)
         return ranked[0]
     topic_esports_subdomain = eq.esports_subdomain_of(topic)
     if _is_esports_match_query(topic) and topic_esports_subdomain:

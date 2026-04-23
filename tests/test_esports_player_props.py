@@ -332,6 +332,85 @@ class ValorantAndLoLSurfacingTests(unittest.TestCase):
         self.assertEqual(len(forecasts), 1)
         self.assertEqual(forecasts[0].anchor_source, "model_implied")
 
+    def test_forecast_prefers_same_day_valorant_prop_over_higher_scored_future_prop(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "TenZ kills vs Sentinels tonight"
+        self.report.generated_at = "2026-04-22T18:00:00+00:00"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM8",
+                title="TenZ total kills > 18.5 - Map 1",
+                question="Will TenZ get more than 18.5 kills during the VCT match?",
+                url="https://polymarket.com/event/val-tenz-kills-2026-04-24",
+                market_type="esports_prop",
+                relevance=0.95,
+                outcome_prices=[("Yes", 0.59), ("No", 0.41)],
+                spread=0.01,
+                movement_24h=0.07,
+                end_date="2026-04-24",
+            ),
+            schema.PolymarketItem(
+                id="PM9",
+                title="TenZ total kills > 17.5 - Map 1",
+                question="Will TenZ get more than 17.5 kills during the VCT match tonight?",
+                url="https://polymarket.com/event/val-tenz-kills-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.7,
+                outcome_prices=[("Yes", 0.55), ("No", 0.45)],
+                spread=0.01,
+                movement_24h=0.02,
+                end_date="2026-04-22",
+            ),
+        ]
+        self.report.polymarket[0].score = 140.0
+        self.report.polymarket[1].score = 100.0
+
+        forecasts = forecast.synthesize_forecasts(self.report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertIn("2026-04-22", self.report.polymarket[1].url)
+        self.assertIn("tenz", forecasts[0].title.lower())
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+
+    def test_named_valorant_match_prefers_compatible_game_outcome_anchor(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "Sentinels vs G2 tonight"
+        self.report.generated_at = "2026-04-22T18:00:00+00:00"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM10",
+                title="Valorant: Karmine Corp vs FUT Esports (BO3) - VCT EMEA Group Alpha",
+                question="Valorant: Karmine Corp vs FUT Esports (BO3) - VCT EMEA Group Alpha",
+                url="https://polymarket.com/event/val-kc-fut-2026-04-22",
+                market_type="game_outcome",
+                relevance=0.96,
+                outcome_prices=[("Karmine Corp", 0.62), ("FUT Esports", 0.38)],
+                spread=0.01,
+                movement_24h=0.03,
+                end_date="2026-04-22",
+            ),
+            schema.PolymarketItem(
+                id="PM11",
+                title="Valorant: Sentinels vs G2 Esports (BO3) - VCT Americas Group Stage",
+                question="Valorant: Sentinels vs G2 Esports (BO3) - VCT Americas Group Stage",
+                url="https://polymarket.com/event/val-sen-g2-2026-04-22",
+                market_type="game_outcome",
+                relevance=0.74,
+                outcome_prices=[("Sentinels", 0.57), ("G2 Esports", 0.43)],
+                spread=0.01,
+                movement_24h=0.04,
+                end_date="2026-04-22",
+            ),
+        ]
+        self.report.polymarket[0].score = 150.0
+        self.report.polymarket[1].score = 100.0
+
+        forecasts = forecast.synthesize_forecasts(self.report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertIn("Sentinels vs G2", forecasts[0].title)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+
 
 if __name__ == "__main__":
     unittest.main()
