@@ -13,7 +13,7 @@ yet — that lands in v1.0.56. These tests assert:
 import unittest
 
 from scripts.lib import evidence_quality as eq
-from scripts.lib import forecast, market_types
+from scripts.lib import forecast, market_types, polymarket
 
 
 class CS2PlayerRosterTests(unittest.TestCase):
@@ -82,6 +82,27 @@ class PlayerPropQueryClassifierTests(unittest.TestCase):
     def test_empty_query(self):
         self.assertFalse(eq.is_esports_player_prop_query(""))
         self.assertFalse(eq.is_esports_player_prop_query(None))
+
+
+class PolymarketEsportsQueryExpansionTests(unittest.TestCase):
+    def test_named_valorant_prop_uses_domain_aware_queries(self):
+        queries = polymarket._expand_queries("TenZ total kills tonight")
+        self.assertEqual(
+            queries,
+            ["tenz valorant kills", "tenz valorant", "tenz kills", "valorant kills"],
+        )
+
+    def test_named_lol_prop_uses_domain_aware_queries(self):
+        queries = polymarket._expand_queries("Faker solo kills tonight")
+        self.assertEqual(
+            queries,
+            ["faker league of legends solo kills", "faker league of legends", "faker solo kills", "league of legends solo kills"],
+        )
+
+    def test_generic_esports_prop_watchlist_keeps_broader_query_fanout(self):
+        queries = polymarket._expand_queries("Counter-Strike 2 player props today")
+        self.assertIn("counter strike", queries)
+        self.assertIn("cs2", queries)
 
 
 class MatchAndPropPathsAreDisjointTests(unittest.TestCase):

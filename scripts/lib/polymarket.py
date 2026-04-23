@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
-from . import http, market_types
+from . import evidence_quality as eq, http, market_types
 from .query_type import detect_query_type
 from .relevance import LOW_SIGNAL_QUERY_TOKENS, token_overlap_relevance
 
@@ -36,6 +36,11 @@ _SPORTS_SLATE_ALIASES = {
     "nfl": {"nfl"},
     "mlb": {"mlb"},
     "nhl": {"nhl"},
+}
+_ESPORTS_SEARCH_LABELS = {
+    "cs2": "counter strike 2",
+    "valorant": "valorant",
+    "lol": "league of legends",
 }
 
 
@@ -121,6 +126,66 @@ def _is_sports_slate_query(topic: str) -> bool:
     return bool(_detect_sports_league(topic) and any(term in topic_lower for term in ("games tonight", "games today", "tonight", "today", "slate")))
 
 
+def _primary_esports_prop_stat(topic: str) -> str:
+    lowered = (topic or "").lower()
+    if "solo kills" in lowered or "solo kill" in lowered:
+        return "solo kills"
+    if "headshots" in lowered or "headshot" in lowered:
+        return "headshots"
+    if "first blood" in lowered:
+        return "first blood"
+    if "first kill" in lowered:
+        return "first kill"
+    if "entry kills" in lowered or "entry kill" in lowered:
+        return "entry kills"
+    if "bomb plants" in lowered or "bomb plant" in lowered:
+        return "bomb plants"
+    if "adr" in lowered:
+        return "adr"
+    if "rating" in lowered:
+        return "rating"
+    if "assists" in lowered or "assist" in lowered:
+        return "assists"
+    if "deaths" in lowered or "death" in lowered:
+        return "deaths"
+    if "kills" in lowered or "kill" in lowered:
+        return "kills"
+    return ""
+
+
+def _named_esports_prop_queries(topic: str) -> List[str]:
+    if not eq.is_esports_player_prop_query(topic):
+        return []
+    subdomain = eq.inferred_esports_subdomain(topic)
+    players = sorted(eq.extract_esports_players(topic, subdomain=subdomain))
+    if not players:
+        return []
+
+    player = players[0]
+    domain_label = _ESPORTS_SEARCH_LABELS.get(subdomain, "")
+    stat = _primary_esports_prop_stat(topic)
+
+    queries = []
+    if domain_label and stat:
+        queries.append(f"{player} {domain_label} {stat}")
+    if domain_label:
+        queries.append(f"{player} {domain_label}")
+    if stat:
+        queries.append(f"{player} {stat}")
+    if domain_label and stat:
+        queries.append(f"{domain_label} {stat}")
+
+    seen = set()
+    unique = []
+    for query in queries:
+        cleaned = " ".join(query.split()).strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            seen.add(key)
+            unique.append(cleaned)
+    return unique[:4]
+
+
 def _expand_queries(topic: str) -> List[str]:
     """Generate search queries to cast a wider net.
 
@@ -131,6 +196,9 @@ def _expand_queries(topic: str) -> List[str]:
     - Cap at 6 queries, dedupe
     """
     core = _extract_core_subject(topic)
+    esports_prop_queries = _named_esports_prop_queries(core)
+    if esports_prop_queries:
+        return esports_prop_queries
     queries = [core]
     league = _detect_sports_league(topic)
     topic_lower = topic.lower()

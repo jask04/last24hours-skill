@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.73] - 2026-04-23
+
+### Changed
+- `scripts/lib/polymarket.py`: Named eSports player-prop prompts now use domain-aware Polymarket query expansion built from the player token, inferred title subdomain, and primary stat term instead of generic raw-word fanout like `total` and `tonight`.
+- `scripts/lib/polymarket.py`: Generic eSports prop discovery remains on the broader CS2/Valorant/LoL search path, so this release narrows only the named-player retrieval surface that was starving forecast anchoring.
+- `tests/test_esports_player_props.py`: Added regressions for named Valorant and LoL prop query expansion so TenZ/Faker-style prompts keep the tighter search path and avoid avoidable model-implied fallbacks caused by Polymarket search overhead.
+
 ## [1.0.72] - 2026-04-23
 
 ### Fixed
