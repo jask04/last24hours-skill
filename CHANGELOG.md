@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.66] - 2026-04-22
+
+### Changed
+- `scripts/paper.py`: Closing-soon paper dry-runs now auto-select a bounded market-only fast path, so `Polymarket markets closing soon`, `Kalshi markets closing soon`, and `crypto markets closing soon tonight` finish with structured statuses instead of timing out behind full-source enrichment.
+- `scripts/last24hours.py` and `scripts/lib/closing_soon.py`: Added a paper-watchlist fast mode that caps closing-soon seed breadth and candidate counts while preserving the same venue-specific selection contract for the final paper pick.
+- `tests/test_paper_ledger.py` and `tests/test_closing_soon.py`: Added regressions for the bounded closing-soon argument forwarding and the new seed/candidate caps used by the paper fast path.
+
 ## [1.0.65] - 2026-04-22
 
 ### Changed

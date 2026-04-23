@@ -404,6 +404,20 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(len(recent), 1)
         self.assertEqual(recent[0]["pick_type"], "watchlist")
 
+    def test_paper_watchlist_fast_args_uses_market_only_closing_soon_path(self):
+        self.assertEqual(
+            paper._paper_watchlist_fast_args("Polymarket markets closing soon", ["--closing-window-hours", "6"]),
+            ["--closing-window-hours", "6", "--paper-fast-watchlist", "--search", "polymarket"],
+        )
+        self.assertEqual(
+            paper._paper_watchlist_fast_args("Kalshi markets closing soon", []),
+            ["--paper-fast-watchlist", "--search", "kalshi"],
+        )
+        self.assertEqual(
+            paper._paper_watchlist_fast_args("AI coding tools markets to watch today", []),
+            [],
+        )
+
     def test_cmd_daily_dry_run_reports_no_compatible_and_degraded_statuses(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([

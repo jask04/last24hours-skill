@@ -2300,6 +2300,11 @@ def main():
         action="store_true",
         help="Record selected paper-only multi-leg watchlist bundle metadata. Does not place trades.",
     )
+    parser.add_argument(
+        "--paper-fast-watchlist",
+        action="store_true",
+        help="Use bounded market-only search caps for paper-watchlist dry-runs.",
+    )
 
     args = parser.parse_args()
     args.topic = " ".join(args.topic) if args.topic else None
@@ -2537,7 +2542,11 @@ def main():
             sys.stderr.flush()
     if query_type == "market_watchlist":
         if closing_soon_mode:
-            search_topics = closing_soon.closing_search_topics(args.topic, live_games)
+            search_topics = closing_soon.closing_search_topics(
+                args.topic,
+                live_games,
+                max_seeds=4 if args.paper_fast_watchlist else 12,
+            )
         elif nba_window_games:
             search_topics = [game.matchup for game in nba_window_games]
         else:
@@ -2604,9 +2613,15 @@ def main():
         if nba_window_games and search_topics and len(search_topics) < len(nba_window_games):
             plan.notes.append(f"nba-window-truncated:{len(search_topics)}/{len(nba_window_games)}")
     if closing_soon_mode:
-        search_topics = closing_soon.closing_search_topics(args.topic, live_games)
+        search_topics = closing_soon.closing_search_topics(
+            args.topic,
+            live_games,
+            max_seeds=4 if args.paper_fast_watchlist else 12,
+        )
         if "closing_soon" not in plan.notes:
             plan.notes.append("closing_soon")
+        if args.paper_fast_watchlist:
+            plan.notes.append("paper-fast-watchlist")
         if live_sports_mode:
             plan.notes.append(f"live-games:{len(live_games)}")
             plan.notes.append(f"live-games-in:{sum(1 for game in live_games if game.is_live)}")
@@ -2745,6 +2760,9 @@ def main():
                     window_hours=max(1, args.closing_window_hours),
                     live_games=live_games,
                     diagnostics=live_closing_diagnostics,
+                    max_seeds=4 if args.paper_fast_watchlist else 12,
+                    max_candidates=12 if args.paper_fast_watchlist else 25,
+                    search_depth="quick" if args.paper_fast_watchlist else "default",
                 )
             closing_pm = normalize.normalize_polymarket_items(closing_raw_pm, from_date, to_date)
             closing_pm = score.score_polymarket_items(closing_pm)
@@ -2768,6 +2786,9 @@ def main():
                     to_date,
                     window_hours=max(1, args.closing_window_hours),
                     diagnostics=kalshi_closing_diagnostics,
+                    max_seeds=4 if args.paper_fast_watchlist else 12,
+                    max_candidates=12 if args.paper_fast_watchlist else 25,
+                    search_depth="quick" if args.paper_fast_watchlist else "default",
                 )
                 if closing_raw_ka:
                     closing_ka = normalize.normalize_kalshi_items(closing_raw_ka, from_date, to_date)

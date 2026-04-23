@@ -590,6 +590,34 @@ class ScanKalshiClosingSoonTests(unittest.TestCase):
         self.assertGreaterEqual(len(result), 2)
         self.assertEqual(result[0].get("ticker"), "KXSOON")
 
+    def test_paper_fast_caps_kalshi_seed_count_and_candidates(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        seen = []
+        markets = [
+            self._kalshi_market(f"KX{i}", f"Contract {i}", "2026-04-21T22:00:00Z", liquidity=50_000 + i, volume=50_000 + i)
+            for i in range(20)
+        ]
+
+        def _search(seed, from_date, to_date, depth="default"):
+            seen.append((seed, depth))
+            return {"markets": markets, "event_titles": {}, "_cap": 200}
+
+        with mock.patch("scripts.lib.kalshi.search_kalshi", side_effect=_search):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+                max_seeds=3,
+                max_candidates=5,
+                search_depth="quick",
+            )
+
+        self.assertLessEqual(len(seen), 3)
+        self.assertTrue(all(depth == "quick" for _, depth in seen))
+        self.assertEqual(len(result), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

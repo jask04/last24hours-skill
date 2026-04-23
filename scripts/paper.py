@@ -34,7 +34,7 @@ DRY_RUN_TOPIC_TIMEOUT_SECONDS = 45
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import store
-from lib import evidence_quality as eq
+from lib import closing_soon, evidence_quality as eq
 from lib import http
 from lib import sports_schedule, weather
 
@@ -43,6 +43,22 @@ def _skill_version() -> str:
     text = (REPO_ROOT / "SKILL.md").read_text(encoding="utf-8")
     match = re.search(r'^version:\s*"([^"]+)"', text, re.MULTILINE)
     return match.group(1) if match else ""
+
+
+def _paper_watchlist_fast_args(topic: str, extra_args: Optional[List[str]] = None) -> List[str]:
+    args = list(extra_args or [])
+    lowered = (topic or "").lower()
+    if not closing_soon.is_closing_soon_query(topic or ""):
+        return args
+    if "--paper-fast-watchlist" not in args:
+        args.append("--paper-fast-watchlist")
+    if "--search" in args:
+        return args
+    if "kalshi" in lowered:
+        args.extend(["--search", "kalshi"])
+    else:
+        args.extend(["--search", "polymarket"])
+    return args
 
 
 def _now_slug() -> str:
@@ -706,10 +722,11 @@ def _run_last24hours(
     *,
     timeout_seconds: int = 180,
 ) -> Dict[str, Any]:
+    forwarded_args = _paper_watchlist_fast_args(topic, extra_args)
     cmd = [sys.executable, str(SCRIPT_DIR / "last24hours.py"), topic, "--emit=json", "--no-native-web"]
     if quick:
         cmd.append("--quick")
-    for arg in extra_args or []:
+    for arg in forwarded_args:
         cmd.append(str(arg))
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=timeout_seconds, check=False)
     if result.returncode != 0:

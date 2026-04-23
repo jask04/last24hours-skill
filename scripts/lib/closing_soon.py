@@ -53,7 +53,12 @@ def _fmt_date_words(day) -> List[str]:
     ]
 
 
-def closing_search_topics(topic: str, live_games: Iterable[sports_schedule.LiveGame] = ()) -> List[str]:
+def closing_search_topics(
+    topic: str,
+    live_games: Iterable[sports_schedule.LiveGame] = (),
+    *,
+    max_seeds: int = 12,
+) -> List[str]:
     live_games = list(live_games or ())
     local_today = dates.current_local_date()
     tomorrow = local_today + timedelta(days=1)
@@ -90,7 +95,7 @@ def closing_search_topics(topic: str, live_games: Iterable[sports_schedule.LiveG
         if normalized and key not in seen:
             result.append(normalized)
             seen.add(key)
-    return result[:12]
+    return result[:max(1, int(max_seeds or 1))]
 
 
 def _is_effectively_settled(item: dict) -> bool:
@@ -215,6 +220,9 @@ def scan_kalshi_closing_soon(
     include_effectively_settled: bool = False,
     now: Optional[datetime] = None,
     diagnostics: Optional[dict] = None,
+    max_seeds: int = 12,
+    max_candidates: int = 25,
+    search_depth: str = "default",
 ) -> List[dict]:
     """Return normalized raw Kalshi dicts for near-expiry markets.
 
@@ -226,8 +234,8 @@ def scan_kalshi_closing_soon(
     now_utc = local_now.astimezone(timezone.utc)
     window_minutes = int(window_hours * 60)
     markets_by_ticker: dict[str, dict] = {}
-    for seed in closing_search_topics(topic):
-        response = kalshi.search_kalshi(seed, from_date, to_date, depth="default")
+    for seed in closing_search_topics(topic, max_seeds=max_seeds):
+        response = kalshi.search_kalshi(seed, from_date, to_date, depth=search_depth)
         for market in kalshi.parse_kalshi_response(response, topic=topic):
             ticker = market.get("ticker") or market.get("url")
             if ticker and ticker not in markets_by_ticker:
@@ -272,7 +280,7 @@ def scan_kalshi_closing_soon(
         diagnostics["kalshi_skipped_expired"] = skipped_expired
         diagnostics["kalshi_skipped_no_liquidity"] = skipped_no_liquidity
         diagnostics["kalshi_skipped_settled"] = skipped_settled
-    return candidates[:25]
+    return candidates[:max(1, int(max_candidates or 1))]
 
 
 def scan_polymarket_closing_soon(
@@ -285,6 +293,9 @@ def scan_polymarket_closing_soon(
     include_effectively_settled: bool = False,
     now: Optional[datetime] = None,
     diagnostics: Optional[dict] = None,
+    max_seeds: int = 12,
+    max_candidates: int = 25,
+    search_depth: str = "default",
 ) -> List[dict]:
     """Return normalized raw Polymarket dicts for near-expiry/live markets."""
     live_games = live_games or []
@@ -294,8 +305,8 @@ def scan_polymarket_closing_soon(
     now_utc = local_now.astimezone(timezone.utc)
     window_minutes = int(window_hours * 60)
     events = {}
-    for seed in closing_search_topics(topic, live_games):
-        response = polymarket.search_polymarket(seed, from_date, to_date, depth="default")
+    for seed in closing_search_topics(topic, live_games, max_seeds=max_seeds):
+        response = polymarket.search_polymarket(seed, from_date, to_date, depth=search_depth)
         for event in response.get("events", []):
             event_id = event.get("id") or event.get("slug")
             if event_id:
@@ -348,4 +359,4 @@ def scan_polymarket_closing_soon(
         diagnostics["live_games_starting_soon"] = sum(1 for game in live_games if not game.is_live)
         diagnostics["live_polymarket_matches"] = sum(1 for item in candidates if item.get("closing_soon_reason") in {"live_sports", "starting_soon"})
         diagnostics["live_reject_reasons"] = dict(sorted(reject_counts.items()))
-    return candidates[:25]
+    return candidates[:max(1, int(max_candidates or 1))]
