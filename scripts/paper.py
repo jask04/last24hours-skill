@@ -1543,6 +1543,28 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
     return "all_candidates_low_quality"
 
 
+def _bundle_reason_class_for_report(report: Dict[str, Any]) -> str:
+    reason = str(report.get("paper_bundle_reason") or "").strip().lower()
+    if not reason:
+        return ""
+    if "no future nba games found" in reason or "no nba games for the requested date window" in reason:
+        return "no_future_games_in_window"
+    if "marks them final" in reason or "already live" in reason or "scheduled and not already live" in reason:
+        return "all_games_live_or_final"
+    if "same-game or same-team overlap" in reason or "favorite-only" in reason:
+        return "bundle_overlap_or_favorite_only"
+    if (
+        "too few direct nba game-outcome markets" in reason
+        or "too few direct nba game markets" in reason
+        or "trusted espn" in reason
+        or "usable probabilities" in reason
+        or "positive liquidity" in reason
+        or "no watchlist markets cleared" in reason
+    ):
+        return "too_few_qualified_direct_markets"
+    return "no_compatible_market"
+
+
 def _report_market_subdomains(report: Dict[str, Any]) -> set[str]:
     values: set[str] = set()
     for bucket in ("polymarket", "kalshi"):
@@ -1569,6 +1591,10 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
     if _is_degraded_report(report):
         return "degraded_evidence_only"
     topic = str(entry.get("topic") or "")
+    if str(entry.get("pick_policy") or "").strip().lower() == "bundle_only":
+        reason = _bundle_reason_class_for_report(report)
+        if reason:
+            return reason
     if closing_soon.is_closing_soon_query(topic):
         reason = _closing_soon_reason_class_for_report(topic, report)
         if reason:

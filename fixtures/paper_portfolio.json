@@ -18,13 +18,13 @@
     "notes": "Daily NBA watchlist sample; should store only a direct game-outcome watchlist row."
   },
   {
-    "topic": "NBA paper bundle today",
+    "topic": "NBA paper bundle next 2 days",
     "query_type": "market_watchlist",
     "enabled": true,
     "expected_pick_types": ["bundle"],
     "pick_policy": "bundle_only",
     "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "Same-day NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
+    "notes": "Forward-looking NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
   },
   {
     "topic": "NBA paper bundle tomorrow",

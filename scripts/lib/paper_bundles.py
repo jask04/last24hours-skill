@@ -163,6 +163,14 @@ def synthesize_paper_bundles(report: schema.Report, limit: int = 3) -> Tuple[Lis
     if "nba" not in report.topic.lower():
         return [], "paper bundle v1 only supports NBA prompts."
     if not report.market_watchlist:
+        for note in report.planning_notes or []:
+            if not isinstance(note, str) or not note.startswith("nba-window-games:"):
+                continue
+            try:
+                if int(note.split(":", 1)[1]) == 0:
+                    return [], "no future NBA games found in the requested bundle window."
+            except ValueError:
+                pass
         return [], "no watchlist markets cleared the filters."
 
     legs = []

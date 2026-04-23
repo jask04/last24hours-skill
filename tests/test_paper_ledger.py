@@ -516,6 +516,34 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(by_topic["Polymarket markets closing soon"]["reason_class"], "all_candidates_effectively_settled")
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["reason_class"], "domain_mismatch")
 
+    def test_cmd_daily_dry_run_reports_bundle_specific_reason_classes(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "NBA paper bundle next 2 days",
+                "enabled": True,
+                "pick_policy": "bundle_only",
+                "expected_pick_types": ["bundle"],
+            }
+        ]), encoding="utf-8")
+        report = {
+            "topic": "NBA paper bundle next 2 days",
+            "query_type": "market_watchlist",
+            "forecasts": [],
+            "market_watchlist": [],
+            "paper_bundles": [],
+            "paper_bundle_reason": "no future NBA games found in the requested bundle window.",
+            "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "used"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["results"][0]["status"], "no_compatible_pick")
+        self.assertEqual(payload["results"][0]["reason_class"], "no_future_games_in_window")
+
     def test_extract_paper_picks_rejects_non_crypto_closing_soon_watchlist_row(self):
         report = {
             "topic": "crypto markets closing soon tonight",

@@ -318,17 +318,21 @@ def resolve_nba_date_window(topic: str, max_days: int = 7) -> Optional[Tuple[str
         start = end = mentions[0]
     else:
         local_today = dates.current_local_date()
-        start = local_today
-        if "tomorrow" in lowered:
+        if "next 2 days" in lowered or "next two days" in lowered:
             start = local_today + timedelta(days=1)
-        elif not any(term in lowered for term in ("today", "tonight", "through", "until", " to ", " up to ", "up until")):
-            return None
-
-        weekday_match = re.search(rf"\b(?:through|until|to|up to|up until)\s+(?:next\s+)?({_WEEKDAY_RE})\b", lowered)
-        if weekday_match:
-            end = _next_weekday(start, _WEEKDAYS[weekday_match.group(1)])
+            end = start + timedelta(days=1)
         else:
-            end = start
+            start = local_today
+            if "tomorrow" in lowered:
+                start = local_today + timedelta(days=1)
+            elif not any(term in lowered for term in ("today", "tonight", "through", "until", " to ", " up to ", "up until")):
+                return None
+
+            weekday_match = re.search(rf"\b(?:through|until|to|up to|up until)\s+(?:next\s+)?({_WEEKDAY_RE})\b", lowered)
+            if weekday_match:
+                end = _next_weekday(start, _WEEKDAYS[weekday_match.group(1)])
+            else:
+                end = start
 
     if end < start:
         start, end = end, start

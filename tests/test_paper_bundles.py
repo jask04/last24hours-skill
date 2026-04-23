@@ -69,6 +69,10 @@ class PaperBundleTests(unittest.TestCase):
                 sports_schedule.resolve_nba_date_window("NBA paper bundle today through Wednesday"),
                 ("20260420", "20260422"),
             )
+            self.assertEqual(
+                sports_schedule.resolve_nba_date_window("NBA paper bundle next 2 days"),
+                ("20260421", "20260422"),
+            )
 
     def test_nba_date_window_expands_espn_slate(self):
         def fake_get(url, timeout=15, retries=2):
@@ -226,6 +230,21 @@ class PaperBundleTests(unittest.TestCase):
         self.assertTrue(bundles)
         self.assertTrue(all("3rd Quarter" not in leg.live_game_context for leg in bundles[0].legs))
         self.assertNotIn("already live", reason)
+
+    def test_bundle_generation_reports_no_future_games_when_window_is_empty(self):
+        report = schema.Report(
+            topic="NBA paper bundle next 2 days",
+            range_from="2026-04-20",
+            range_to="2026-04-20",
+            generated_at="2026-04-20T12:00:00Z",
+            mode="both",
+            planning_notes=["nba-window-games:0"],
+        )
+
+        bundles, reason = paper_bundles.synthesize_paper_bundles(report)
+
+        self.assertEqual(bundles, [])
+        self.assertEqual(reason, "no future NBA games found in the requested bundle window.")
 
     def test_bundle_intent_watchlist_only_keeps_direct_espn_game_markets(self):
         report = schema.Report(

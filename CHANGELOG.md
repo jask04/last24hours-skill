@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.71] - 2026-04-22
+
+### Changed
+- `fixtures/paper_portfolio.json`: Replaced the dead same-day `NBA paper bundle today` slot with `NBA paper bundle next 2 days`, keeping fixture count unchanged while making the automation target a future-facing NBA bundle window that can actually produce paper-only rows.
+- `scripts/lib/sports_schedule.py` and `scripts/lib/paper_bundles.py`: Added explicit NBA bundle-window support for `next 2 days` / `next two days` and tightened empty-window bundle messaging so zero-game windows report as no future NBA games instead of a generic empty watchlist failure.
+- `scripts/paper.py`: Dry-run bundle failures now map to bundle-specific reason classes such as `no_future_games_in_window`, `all_games_live_or_final`, `too_few_qualified_direct_markets`, and `bundle_overlap_or_favorite_only` instead of collapsing into `no_compatible_market`.
+- `tests/test_paper_bundles.py` and `tests/test_paper_ledger.py`: Added regressions for the new NBA bundle window parsing, empty future-window bundle failure handling, and dry-run bundle-specific reason classes.
+
 ## [1.0.70] - 2026-04-22
 
 ### Changed
