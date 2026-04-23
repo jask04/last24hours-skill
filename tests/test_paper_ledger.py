@@ -387,7 +387,19 @@ class PaperExtractionTests(unittest.TestCase):
             "topic": "Polymarket markets closing soon",
             "query_type": "market_watchlist",
             "forecasts": [{"title": "Ignored forecast", "forecast_probability": 0.5, "anchor_source": "model_implied"}],
-            "market_watchlist": [{"pick_type": "watchlist", "venue": "polymarket", "title": "Stored watchlist", "question": "Stored watchlist", "outcome_label": "Yes", "probability": 0.61, "url": "https://polymarket.com/event/stored-watchlist"}],
+            "market_watchlist": [{
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "title": "Bitcoin Up or Down on April 22?",
+                "question": "Bitcoin Up or Down on April 22?",
+                "outcome_label": "Down",
+                "probability": 0.61,
+                "market_type": "crypto_daily",
+                "minutes_to_close": 45.0,
+                "closing_soon_reason": "closing_soon",
+                "resolvability": "crypto reference-price market; verify Polymarket rules and live reference price",
+                "url": "https://polymarket.com/event/stored-watchlist",
+            }],
         }
 
         def fake_run(topic, quick, extra_args=None, timeout_seconds=None):
@@ -451,6 +463,111 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(by_topic["Counter-Strike 2 matches today"]["reason_class"], "no_compatible_market")
         self.assertEqual(by_topic["Fed rate cut by June"]["status"], "degraded_run")
         self.assertEqual(by_topic["Fed rate cut by June"]["reason_class"], "degraded_evidence_only")
+
+    def test_cmd_daily_dry_run_reports_closing_soon_reason_classes(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Polymarket markets closing soon", "enabled": True},
+            {"topic": "crypto markets closing soon tonight", "enabled": True},
+        ]), encoding="utf-8")
+        reports = {
+            "Polymarket markets closing soon": {
+                "topic": "Polymarket markets closing soon",
+                "query_type": "market_watchlist",
+                "forecasts": [],
+                "market_watchlist": [],
+                "planning_notes": [
+                    "closing_soon",
+                    "closing-pm-candidates:0",
+                    "closing-pm-skipped-settled:2",
+                    "closing-ka-candidates:0",
+                    "closing-ka-skipped-settled:0",
+                ],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "used"}}}},
+            },
+            "crypto markets closing soon tonight": {
+                "topic": "crypto markets closing soon tonight",
+                "query_type": "market_watchlist",
+                "forecasts": [],
+                "market_watchlist": [],
+                "polymarket": [
+                    {
+                        "title": "Highest temperature in Shanghai on April 22?",
+                        "question": "Will the highest temperature in Shanghai be 18C on April 22?",
+                        "url": "https://polymarket.com/event/shanghai-temp",
+                        "market_type": "weather_binary",
+                        "minutes_to_close": 45.0,
+                        "closing_soon_reason": "closing_soon",
+                        "resolvability": "weather market; verify the official station/source before treating it as resolved",
+                    }
+                ],
+                "planning_notes": ["closing_soon", "closing-pm-candidates:1", "closing-ka-candidates:0"],
+                "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "used"}}}},
+            },
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", side_effect=lambda topic, quick, extra_args=None, timeout_seconds=None: reports[topic]), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        by_topic = {entry["topic"]: entry for entry in payload["results"]}
+        self.assertEqual(by_topic["Polymarket markets closing soon"]["status"], "no_compatible_pick")
+        self.assertEqual(by_topic["Polymarket markets closing soon"]["reason_class"], "all_candidates_effectively_settled")
+        self.assertEqual(by_topic["crypto markets closing soon tonight"]["reason_class"], "domain_mismatch")
+
+    def test_extract_paper_picks_rejects_non_crypto_closing_soon_watchlist_row(self):
+        report = {
+            "topic": "crypto markets closing soon tonight",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "Polymarket",
+                    "title": "Highest temperature in Shanghai on April 22?",
+                    "question": "Will the highest temperature in Shanghai be 18C on April 22?",
+                    "outcome_label": "Yes",
+                    "probability": 0.58,
+                    "market_type": "weather_binary",
+                    "url": "https://polymarket.com/event/shanghai-temp",
+                    "minutes_to_close": 45.0,
+                    "closing_soon_reason": "closing_soon",
+                    "resolvability": "weather market; verify the official station/source before treating it as resolved",
+                }
+            ],
+            "polymarket": [],
+            "kalshi": [],
+        }
+
+        self.assertEqual(paper.extract_paper_picks(report), [])
+
+    def test_closing_soon_health_summary_groups_watchlist_rows(self):
+        picks = [
+            {
+                "topic": "Polymarket markets closing soon",
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "market_type": "crypto_daily",
+                "status": "open",
+                "anchor_source": "polymarket",
+            },
+            {
+                "topic": "Kalshi markets closing soon",
+                "pick_type": "watchlist",
+                "venue": "kalshi",
+                "market_type": "threshold",
+                "status": "resolved",
+                "anchor_source": "kalshi",
+            },
+        ]
+
+        summary = paper.closing_soon_health_summary(picks)
+
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["open_count"], 1)
+        self.assertEqual(summary["resolved_count"], 1)
+        self.assertEqual(summary["by_venue"]["kalshi"], 1)
+        self.assertEqual(summary["by_market_type"]["crypto_daily"], 1)
+        self.assertEqual(summary["open_anchor_mix"]["anchored"], 1)
 
     def test_cmd_daily_dry_run_reports_wrong_subdomain_reason_class(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"

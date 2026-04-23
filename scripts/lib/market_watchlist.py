@@ -1025,6 +1025,36 @@ def _closing_score(minutes_to_close: Optional[float], reason: str) -> float:
     return min(1.0, base)
 
 
+def _closing_rank_adjust(
+    report: schema.Report,
+    market_type: str,
+    closing_signal: float,
+    resolvability: str,
+    spread: Optional[float],
+    volume: Optional[float],
+    liquidity: Optional[float],
+) -> int:
+    if not _has_closing_soon_note(report):
+        return 0
+    bonus = 0
+    if closing_signal >= 0.80:
+        bonus += 8
+    elif closing_signal >= 0.60:
+        bonus += 4
+    if market_type in {"crypto_daily", "threshold", "weather_binary", "game_outcome"}:
+        bonus += 4
+    lowered = (resolvability or "").lower()
+    if "manual rule check required" in lowered:
+        bonus -= 10
+    elif lowered:
+        bonus += 4
+    if spread is not None and spread <= 0.02:
+        bonus += 3
+    if (volume or 0) >= 50_000 or (liquidity or 0) >= 50_000:
+        bonus += 2
+    return bonus
+
+
 def _days_to_end(end_date: Optional[str], *, reference_date: Optional[date] = None) -> Optional[int]:
     if not end_date:
         return None
@@ -1232,6 +1262,15 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             max(0.0, resolvability_score) -
             certainty_penalty
         ))))
+    rank_score = max(0, min(100, rank_score + _closing_rank_adjust(
+        report,
+        market_type,
+        closing_signal,
+        resolvability,
+        spread,
+        volume,
+        liquidity,
+    )))
 
     if domain == "esports" and market_type == "esports_prop":
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)

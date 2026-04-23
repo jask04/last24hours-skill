@@ -2545,7 +2545,7 @@ def main():
             search_topics = closing_soon.closing_search_topics(
                 args.topic,
                 live_games,
-                max_seeds=4 if args.paper_fast_watchlist else 12,
+                max_seeds=8 if args.paper_fast_watchlist else 12,
             )
         elif nba_window_games:
             search_topics = [game.matchup for game in nba_window_games]
@@ -2616,7 +2616,7 @@ def main():
         search_topics = closing_soon.closing_search_topics(
             args.topic,
             live_games,
-            max_seeds=4 if args.paper_fast_watchlist else 12,
+            max_seeds=8 if args.paper_fast_watchlist else 12,
         )
         if "closing_soon" not in plan.notes:
             plan.notes.append("closing_soon")
@@ -2760,8 +2760,9 @@ def main():
                     window_hours=max(1, args.closing_window_hours),
                     live_games=live_games,
                     diagnostics=live_closing_diagnostics,
-                    max_seeds=4 if args.paper_fast_watchlist else 12,
-                    max_candidates=12 if args.paper_fast_watchlist else 25,
+                    max_seeds=8 if args.paper_fast_watchlist else 12,
+                    max_candidates=16 if args.paper_fast_watchlist else 25,
+                    raw_cap_per_seed=24 if args.paper_fast_watchlist else 40,
                     search_depth="quick" if args.paper_fast_watchlist else "default",
                 )
             closing_pm = normalize.normalize_polymarket_items(closing_raw_pm, from_date, to_date)
@@ -2774,6 +2775,11 @@ def main():
                 if reject_counts:
                     reject_note = ",".join(f"{key}={value}" for key, value in sorted(reject_counts.items()))
                     plan.notes.append(f"live-rejects:{reject_note}")
+            else:
+                plan.notes.append(f"closing-pm-candidates:{live_closing_diagnostics.get('polymarket_closing_candidates', 0)}")
+                plan.notes.append(f"closing-pm-raw:{live_closing_diagnostics.get('polymarket_raw_seen', 0)}")
+                plan.notes.append(f"closing-pm-skipped-settled:{live_closing_diagnostics.get('polymarket_skipped_settled', 0)}")
+                plan.notes.append(f"closing-pm-skipped-liquidity:{live_closing_diagnostics.get('polymarket_skipped_no_liquidity', 0)}")
         except Exception as e:
             polymarket_error = f"{polymarket_error}; closing-soon scan failed: {e}" if polymarket_error else f"closing-soon scan failed: {e}"
 
@@ -2786,16 +2792,20 @@ def main():
                     to_date,
                     window_hours=max(1, args.closing_window_hours),
                     diagnostics=kalshi_closing_diagnostics,
-                    max_seeds=4 if args.paper_fast_watchlist else 12,
-                    max_candidates=12 if args.paper_fast_watchlist else 25,
+                    max_seeds=8 if args.paper_fast_watchlist else 12,
+                    max_candidates=16 if args.paper_fast_watchlist else 25,
+                    raw_cap_per_seed=24 if args.paper_fast_watchlist else 40,
                     search_depth="quick" if args.paper_fast_watchlist else "default",
                 )
+                plan.notes.append(f"closing-ka-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
+                plan.notes.append(f"closing-ka-raw:{kalshi_closing_diagnostics.get('kalshi_raw_seen', 0)}")
+                plan.notes.append(f"closing-ka-skipped-settled:{kalshi_closing_diagnostics.get('kalshi_skipped_settled', 0)}")
+                plan.notes.append(f"closing-ka-skipped-liquidity:{kalshi_closing_diagnostics.get('kalshi_skipped_no_liquidity', 0)}")
                 if closing_raw_ka:
                     closing_ka = normalize.normalize_kalshi_items(closing_raw_ka, from_date, to_date)
                     closing_ka = score.score_kalshi_items(closing_ka)
                     combined_ka = closing_ka + (deduped_ka or [])
                     deduped_ka = dedupe.dedupe_kalshi(score.sort_items(combined_ka, query_type=query_type))
-                    plan.notes.append(f"kalshi-closing-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
             except Exception as e:
                 kalshi_error = f"{kalshi_error}; kalshi closing-soon scan failed: {e}" if kalshi_error else f"kalshi closing-soon scan failed: {e}"
 

@@ -74,6 +74,22 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertEqual(query_type.detect_query_type("Polymarket markets closing soon"), "market_watchlist")
         self.assertEqual(query_type.detect_query_type("live sports games on Polymarket right now"), "market_watchlist")
 
+    def test_broad_closing_soon_seed_pack_keeps_cross_domain_recovery_terms(self):
+        seeds = closing_soon.closing_search_topics("Polymarket markets closing soon", max_seeds=8)
+
+        lowered = [seed.lower() for seed in seeds]
+        self.assertTrue(any("bitcoin" in seed for seed in lowered))
+        self.assertTrue(any("temperature" in seed for seed in lowered))
+        self.assertTrue(any("fed" in seed for seed in lowered))
+
+    def test_crypto_closing_soon_seed_pack_keeps_coin_specific_terms(self):
+        seeds = closing_soon.closing_search_topics("crypto markets closing soon tonight", max_seeds=8)
+
+        lowered = [seed.lower() for seed in seeds]
+        self.assertTrue(any("bitcoin up or down" in seed for seed in lowered))
+        self.assertTrue(any("ethereum up or down" in seed for seed in lowered))
+        self.assertTrue(any("solana" in seed for seed in lowered))
+
     def test_scanner_keeps_end_datetime_and_minutes_to_close(self):
         now = datetime(2026, 4, 20, 4, 0, tzinfo=timezone.utc)
         event = _market_event("btc-daily", "Bitcoin Up or Down on April 19?", "2026-04-20T06:00:00Z")

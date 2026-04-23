@@ -129,6 +129,8 @@ def _subdomain(topic: str) -> str:
 
 def _watchlist_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
     topic_text = str(topic or "")
+    if closing_soon.is_closing_soon_query(topic_text):
+        return _closing_soon_item_reason_class(topic_text, item)
     if _domain(topic_text) != "esports":
         return ""
     market_text = " ".join(
@@ -147,6 +149,71 @@ def _watchlist_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
         return "wrong_subdomain"
     if eq.is_esports_player_prop_query(topic_text) and str(item.get("market_type") or "") != "esports_prop":
         return "wrong_market_type"
+    return ""
+
+
+def _closing_soon_supported_market_type(item: Dict[str, Any]) -> bool:
+    return str(item.get("market_type") or "") in {"crypto_daily", "threshold", "weather_binary", "game_outcome"}
+
+
+def _closing_soon_topic_domain(topic: str) -> str:
+    lowered = (topic or "").lower()
+    if "crypto" in lowered or "bitcoin" in lowered or "ethereum" in lowered or "solana" in lowered:
+        return "crypto"
+    if "kalshi" in lowered:
+        return "kalshi"
+    return "broad"
+
+
+def _closing_soon_item_domain(item: Dict[str, Any]) -> str:
+    text = " ".join(
+        str(part or "")
+        for part in (
+            item.get("title", ""),
+            item.get("question", ""),
+            item.get("url", ""),
+        )
+    )
+    market_type = str(item.get("market_type") or "")
+    if market_type == "crypto_daily":
+        return "crypto"
+    if market_type == "weather_binary":
+        return "weather"
+    if market_type == "game_outcome":
+        return "sports"
+    inferred = _domain(text)
+    if inferred != "broad":
+        return inferred
+    if market_type == "threshold":
+        return "threshold"
+    return inferred
+
+
+def _closing_soon_effectively_settled(item: Dict[str, Any]) -> bool:
+    probability = _prob(item.get("probability") or item.get("implied_probability") or item.get("market_probability"))
+    spread = item.get("spread")
+    if probability is None:
+        return False
+    tight_spread = spread is None or float(spread) <= 0.01
+    return (probability >= 0.985 or probability <= 0.015) and tight_spread
+
+
+def _closing_soon_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
+    if not item:
+        return "no_near_expiry_candidates"
+    if item.get("minutes_to_close") is None and not item.get("closing_soon_reason"):
+        return "no_near_expiry_candidates"
+    if _closing_soon_effectively_settled(item):
+        return "all_candidates_effectively_settled"
+    if not _closing_soon_supported_market_type(item):
+        return "all_candidates_low_quality"
+    if "manual rule check required" in str(item.get("resolvability") or "").lower():
+        return "all_candidates_low_quality"
+    topic_domain = _closing_soon_topic_domain(topic)
+    if topic_domain == "kalshi" and str(item.get("venue") or "").lower() != "kalshi":
+        return "domain_mismatch"
+    if topic_domain == "crypto" and _closing_soon_item_domain(item) != "crypto":
+        return "domain_mismatch"
     return ""
 
 
@@ -438,6 +505,16 @@ def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, An
     """Prefer calibration-useful watchlist items when the top item is an extreme favorite."""
     if not items:
         return None
+    if any(item.get("closing_soon_reason") for item in items):
+        top = items[0]
+        top_probability = _prob(top.get("probability") or top.get("implied_probability"))
+        if top_probability is None or top_probability < 0.95:
+            return top
+        for item in items[1:]:
+            probability = _prob(item.get("probability") or item.get("implied_probability"))
+            if probability is not None and 0.20 <= probability <= 0.95 and item.get("closing_soon_reason"):
+                return item
+        return top
     nba_mixed_watchlist = any(str(item.get("watchlist_scope") or "") in {"game", "series"} for item in items)
     if nba_mixed_watchlist:
         top = items[0]
@@ -1387,12 +1464,83 @@ def post_1_0_38_esports_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     return summary
 
 
+def closing_soon_health_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    relevant = []
+    for pick in picks:
+        if pick.get("pick_type") != "watchlist":
+            continue
+        topic = str(pick.get("topic") or "")
+        if not closing_soon.is_closing_soon_query(topic):
+            continue
+        relevant.append(pick)
+    summary = {
+        "count": len(relevant),
+        "open_count": sum(1 for pick in relevant if pick.get("status") in {"open", "unknown"}),
+        "resolved_count": sum(1 for pick in relevant if pick.get("status") == "resolved"),
+        "by_venue": {},
+        "by_market_type": {},
+        "open_anchor_mix": {"anchored": 0, "model_implied": 0},
+        "empty_reason": "",
+    }
+    if not relevant:
+        summary["empty_reason"] = "No closing-soon watchlist rows in the selected report window."
+        return summary
+    venues = sorted({str(pick.get("venue") or "") for pick in relevant if pick.get("venue")})
+    market_types = sorted({str(pick.get("market_type") or "") for pick in relevant if pick.get("market_type")})
+    summary["by_venue"] = {venue: sum(1 for pick in relevant if str(pick.get("venue") or "") == venue) for venue in venues}
+    summary["by_market_type"] = {market_type: sum(1 for pick in relevant if str(pick.get("market_type") or "") == market_type) for market_type in market_types}
+    for pick in relevant:
+        if pick.get("status") not in {"open", "unknown"}:
+            continue
+        if str(pick.get("anchor_source") or "") == "model_implied":
+            summary["open_anchor_mix"]["model_implied"] += 1
+        else:
+            summary["open_anchor_mix"]["anchored"] += 1
+    return summary
+
+
 def _is_degraded_report(report: Dict[str, Any]) -> bool:
     forecasts = report.get("forecasts") or []
     if any(bool(item.get("model_implied")) for item in forecasts):
         return True
     source_status = (((report.get("evidence_fusion_stats") or {}).get("source_health") or {}).get("source_status") or {})
     return any(str(info.get("status") or "") in {"degraded", "error", "blocked"} for info in source_status.values() if isinstance(info, dict))
+
+
+def _closing_note_value(report: Dict[str, Any], prefix: str) -> int:
+    for note in report.get("planning_notes") or []:
+        if isinstance(note, str) and note.startswith(prefix):
+            try:
+                return int(note.split(":", 1)[1])
+            except (IndexError, ValueError):
+                return 0
+    return 0
+
+
+def _closing_soon_raw_candidates(report: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    for bucket in ("polymarket", "kalshi"):
+        for item in report.get(bucket) or []:
+            if item.get("minutes_to_close") is not None or item.get("closing_soon_reason"):
+                candidates.append(item)
+    return candidates
+
+
+def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) -> str:
+    raw_candidates = _closing_soon_raw_candidates(report)
+    if not raw_candidates:
+        skipped_settled = _closing_note_value(report, "closing-pm-skipped-settled:") + _closing_note_value(report, "closing-ka-skipped-settled:")
+        if skipped_settled > 0:
+            return "all_candidates_effectively_settled"
+        return "no_near_expiry_candidates"
+    compatible = [item for item in raw_candidates if not _closing_soon_item_reason_class(topic, item)]
+    if compatible:
+        return ""
+    reasons = {_closing_soon_item_reason_class(topic, item) for item in raw_candidates}
+    for preferred in ("domain_mismatch", "all_candidates_effectively_settled", "all_candidates_low_quality"):
+        if preferred in reasons:
+            return preferred
+    return "all_candidates_low_quality"
 
 
 def _report_market_subdomains(report: Dict[str, Any]) -> set[str]:
@@ -1421,6 +1569,10 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
     if _is_degraded_report(report):
         return "degraded_evidence_only"
     topic = str(entry.get("topic") or "")
+    if closing_soon.is_closing_soon_query(topic):
+        reason = _closing_soon_reason_class_for_report(topic, report)
+        if reason:
+            return reason
     watchlist = report.get("market_watchlist") or []
     if watchlist:
         reason = _watchlist_item_reason_class(topic, _select_watchlist_item(watchlist) or {})
@@ -1850,6 +2002,7 @@ def cmd_report(args) -> None:
         "current_skill_comparable_sample": comparable,
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
+        "closing_soon_health": closing_soon_health_summary(recent),
         "open_portfolio": open_pick_diagnostics(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

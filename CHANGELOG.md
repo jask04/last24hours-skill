@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.70] - 2026-04-22
+
+### Changed
+- `scripts/lib/closing_soon.py` and `scripts/last24hours.py`: Expanded the bounded paper fast-path seed packs for broad, crypto, and Kalshi closing-soon scans, added per-seed raw caps plus closing diagnostics, and raised the fast-path breadth enough to recover real near-expiry candidates without reopening timeout behavior.
+- `scripts/lib/market_watchlist.py`: Closing-soon ranking now gives extra weight to resolver-friendly near-expiry rows, tight spreads, and usable liquidity while demoting manual-rule rows harder when cleaner candidates are nearby.
+- `scripts/paper.py`: Closing-soon paper extraction now uses a topic-aware compatibility gate and more precise dry-run reason classes (`no_near_expiry_candidates`, `all_candidates_effectively_settled`, `all_candidates_low_quality`, `domain_mismatch`), and `report --days N` now includes a `closing_soon_health` slice for venue/market-type visibility.
+- `tests/test_closing_soon.py` and `tests/test_paper_ledger.py`: Added regressions for broader closing-soon seed recovery, closing-soon domain-safe paper extraction, closing-soon dry-run reason classes, and the new report health summary.
+
 ## [1.0.69] - 2026-04-22
 
 ### Changed

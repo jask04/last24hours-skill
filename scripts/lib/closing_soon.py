@@ -53,6 +53,15 @@ def _fmt_date_words(day) -> List[str]:
     ]
 
 
+def _extend_unique(target: List[str], extra: Iterable[str]) -> None:
+    seen = {item.lower() for item in target}
+    for seed in extra:
+        normalized = re.sub(r"\s+", " ", str(seed or "")).strip()
+        if normalized and normalized.lower() not in seen:
+            target.append(normalized)
+            seen.add(normalized.lower())
+
+
 def closing_search_topics(
     topic: str,
     live_games: Iterable[sports_schedule.LiveGame] = (),
@@ -63,30 +72,70 @@ def closing_search_topics(
     local_today = dates.current_local_date()
     tomorrow = local_today + timedelta(days=1)
     lowered = (topic or "").lower()
-    seeds = ["daily", "today", "tomorrow", local_today.isoformat(), tomorrow.isoformat()]
-    seeds.extend(_fmt_date_words(local_today))
-    if "crypto" in lowered or "bitcoin" in lowered or "ethereum" in lowered or "btc" in lowered or "eth" in lowered:
-        seeds.extend([
-            f"bitcoin {local_today.strftime('%B %-d')}",
-            f"ethereum {local_today.strftime('%B %-d')}",
+    is_crypto = any(token in lowered for token in ("crypto", "bitcoin", "ethereum", "solana", "btc", "eth", "sol"))
+    is_weather = any(token in lowered for token in ("weather", "temperature"))
+    is_kalshi = "kalshi" in lowered
+    sports_topic = any(term in lowered for term in ("sports", "nba", "mlb", "nhl", "nfl", "game", "games"))
+    broad_topic = not (is_crypto or is_weather or sports_topic)
+    seeds: List[str] = []
+    if is_crypto:
+        _extend_unique(seeds, [
             f"bitcoin up or down {local_today.strftime('%B %-d')}",
             f"ethereum up or down {local_today.strftime('%B %-d')}",
-            f"bitcoin {tomorrow.strftime('%B %-d')}",
-            f"ethereum {tomorrow.strftime('%B %-d')}",
+            f"solana up or down {local_today.strftime('%B %-d')}",
+            f"bitcoin {local_today.strftime('%B %-d')}",
+            f"ethereum {local_today.strftime('%B %-d')}",
+            f"solana {local_today.strftime('%B %-d')}",
+            "bitcoin up or down today",
+            "ethereum up or down today",
+            "solana up or down today",
+            "crypto daily",
+            "crypto tonight",
         ])
-    if "weather" in lowered or "temperature" in lowered:
-        seeds.extend([f"temperature {local_today.strftime('%B %-d')}", f"temperature {tomorrow.strftime('%B %-d')}"])
+    elif is_kalshi:
+        _extend_unique(seeds, [
+            f"fed {local_today.strftime('%B %-d')}",
+            f"cpi {local_today.strftime('%B %-d')}",
+            f"jobs {local_today.strftime('%B %-d')}",
+            f"bitcoin {local_today.strftime('%B %-d')}",
+            f"temperature {local_today.strftime('%B %-d')}",
+            "fed",
+            "cpi",
+            "jobs",
+            "bitcoin",
+            "temperature",
+        ])
+    elif is_weather:
+        _extend_unique(seeds, [
+            f"temperature {local_today.strftime('%B %-d')}",
+            f"temperature {tomorrow.strftime('%B %-d')}",
+            "temperature today",
+            "temperature tomorrow",
+            "weather today",
+        ])
+    elif sports_topic and not live_games:
+        _extend_unique(seeds, ["NBA today", "MLB today", "NHL today", "NFL today", "sports today"])
+    elif broad_topic and not live_games:
+        _extend_unique(seeds, [
+            f"bitcoin up or down {local_today.strftime('%B %-d')}",
+            f"ethereum up or down {local_today.strftime('%B %-d')}",
+            f"temperature {local_today.strftime('%B %-d')}",
+            f"fed {local_today.strftime('%B %-d')}",
+            "bitcoin up or down today",
+            "ethereum up or down today",
+            "temperature today",
+            "fed today",
+            "NBA today",
+            "sports today",
+        ])
+    _extend_unique(seeds, ["daily", "today", "tomorrow", local_today.isoformat(), tomorrow.isoformat(), *_fmt_date_words(local_today), *_fmt_date_words(tomorrow)])
     for game in live_games:
         for alias in game.live_search_aliases:
-            seeds.append(alias)
-            seeds.append(f"{game.league} {alias}")
+            _extend_unique(seeds, [alias, f"{game.league} {alias}"])
         if game.start_time:
-            seeds.append(f"{game.league} {game.away_abbreviation} {game.home_abbreviation} {game.start_time[:10]}")
-    sports_topic = any(term in lowered for term in ("sports", "nba", "mlb", "nhl", "nfl", "game", "games"))
-    if sports_topic and not live_games:
-        seeds.extend(["NBA today", "MLB today", "NHL today", "NFL today"])
-    if not any(term in lowered for term in ("crypto", "bitcoin", "ethereum", "weather", "temperature")) and not sports_topic and not live_games:
-        seeds.extend(["bitcoin", "ethereum", "temperature"])
+            _extend_unique(seeds, [f"{game.league} {game.away_abbreviation} {game.home_abbreviation} {game.start_time[:10]}"])
+    if broad_topic and not live_games:
+        _extend_unique(seeds, ["bitcoin", "ethereum", "temperature"])
     result = []
     seen = set()
     for seed in seeds:
@@ -222,6 +271,7 @@ def scan_kalshi_closing_soon(
     diagnostics: Optional[dict] = None,
     max_seeds: int = 12,
     max_candidates: int = 25,
+    raw_cap_per_seed: int = 40,
     search_depth: str = "default",
 ) -> List[dict]:
     """Return normalized raw Kalshi dicts for near-expiry markets.
@@ -234,9 +284,13 @@ def scan_kalshi_closing_soon(
     now_utc = local_now.astimezone(timezone.utc)
     window_minutes = int(window_hours * 60)
     markets_by_ticker: dict[str, dict] = {}
+    raw_seen = 0
     for seed in closing_search_topics(topic, max_seeds=max_seeds):
         response = kalshi.search_kalshi(seed, from_date, to_date, depth=search_depth)
-        for market in kalshi.parse_kalshi_response(response, topic=topic):
+        parsed_markets = kalshi.parse_kalshi_response(response, topic=topic)
+        limited_markets = parsed_markets[:max(1, int(raw_cap_per_seed or 1))]
+        raw_seen += len(limited_markets)
+        for market in limited_markets:
             ticker = market.get("ticker") or market.get("url")
             if ticker and ticker not in markets_by_ticker:
                 markets_by_ticker[ticker] = market
@@ -275,6 +329,7 @@ def scan_kalshi_closing_soon(
         candidates.append(item)
     candidates.sort(key=lambda item: item.get("_closing_rank", 0), reverse=True)
     if diagnostics is not None:
+        diagnostics["kalshi_raw_seen"] = raw_seen
         diagnostics["kalshi_closing_candidates"] = len(candidates)
         diagnostics["kalshi_skipped_no_close"] = skipped_no_close
         diagnostics["kalshi_skipped_expired"] = skipped_expired
@@ -295,6 +350,7 @@ def scan_polymarket_closing_soon(
     diagnostics: Optional[dict] = None,
     max_seeds: int = 12,
     max_candidates: int = 25,
+    raw_cap_per_seed: int = 40,
     search_depth: str = "default",
 ) -> List[dict]:
     """Return normalized raw Polymarket dicts for near-expiry/live markets."""
@@ -305,17 +361,25 @@ def scan_polymarket_closing_soon(
     now_utc = local_now.astimezone(timezone.utc)
     window_minutes = int(window_hours * 60)
     events = {}
+    raw_seen = 0
     for seed in closing_search_topics(topic, live_games, max_seeds=max_seeds):
         response = polymarket.search_polymarket(seed, from_date, to_date, depth=search_depth)
-        for event in response.get("events", []):
+        raw_events = response.get("events", [])[:max(1, int(raw_cap_per_seed or 1))]
+        raw_seen += len(raw_events)
+        for event in raw_events:
             event_id = event.get("id") or event.get("slug")
             if event_id:
                 events[event_id] = event
     parsed = polymarket.parse_polymarket_response({"events": list(events.values()), "_cap": 200}, topic=topic)
     candidates = []
+    skipped_no_close = 0
+    skipped_expired = 0
+    skipped_no_liquidity = 0
+    skipped_settled = 0
     for item in parsed:
         end_dt = _parse_end(item.get("end_datetime") or item.get("end_date"))
         if not end_dt:
+            skipped_no_close += 1
             continue
         minutes = (end_dt - now_utc).total_seconds() / 60.0
         market_type = market_types.classify_market(item.get("title", ""), item.get("question", ""), item.get("url", ""))
@@ -333,13 +397,16 @@ def scan_polymarket_closing_soon(
                 reject_counts[_sports_reject_reason(item, market_type, live_games)] += 1
                 continue
         if minutes < 0:
+            skipped_expired += 1
             continue
         if minutes > window_minutes and not live_match:
             continue
         liquidity = float(item.get("liquidity") or 0.0)
         if liquidity <= 0:
+            skipped_no_liquidity += 1
             continue
         if _is_effectively_settled(item) and not include_effectively_settled:
+            skipped_settled += 1
             continue
         reason = "live_sports" if live_match and live_match.is_live else "starting_soon" if live_match else "closing_soon"
         item["minutes_to_close"] = round(minutes, 1)
@@ -354,6 +421,12 @@ def scan_polymarket_closing_soon(
         candidates.append(item)
     candidates.sort(key=lambda item: item.get("_closing_rank", 0), reverse=True)
     if diagnostics is not None:
+        diagnostics["polymarket_raw_seen"] = raw_seen
+        diagnostics["polymarket_closing_candidates"] = len(candidates)
+        diagnostics["polymarket_skipped_no_close"] = skipped_no_close
+        diagnostics["polymarket_skipped_expired"] = skipped_expired
+        diagnostics["polymarket_skipped_no_liquidity"] = skipped_no_liquidity
+        diagnostics["polymarket_skipped_settled"] = skipped_settled
         diagnostics["live_games"] = len(live_games)
         diagnostics["live_games_live"] = sum(1 for game in live_games if game.is_live)
         diagnostics["live_games_starting_soon"] = sum(1 for game in live_games if not game.is_live)
