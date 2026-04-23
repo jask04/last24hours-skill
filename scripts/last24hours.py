@@ -2742,8 +2742,19 @@ def main():
     deduped_web = websearch.dedupe_websearch(sorted_web) if sorted_web else []
 
     if query_type == "market_watchlist" and closing_soon_mode:
+        preferred_closing_venue = closing_soon.preferred_venue(args.topic)
         try:
-            if live_sports_mode and not live_games:
+            if preferred_closing_venue == "kalshi":
+                closing_raw_pm = []
+                live_closing_diagnostics = {
+                    "polymarket_raw_seen": 0,
+                    "polymarket_closing_candidates": 0,
+                    "polymarket_skipped_no_close": 0,
+                    "polymarket_skipped_expired": 0,
+                    "polymarket_skipped_no_liquidity": 0,
+                    "polymarket_skipped_settled": 0,
+                }
+            elif live_sports_mode and not live_games:
                 closing_raw_pm = []
                 live_closing_diagnostics = {
                     "live_games": 0,
@@ -2783,7 +2794,7 @@ def main():
         except Exception as e:
             polymarket_error = f"{polymarket_error}; closing-soon scan failed: {e}" if polymarket_error else f"closing-soon scan failed: {e}"
 
-        if not live_sports_mode:
+        if not live_sports_mode and preferred_closing_venue != "polymarket":
             try:
                 kalshi_closing_diagnostics: dict = {}
                 closing_raw_ka = closing_soon.scan_kalshi_closing_soon(

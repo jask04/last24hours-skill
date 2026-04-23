@@ -1403,6 +1403,60 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertNotIn("Daily winners", items[0].catalyst_summary)
         self.assertIn("fresh catalyst context", items[0].why_ranks)
 
+    def test_kalshi_closing_soon_topic_rejects_polymarket_rows_from_top_board(self):
+        report = _report("Kalshi markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Highest temperature in Shanghai on April 23?",
+                question="Will the highest temperature in Shanghai be 17C on April 23?",
+                url="https://polymarket.com/event/shanghai-temp",
+                outcome_prices=[("Yes", 0.58), ("No", 0.42)],
+                engagement=_engagement(volume=120_000, liquidity=100_000),
+                market_type="weather_binary",
+                market_signal_quality=0.76,
+                volume_24h=120_000,
+                best_bid=0.51,
+                best_ask=0.65,
+                spread=0.14,
+                relevance=0.90,
+                minutes_to_close=297.0,
+                closing_soon_reason="closing_soon",
+                resolvability="weather market; verify the official station/source before treating it as resolved",
+            )
+        ]
+        kalshi_item = schema.KalshiItem(
+            id="KA1",
+            title="Bitcoin price range on Apr 23, 2026 at 5pm EDT?",
+            question="Bitcoin price range on Apr 23, 2026?",
+            url="https://api.elections.kalshi.com/trade-api/v2/markets/KXBTC-26APR2317-B78375",
+            ticker="KXBTC-26APR2317-B78375",
+            event_ticker="KXBTC-26APR2317",
+            current_probability=0.11,
+            implied_probability=0.11,
+            best_bid=0.04,
+            best_ask=0.14,
+            spread=0.10,
+            volume_24h=4_887.29,
+            market_signal_quality=0.42,
+            engagement=_engagement(volume=4_887.29, liquidity=0.0, open_interest=4_803.12),
+            market_type="threshold",
+            end_date="2026-04-23",
+            resolvability="Kalshi market; verify contract rules before treating it as resolved",
+            relevance=0.54,
+        )
+        kalshi_item.minutes_to_close = 297.0
+        kalshi_item.closing_soon_reason = "closing_soon"
+        report.kalshi = [kalshi_item]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].venue, "Kalshi")
+        self.assertEqual(items[0].source_item_id, "KA1")
+        self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_wrong_venue_closing_watchlist_candidates"], 1)
+
     def test_nba_watchlist_rejects_ticket_available_as_catalyst(self):
         report = _report("NBA markets to watch today")
         report.polymarket = [

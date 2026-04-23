@@ -973,6 +973,15 @@ def _has_closing_soon_note(report: schema.Report) -> bool:
     return any(note == "closing_soon" or note.startswith("live-games:") for note in getattr(report, "planning_notes", []))
 
 
+def _closing_soon_preferred_venue(topic: str) -> str:
+    lowered = (topic or "").lower()
+    if "kalshi" in lowered:
+        return "kalshi"
+    if "polymarket" in lowered:
+        return "polymarket"
+    return ""
+
+
 def _is_nba_bundle_intent(report: schema.Report) -> bool:
     return _domain(report.topic) == "nba" and paper_bundles.wants_paper_bundles(report.topic)
 
@@ -1613,6 +1622,15 @@ def _should_drop_broad_manual_rule_candidate(report: schema.Report, candidate: s
     return True
 
 
+def _is_valid_closing_soon_venue(report: schema.Report, candidate: schema.MarketWatchItem) -> bool:
+    if not _has_closing_soon_note(report):
+        return True
+    preferred = _closing_soon_preferred_venue(report.topic)
+    if not preferred:
+        return True
+    return (candidate.venue or "").lower() == preferred
+
+
 def _should_delay_duplicate_esports_board_candidate(
     report: schema.Report,
     candidate: schema.MarketWatchItem,
@@ -1710,6 +1728,9 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
             continue
         if _should_delay_duplicate_esports_title_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_esports_title_watchlist_candidates")
+            continue
+        if not _is_valid_closing_soon_venue(report, candidate):
+            _bump_debug_counter(report, "suppressed_wrong_venue_closing_watchlist_candidates")
             continue
         if not _is_valid_esports_watchlist_item(report, candidate):
             _bump_debug_counter(report, "suppressed_invalid_esports_watchlist_candidates")

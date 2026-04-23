@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.72] - 2026-04-23
+
+### Fixed
+- `scripts/last24hours.py`: Explicit venue-scoped closing-soon prompts now honor their venue path during bounded scans, so `Kalshi markets closing soon` no longer spends paper-fast runtime building a Polymarket board first.
+- `scripts/lib/market_watchlist.py`: Closing-soon watchlists now fail closed on wrong-venue rows for explicit `Kalshi ...` and `Polymarket ...` prompts, which prevents Polymarket weather rows from displacing the intended Kalshi board.
+- `tests/test_forecast_watchlist.py`: Added regression coverage proving that a Kalshi closing-soon topic suppresses mixed-in Polymarket rows and keeps the Kalshi candidate on the rendered board.
+
 ## [1.0.71] - 2026-04-22
 
 ### Changed

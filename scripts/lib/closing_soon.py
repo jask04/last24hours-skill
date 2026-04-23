@@ -29,6 +29,15 @@ def wants_live_sports(topic: str) -> bool:
     )
 
 
+def preferred_venue(topic: str) -> str:
+    lowered = (topic or "").lower()
+    if "kalshi" in lowered:
+        return "kalshi"
+    if "polymarket" in lowered:
+        return "polymarket"
+    return ""
+
+
 def _now_local(now: Optional[datetime] = None) -> datetime:
     if now:
         return now.astimezone()
