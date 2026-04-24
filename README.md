@@ -1,4 +1,4 @@
-# /last24hours v1.0.74
+# /last24hours v1.0.75
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
 
@@ -143,7 +143,9 @@ Supporting evidence is fused across X, Reddit, web, HN, Bluesky, and Truth Socia
 
 ## Release Discipline
 
-- Do not skip semantic patch versions. Each shipped version should map to one focused commit and one push.
+- Do not skip release numbers within the active version lane. Each shipped version should map to one focused commit and one push.
+- Continue the current `v1.0.x` lane through `v1.0.99`; the next release after that is `v1.1.1`, not `v1.0.100`.
+- After `v1.1.1`, use short ten-release minor lanes: `v1.N.1` through `v1.N.10`, then roll to `v1.(N+1).1`. Do not ship `.0` patch releases in those lanes.
 - If work naturally breaks into multiple release-sized updates, commit and push them separately in order instead of bundling several release numbers into one large commit.
 - If a version gap is discovered after push, backfill the release notes immediately and tighten the repo instructions before continuing with later versions.
 

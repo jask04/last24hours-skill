@@ -1624,6 +1624,72 @@ def closing_soon_health_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     return summary
 
 
+def recent_resolution_summary(
+    picks: List[Dict[str, Any]],
+    *,
+    hours: int = 48,
+    limit: int = 10,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    current = now or datetime.now()
+    cutoff = current - timedelta(hours=hours)
+    resolved: List[Dict[str, Any]] = []
+    for pick in picks:
+        if pick.get("status") != "resolved" or pick.get("resolution_value") is None:
+            continue
+        resolved_at = _parse_timestamp(pick.get("resolved_at"))
+        if resolved_at is None or resolved_at < cutoff:
+            continue
+        resolved.append(pick)
+    resolved.sort(
+        key=lambda pick: _parse_timestamp(pick.get("resolved_at")) or datetime.min,
+        reverse=True,
+    )
+    rows = []
+    for pick in resolved[:limit]:
+        rows.append({
+            "id": pick.get("id"),
+            "topic": pick.get("topic") or "",
+            "title": pick.get("title") or pick.get("question") or "",
+            "resolved_at": pick.get("resolved_at"),
+            "resolution_value": pick.get("resolution_value"),
+            "resolution_source": pick.get("resolution_source") or "",
+            "venue": pick.get("venue") or "",
+            "pick_type": pick.get("pick_type") or "",
+            "domain": _domain(str(pick.get("topic") or "")),
+            "subdomain": _pick_subdomain(pick),
+            "market_type": pick.get("market_type") or "",
+            "model_probability": pick.get("model_probability"),
+            "brier_score": pick.get("brier_score"),
+        })
+    by_domain = sorted({_domain(str(pick.get("topic") or "")) for pick in resolved})
+    by_pick_type = sorted({str(pick.get("pick_type") or "") for pick in resolved if pick.get("pick_type")})
+    by_market_type = sorted({str(pick.get("market_type") or "") for pick in resolved if pick.get("market_type")})
+    by_resolution_source = sorted({str(pick.get("resolution_source") or "") for pick in resolved if pick.get("resolution_source")})
+    return {
+        "hours": hours,
+        "count": len(resolved),
+        "by_domain": {
+            key: sum(1 for pick in resolved if _domain(str(pick.get("topic") or "")) == key)
+            for key in by_domain
+        },
+        "by_pick_type": {
+            key: sum(1 for pick in resolved if str(pick.get("pick_type") or "") == key)
+            for key in by_pick_type
+        },
+        "by_market_type": {
+            key: sum(1 for pick in resolved if str(pick.get("market_type") or "") == key)
+            for key in by_market_type
+        },
+        "by_resolution_source": {
+            key: sum(1 for pick in resolved if str(pick.get("resolution_source") or "") == key)
+            for key in by_resolution_source
+        },
+        "rows": rows,
+        "empty_reason": "" if resolved else f"No paper picks resolved in the last {hours} hours.",
+    }
+
+
 def _is_degraded_report(report: Dict[str, Any]) -> bool:
     forecasts = report.get("forecasts") or []
     if any(bool(item.get("model_implied")) for item in forecasts):
@@ -1839,6 +1905,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     esports_flagged_by_reason: Dict[str, int] = {}
     esports_prop_rows: List[Dict[str, Any]] = []
     esports_prop_degraded_by_reason: Dict[str, int] = {}
+    esports_prop_missing_degraded_reason_count = 0
     now = datetime.now()
     for pick in open_picks:
         is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
@@ -1928,6 +1995,9 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 esports_prop_rows.append(prop_row)
                 if degraded_reason:
                     esports_prop_degraded_by_reason[degraded_reason] = esports_prop_degraded_by_reason.get(degraded_reason, 0) + 1
+                elif str(pick.get("anchor_source") or "") == "model_implied":
+                    esports_prop_missing_degraded_reason_count += 1
+                    esports_prop_degraded_by_reason["missing"] = esports_prop_degraded_by_reason.get("missing", 0) + 1
             warning_reasons = _esports_open_warning_reasons(pick)
             if warning_reasons:
                 flagged_row = dict(esports_row)
@@ -2068,6 +2138,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 for key in sorted({str(row.get("anchor_source") or "") for row in esports_prop_rows if row.get("anchor_source")})
             },
             "by_degraded_reason_class": dict(sorted(esports_prop_degraded_by_reason.items())),
+            "missing_degraded_reason_count": esports_prop_missing_degraded_reason_count,
             "rows": esports_prop_rows[:8],
             "empty_reason": "" if esports_prop_rows else "No open named eSports prop rows right now.",
         },
@@ -2194,6 +2265,7 @@ def cmd_report(args) -> None:
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
         "closing_soon_health": closing_soon_health_summary(recent),
+        "recent_resolution_summary": recent_resolution_summary(recent),
         "open_portfolio": open_pick_diagnostics(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

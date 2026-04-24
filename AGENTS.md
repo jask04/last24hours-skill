@@ -108,8 +108,10 @@ python3 scripts/last24hours.py "live sports games on Polymarket right now" --qui
 ## Release Memory
 
 - Treat meaningful feature, behavior, documentation, and safety-filter updates as normal versioned releases.
-- Keep bumping semantic patch versions for each shipped update, even while the repo is private, so the history is clear if the project becomes public again.
-- Do not skip release numbers. Each semantic patch bump must correspond to one reviewable release commit and one push on the current branch.
+- Keep bumping the release version for each shipped update, even while the repo is private, so the history is clear if the project becomes public again.
+- Continue the current `v1.0.x` line through `v1.0.99`. After `v1.0.99`, roll to `v1.1.1` instead of `v1.0.100`.
+- After the `v1.1.1` rollover, use short minor lanes of ten patch releases: `v1.N.1` through `v1.N.10`, then `v1.(N+1).1`. Do not use `.0` as a shipped patch in those lanes.
+- Do not skip release numbers within the active lane. Each version bump must correspond to one reviewable release commit and one push on the current branch.
 - If work naturally spans multiple release-sized changes, split it into sequential versioned commits before pushing instead of bundling several release numbers into one large commit.
 - If a version gap is discovered after push, backfill the release notes immediately and record the process failure in repo instructions before continuing with later versions.
 - For each release, update the current-version surfaces together: `SKILL.md` frontmatter and heading, `README.md` title/version text, `.claude-plugin/plugin.json`, `gemini-extension.json`, and both source-status banners in `scripts/lib/ui.py`.

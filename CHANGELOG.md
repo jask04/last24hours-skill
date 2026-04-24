@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.75] - 2026-04-24
+
+### Changed
+- `scripts/paper.py`: `paper.py report --days N` now includes a `recent_resolution_summary` slice so newly resolved paper rows are visible by domain, pick type, market type, resolution source, and row details without scanning the full ledger.
+- `scripts/paper.py`: Open named eSports prop diagnostics now count model-implied rows that are missing degraded-reason metadata, making pre-`v1.0.74` prop rows easier to separate from current diagnostic-rich samples.
+- `AGENTS.md` and `README.md`: Documented the release-number rollover convention: continue through `v1.0.99`, then move to `v1.1.1`, with ten-release minor lanes after that instead of using `v1.0.100`.
+- `tests/test_paper_ledger.py`: Added regressions for recent-resolution reporting and missing named-prop degraded-reason metadata.
+
 ## [1.0.74] - 2026-04-23
 
 ### Changed

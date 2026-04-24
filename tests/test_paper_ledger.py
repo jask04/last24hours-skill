@@ -597,6 +597,59 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(summary["by_market_type"]["crypto_daily"], 1)
         self.assertEqual(summary["open_anchor_mix"]["anchored"], 1)
 
+    def test_recent_resolution_summary_groups_freshly_resolved_rows(self):
+        picks = [
+            {
+                "id": 116,
+                "topic": "Valorant matches today",
+                "title": "Valorant: BBL Esports vs Team Vitality",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "market_type": "game_outcome",
+                "resolution_source": "polymarket",
+                "resolution_value": 1.0,
+                "model_probability": 0.58,
+                "brier_score": 0.1764,
+                "status": "resolved",
+                "resolved_at": "2026-04-24 12:00:00",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "valorant"}),
+            },
+            {
+                "id": 117,
+                "topic": "NYC rain tomorrow",
+                "title": "NYC rain tomorrow",
+                "pick_type": "forecast",
+                "venue": "weather_api",
+                "market_type": "weather",
+                "resolution_source": "nws_observations",
+                "resolution_value": 0.0,
+                "model_probability": 0.25,
+                "brier_score": 0.0625,
+                "status": "resolved",
+                "resolved_at": "2026-04-20 12:00:00",
+            },
+            {
+                "id": 118,
+                "topic": "Counter-Strike 2 matches today",
+                "status": "open",
+                "resolution_value": None,
+            },
+        ]
+
+        summary = paper.recent_resolution_summary(
+            picks,
+            hours=48,
+            now=paper.datetime(2026, 4, 24, 13, 0, 0),
+        )
+
+        self.assertEqual(summary["count"], 1)
+        self.assertEqual(summary["by_domain"]["esports"], 1)
+        self.assertEqual(summary["by_pick_type"]["forecast"], 1)
+        self.assertEqual(summary["by_market_type"]["game_outcome"], 1)
+        self.assertEqual(summary["by_resolution_source"]["polymarket"], 1)
+        self.assertEqual(summary["rows"][0]["id"], 116)
+        self.assertEqual(summary["rows"][0]["subdomain"], "valorant")
+
     def test_cmd_daily_dry_run_reports_wrong_subdomain_reason_class(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
@@ -1730,7 +1783,34 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(named_prop["by_market_type"]["model_implied"], 1)
         self.assertEqual(named_prop["by_anchor_source"]["model_implied"], 1)
         self.assertEqual(named_prop["by_degraded_reason_class"]["no_matching_player_market"], 1)
+        self.assertEqual(named_prop["missing_degraded_reason_count"], 0)
         self.assertEqual(named_prop["rows"][0]["subdomain"], "valorant")
+
+    def test_open_pick_diagnostics_flags_missing_named_prop_reason_metadata(self):
+        diagnostics = paper.open_pick_diagnostics([
+            {
+                "id": 86,
+                "status": "unknown",
+                "topic": "TenZ total kills tonight",
+                "title": "TenZ total kills tonight",
+                "question": "TenZ total kills tonight",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "market_type": "model_implied",
+                "model_probability": 0.52,
+                "resolution_source": "",
+                "skill_version": "1.0.62",
+                "market_url": "",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "valorant"}),
+                "evidence_json": json.dumps({}),
+            }
+        ])
+
+        named_prop = diagnostics["esports_named_prop_slice"]
+        self.assertEqual(named_prop["count"], 1)
+        self.assertEqual(named_prop["missing_degraded_reason_count"], 1)
+        self.assertEqual(named_prop["by_degraded_reason_class"]["missing"], 1)
 
 
 class LaunchdTests(unittest.TestCase):
