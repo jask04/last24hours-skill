@@ -98,8 +98,8 @@ _WEATHER_MARKERS = {
     "tornado",
 }
 _CRYPTO_MARKERS = {"bitcoin", "btc", "ethereum", "eth", "solana", "xrp", "crypto"}
-_KALSHI_SPORTS_MARKET_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)[A-Z]*", re.IGNORECASE)
-_KALSHI_SPORTS_SERIES_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL)(?:SERIES|PLAYOFF|FINAL|FINALS)", re.IGNORECASE)
+_KALSHI_SPORTS_MARKET_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL|CS2|VAL|LOL)(?:GAME|[A-Z]*)", re.IGNORECASE)
+_KALSHI_SPORTS_SERIES_RE = re.compile(r"/markets/KX(?:NBA|NFL|MLB|NHL|CS2|VAL|LOL)(?:SERIES|PLAYOFF|FINAL|FINALS)", re.IGNORECASE)
 _KALSHI_MACRO_MARKET_RE = re.compile(r"/markets/KX(?:FED|FEDDECISION|CPI|JOBS)[A-Z0-9.-]*", re.IGNORECASE)
 _ESPORTS_TERMS = {
     "counter", "strike", "counterstrike", "counter-strike", "cs2", "csgo",
@@ -128,6 +128,9 @@ def _has_matchup(text: str) -> bool:
 
 def _looks_like_kalshi_sports_game_contract(text_lower: str, url: str) -> bool:
     if not _KALSHI_SPORTS_MARKET_RE.search(url or ""):
+        return False
+    # Exclude esports from this general sports-game logic so they hit the dedicated esports path
+    if any(token in (url or "").lower() for token in ("kxcs2", "kxval", "kxlol", "kxesports")):
         return False
     if "winner" not in text_lower:
         return False
@@ -159,21 +162,30 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
     if _looks_like_kalshi_sports_game_contract(text_lower, url):
         return "game_outcome"
 
-    if _KALSHI_MACRO_MARKET_RE.search(url or ""):
-        return "macro_binary"
-
     if any(marker in text_lower for marker in _ESPORTS_PROP_MARKERS):
         return "esports_prop"
+
     if any(marker in text_lower for marker in _ESPORTS_TITLE_MARKERS) and (
         tokens & _ESPORTS_TERMS
         or any(marker in text_lower for marker in ("map pool", "cache", "add cache"))
     ):
         return "esports_title"
-    if (tokens & _ESPORTS_TERMS) and _has_matchup(text_lower):
+
+    if (tokens & _ESPORTS_TERMS or _KALSHI_SPORTS_MARKET_RE.search(url or "")) and _has_matchup(text_lower):
         if any(marker in text_lower for marker in _ESPORTS_MATCH_MARKERS):
             return "game_outcome"
         if re.search(r"\(bo[1-5]\)", text_lower):
             return "game_outcome"
+        # Fallback for esports matchups that don't have explicit match markers
+        if _KALSHI_SPORTS_MARKET_RE.search(url or ""):
+            return "game_outcome"
+
+    # Fallback for Kalshi esports URLs that don't match the strict sports-game regex
+    if _KALSHI_SPORTS_MARKET_RE.search(url or "") and "winner" in text_lower:
+        return "game_outcome"
+
+    if _KALSHI_MACRO_MARKET_RE.search(url or ""):
+        return "macro_binary"
 
     if any(marker in text_lower for marker in _FUTURES_MARKERS):
         return "futures"

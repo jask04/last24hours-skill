@@ -2106,11 +2106,15 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     
     paper_bundle_rows: List[Dict[str, Any]] = []
     paper_bundle_by_topic: Dict[str, int] = {}
+    paper_bundle_by_age_bucket: Dict[str, int] = {}
+    paper_bundle_by_leg_count: Dict[int, int] = {}
     paper_bundle_past_due = 0
     paper_bundle_future = 0
     
     model_implied_rows: List[Dict[str, Any]] = []
     model_implied_by_topic: Dict[str, int] = {}
+    model_implied_by_domain: Dict[str, int] = {}
+    model_implied_by_subdomain: Dict[str, int] = {}
     model_implied_by_degraded_reason: Dict[str, int] = {}
     
     now = datetime.now()
@@ -2179,6 +2183,9 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             model_implied += 1
             topic = str(pick.get("topic") or "")
             model_implied_by_topic[topic] = model_implied_by_topic.get(topic, 0) + 1
+            model_implied_by_domain[domain] = model_implied_by_domain.get(domain, 0) + 1
+            if subdomain:
+                model_implied_by_subdomain[subdomain] = model_implied_by_subdomain.get(subdomain, 0) + 1
             notes = _safe_json_loads(pick.get("notes_json"))
             degraded_reason = str(notes.get("degraded_reason_class") or "")
             if degraded_reason:
@@ -2199,8 +2206,11 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         if is_paper_bundle:
             topic = str(pick.get("topic") or "")
             paper_bundle_by_topic[topic] = paper_bundle_by_topic.get(topic, 0) + 1
+            paper_bundle_by_age_bucket[age_bucket] = paper_bundle_by_age_bucket.get(age_bucket, 0) + 1
             notes = _safe_json_loads(pick.get("notes_json"))
             legs = notes.get("legs") or []
+            leg_count = len(legs)
+            paper_bundle_by_leg_count[leg_count] = paper_bundle_by_leg_count.get(leg_count, 0) + 1
             
             readiness = "unknown_date"
             past_due_count = 0
@@ -2376,14 +2386,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "paper_bundle_open_slice": {
             "count": paper_bundle_count,
             "by_topic": dict(sorted(paper_bundle_by_topic.items())),
-            "by_age_bucket": {
-                key: sum(1 for row in paper_bundle_rows if row.get("age_bucket") == key)
-                for key in sorted({str(row.get("age_bucket") or "") for row in paper_bundle_rows if row.get("age_bucket")})
-            },
-            "by_leg_count": {
-                key: sum(1 for row in paper_bundle_rows if row.get("leg_count") == key)
-                for key in sorted({int(row.get("leg_count") or 0) for row in paper_bundle_rows if row.get("leg_count")})
-            },
+            "by_age_bucket": dict(sorted(paper_bundle_by_age_bucket.items())),
+            "by_leg_count": dict(sorted({str(k): v for k, v in paper_bundle_by_leg_count.items()}.items())),
             "past_due_count": paper_bundle_past_due,
             "future_count": paper_bundle_future,
             "rows": paper_bundle_rows[:10],
@@ -2392,14 +2396,8 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "model_implied_open_slice": {
             "count": model_implied,
             "by_topic": dict(sorted(model_implied_by_topic.items())),
-            "by_domain": {
-                key: sum(1 for row in model_implied_rows if row.get("domain") == key)
-                for key in sorted({str(row.get("domain") or "") for row in model_implied_rows if row.get("domain")})
-            },
-            "by_subdomain": {
-                key: sum(1 for row in model_implied_rows if row.get("subdomain") == key)
-                for key in sorted({str(row.get("subdomain") or "") for row in model_implied_rows if row.get("subdomain")})
-            },
+            "by_domain": dict(sorted(model_implied_by_domain.items())),
+            "by_subdomain": dict(sorted(model_implied_by_subdomain.items())),
             "by_degraded_reason_class": dict(sorted(model_implied_by_degraded_reason.items())),
             "rows": model_implied_rows[:10],
             "empty_reason": "" if model_implied else "No open model-implied paper rows right now.",

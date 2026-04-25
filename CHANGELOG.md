@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.80] - 2026-04-25
+
+### Added
+- `scripts/lib/kalshi.py`: Added Kalshi eSports support with specific series routing for `KXCS2GAME`, `KXVALGAME`, and `KXLOLGAME`.
+- `scripts/lib/kalshi.py`: Added generic `esports` league detection and series mapping to improve discovery for broad eSports prompts.
+- `scripts/lib/market_types.py`: Updated Kalshi sports/eSports regexes and classification logic to correctly handle `game_outcome` and `esports_prop` for eSports contracts.
+- `tests/test_kalshi_esports.py`: Added regression coverage for Kalshi eSports routing and market classification.
+
+### Fixed
+- `scripts/paper.py`: Fixed model-implied and paper-bundle slice group counts in `open_pick_diagnostics` to use the full open set instead of being truncated by the 10-row example cap.
+- `scripts/lib/kalshi.py`: `_is_combo_market` now allows single-match eSports rows even if the ticker contains multi-game grouping tokens.
+
+### Changed
+- `scripts/lib/kalshi.py`: `KXCS2GAME`, `KXVALGAME`, and `KXLOLGAME` are now part of the broad `Kalshi live markets` board scan.
+- `SKILL.md`, `README.md`, `scripts/lib/ui.py`, `scripts/lib/bird_x.py`, `scripts/lib/youtube_yt.py`, `.claude-plugin/plugin.json`, and `gemini-extension.json`: Updated version to `v1.0.80`.
+
 ## [1.0.79] - 2026-04-25
 
 ### Added

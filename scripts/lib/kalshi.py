@@ -73,6 +73,9 @@ _BROAD_LIVE_SERIES = [
     "KXCPI",
     "KXJOBS",
     "KXNBAGAME",
+    "KXCS2GAME",
+    "KXVALGAME",
+    "KXLOLGAME",
 ]
 
 
@@ -243,6 +246,14 @@ def _detect_league(topic: str) -> Optional[str]:
     if eq.is_nba_market_text(topic):
         return "nba"
     topic_lower = topic.lower()
+    if "cs2" in topic_lower or "counter strike" in topic_lower or "counter-strike" in topic_lower:
+        return "cs2"
+    if "valorant" in topic_lower:
+        return "valorant"
+    if "lol" in topic_lower or "league of legends" in topic_lower:
+        return "lol"
+    if "esports" in topic_lower:
+        return "esports"
     for league, aliases in _LEAGUE_TOKENS.items():
         if any(alias in topic_lower for alias in aliases):
             return league
@@ -252,6 +263,8 @@ def _detect_league(topic: str) -> Optional[str]:
 def _is_sports_slate_query(topic: str) -> bool:
     topic_lower = topic.lower()
     league = _detect_league(topic)
+    if league in ("cs2", "valorant", "lol"):
+        return any(term in topic_lower for term in ("matches", "games", "tonight", "today", "slate", "watchlist"))
     return bool(league and any(term in topic_lower for term in ("games tonight", "games today", "tonight", "today", "slate")))
 
 
@@ -260,6 +273,12 @@ def _is_combo_market(market: Dict[str, Any], event_title: str = "") -> bool:
     ticker = str(market.get("ticker", "")).lower()
     event_ticker = str(market.get("event_ticker", "")).lower()
     comma_count = text.count(",")
+    
+    # Allow single match esports even if ticker has multigame (sometimes used for slate grouping)
+    if (" vs " in text or " at " in text) and comma_count < 2:
+        if any(token in ticker for token in ("cs2", "valorant", "lol", "esports")):
+            return False
+
     if "multigame" in ticker or "crosscategory" in ticker or "multigame" in event_ticker or "crosscategory" in event_ticker:
         return True
     if "combo" in text:
@@ -357,6 +376,14 @@ def _series_for_topic(topic: str) -> List[str]:
     league = _detect_league(topic)
     if league == "nba":
         series.append("KXNBAGAME")
+    if league == "cs2":
+        series.extend(["KXCS2GAME", "KXCS2", "KXESPORTS", "KXCCT"])
+    if league == "valorant":
+        series.extend(["KXVALGAME", "KXVAL", "KXESPORTS"])
+    if league == "lol":
+        series.extend(["KXLOLGAME", "KXLOL", "KXESPORTS"])
+    if league == "esports":
+        series.extend(["KXCS2GAME", "KXVALGAME", "KXLOLGAME", "KXESPORTS"])
     for token, mapped in _MACRO_SERIES_BY_TOKEN.items():
         if token in tokens:
             series.extend(mapped)
