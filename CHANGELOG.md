@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.76] - 2026-04-25
+
+### Changed
+- `scripts/paper.py`: `paper.py report --days N` now includes a `resolution_learning_summary` slice that turns resolved paper rows into worst-row examples, high-confidence misses, low-probability hits, subgroup calibration alerts, and concrete audit action items.
+- `scripts/paper.py`: Resolution learning excludes legacy noisy-rationale rows, preserving the existing comparable-sample discipline while making recent eSports/NBA/closing-soon failures easier to inspect from report JSON.
+- `tests/test_paper_ledger.py`: Added regression coverage for high-confidence miss detection, low-probability hit detection, and subgroup alert generation from resolved paper picks.
+
 ## [1.0.75] - 2026-04-24
 
 ### Changed

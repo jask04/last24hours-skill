@@ -1690,6 +1690,131 @@ def recent_resolution_summary(
     }
 
 
+def _resolution_row(pick: Dict[str, Any]) -> Dict[str, Any]:
+    probability = _prob(pick.get("model_probability"))
+    outcome = _prob(pick.get("resolution_value"))
+    brier = _prob(pick.get("brier_score"))
+    return {
+        "id": pick.get("id"),
+        "topic": pick.get("topic") or "",
+        "title": pick.get("title") or pick.get("question") or "",
+        "created_at": pick.get("created_at"),
+        "resolved_at": pick.get("resolved_at"),
+        "resolution_value": pick.get("resolution_value"),
+        "resolution_source": pick.get("resolution_source") or "",
+        "venue": pick.get("venue") or "",
+        "pick_type": pick.get("pick_type") or "",
+        "domain": _domain(str(pick.get("topic") or "")),
+        "subdomain": _pick_subdomain(pick),
+        "market_type": pick.get("market_type") or "",
+        "anchor_source": pick.get("anchor_source") or "",
+        "model_probability": probability,
+        "brier_score": brier,
+        "calibration_error": (probability - outcome) if probability is not None and outcome is not None else None,
+    }
+
+
+def _resolution_group_alerts(
+    resolved: List[Dict[str, Any]],
+    *,
+    min_group_count: int,
+) -> List[Dict[str, Any]]:
+    axes = {
+        "domain": lambda pick: _domain(str(pick.get("topic") or "")),
+        "pick_type": lambda pick: str(pick.get("pick_type") or ""),
+        "market_type": lambda pick: str(pick.get("market_type") or ""),
+        "subdomain": _pick_subdomain,
+        "probability_bucket": lambda pick: _probability_bucket(float(pick.get("model_probability") or 0)),
+    }
+    alerts: List[Dict[str, Any]] = []
+    for axis, bucket_fn in axes.items():
+        buckets = sorted({bucket_fn(pick) for pick in resolved if bucket_fn(pick)})
+        for bucket in buckets:
+            rows = [pick for pick in resolved if bucket_fn(pick) == bucket]
+            if len(rows) < min_group_count:
+                continue
+            summary = _scope_summary(rows)
+            gap = summary["avg_probability"] - summary["observed_rate"]
+            if summary["avg_brier"] < 0.25 and abs(gap) < 0.20:
+                continue
+            alerts.append({
+                "axis": axis,
+                "value": bucket,
+                "count": summary["count"],
+                "avg_probability": summary["avg_probability"],
+                "observed_rate": summary["observed_rate"],
+                "avg_brier": summary["avg_brier"],
+                "calibration_gap": gap,
+                "direction": "overconfident" if gap > 0 else "underconfident",
+            })
+    alerts.sort(key=lambda item: (item["avg_brier"], abs(item["calibration_gap"]), item["count"]), reverse=True)
+    return alerts
+
+
+def resolution_learning_summary(
+    picks: List[Dict[str, Any]],
+    *,
+    min_group_count: int = 3,
+    row_limit: int = 8,
+) -> Dict[str, Any]:
+    resolved = [
+        pick for pick in picks
+        if pick.get("status") == "resolved"
+        and pick.get("resolution_value") is not None
+        and not _is_legacy_noisy_rationale(pick)
+    ]
+    resolved.sort(key=lambda pick: float(pick.get("brier_score") or 0), reverse=True)
+    if not resolved:
+        return {
+            "count": 0,
+            "worst_rows": [],
+            "high_confidence_misses": [],
+            "underdog_hits": [],
+            "group_alerts": [],
+            "action_items": [],
+            "empty_reason": "No resolved paper rows in the selected report window.",
+        }
+
+    high_confidence_misses = []
+    underdog_hits = []
+    for pick in resolved:
+        probability = _prob(pick.get("model_probability"))
+        outcome = _prob(pick.get("resolution_value"))
+        if probability is None or outcome is None:
+            continue
+        if (probability >= 0.80 and outcome <= 0.0) or (probability <= 0.20 and outcome >= 1.0):
+            high_confidence_misses.append(_resolution_row(pick))
+        if probability <= 0.35 and outcome >= 1.0:
+            underdog_hits.append(_resolution_row(pick))
+
+    group_alerts = _resolution_group_alerts(resolved, min_group_count=min_group_count)
+    action_items = []
+    if high_confidence_misses:
+        action_items.append(
+            f"Review {len(high_confidence_misses)} high-confidence miss(es); these are the fastest path to reducing Brier without changing ledger schema."
+        )
+    if underdog_hits:
+        action_items.append(
+            f"Review {len(underdog_hits)} low-probability hit(s); they may indicate underweighting of thin but valid market anchors."
+        )
+    for alert in group_alerts[:3]:
+        action_items.append(
+            f"{alert['axis']}:{alert['value']} is {alert['direction']} by {abs(alert['calibration_gap']) * 100:.0f} points across {alert['count']} resolved rows; inspect this slice before changing global probabilities."
+        )
+    if not action_items:
+        action_items.append("No concentrated resolution-driven correction is strong enough yet; keep collecting paper rows before changing runtime weights.")
+
+    return {
+        "count": len(resolved),
+        "worst_rows": [_resolution_row(pick) for pick in resolved[:row_limit]],
+        "high_confidence_misses": high_confidence_misses[:row_limit],
+        "underdog_hits": underdog_hits[:row_limit],
+        "group_alerts": group_alerts[:row_limit],
+        "action_items": action_items,
+        "empty_reason": "",
+    }
+
+
 def _is_degraded_report(report: Dict[str, Any]) -> bool:
     forecasts = report.get("forecasts") or []
     if any(bool(item.get("model_implied")) for item in forecasts):
@@ -2266,6 +2391,7 @@ def cmd_report(args) -> None:
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
         "closing_soon_health": closing_soon_health_summary(recent),
         "recent_resolution_summary": recent_resolution_summary(recent),
+        "resolution_learning_summary": resolution_learning_summary(recent),
         "open_portfolio": open_pick_diagnostics(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

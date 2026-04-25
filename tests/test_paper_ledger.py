@@ -650,6 +650,64 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(summary["rows"][0]["id"], 116)
         self.assertEqual(summary["rows"][0]["subdomain"], "valorant")
 
+    def test_resolution_learning_summary_flags_high_confidence_misses_and_groups(self):
+        picks = [
+            {
+                "id": 201,
+                "topic": "Valorant markets to watch today",
+                "title": "Valorant: BBL Esports vs Team Vitality",
+                "pick_type": "watchlist",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "market_type": "game_outcome",
+                "model_probability": 0.91,
+                "resolution_value": 0.0,
+                "brier_score": 0.8281,
+                "status": "resolved",
+                "resolved_at": "2026-04-24 12:00:00",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "valorant"}),
+            },
+            {
+                "id": 202,
+                "topic": "Valorant matches today",
+                "title": "Valorant: Gentle Mates vs Team Heretics",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "market_type": "game_outcome",
+                "model_probability": 0.72,
+                "resolution_value": 1.0,
+                "brier_score": 0.0784,
+                "status": "resolved",
+                "resolved_at": "2026-04-24 13:00:00",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "valorant"}),
+            },
+            {
+                "id": 203,
+                "topic": "Counter-Strike 2 matches today",
+                "title": "Counter-Strike: BIG vs Heroic",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "market_type": "game_outcome",
+                "model_probability": 0.28,
+                "resolution_value": 1.0,
+                "brier_score": 0.5184,
+                "status": "resolved",
+                "resolved_at": "2026-04-24 14:00:00",
+                "notes_json": json.dumps({"domain": "esports", "subdomain": "cs2"}),
+            },
+        ]
+
+        summary = paper.resolution_learning_summary(picks, min_group_count=2)
+
+        self.assertEqual(summary["count"], 3)
+        self.assertEqual(summary["worst_rows"][0]["id"], 201)
+        self.assertEqual(summary["high_confidence_misses"][0]["id"], 201)
+        self.assertEqual(summary["underdog_hits"][0]["id"], 203)
+        self.assertTrue(any(alert["axis"] == "domain" and alert["value"] == "esports" for alert in summary["group_alerts"]))
+        self.assertTrue(any("high-confidence miss" in item for item in summary["action_items"]))
+
     def test_cmd_daily_dry_run_reports_wrong_subdomain_reason_class(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
