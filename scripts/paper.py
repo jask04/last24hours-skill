@@ -1196,12 +1196,7 @@ def _nba_pick_date(pick: Dict[str, Any]) -> Optional[datetime.date]:
     return end_date
 
 
-def _resolve_nba_pick(pick: Dict[str, Any]) -> Optional[tuple[str, Optional[float], str]]:
-    if _domain(str(pick.get("topic") or pick.get("title") or "")) != "nba":
-        return None
-    game_date = _nba_pick_date(pick)
-    if not game_date:
-        return None
+def _resolve_nba_game(title: str, outcome_label: str, game_date: datetime.date) -> tuple[str, Optional[float], str]:
     if game_date > datetime.now().astimezone().date():
         return "open", None, "espn_nba"
 
@@ -1211,10 +1206,7 @@ def _resolve_nba_pick(pick: Dict[str, Any]) -> Optional[tuple[str, Optional[floa
         timeout=15,
         retries=2,
     )
-    wanted_title = str(pick.get("title") or pick.get("question") or "")
-    wanted_outcome = str(pick.get("outcome_label") or "")
     for event in payload.get("events", []):
-        event_name = str(event.get("name") or event.get("shortName") or "")
         competitors = ((event.get("competitions") or [{}])[0].get("competitors") or [])
         labels = []
         winner_label = ""
@@ -1229,7 +1221,7 @@ def _resolve_nba_pick(pick: Dict[str, Any]) -> Optional[tuple[str, Optional[floa
             labels.extend(str(name) for name in names if name)
             if competitor.get("winner") is True:
                 winner_label = next((str(name) for name in names if name), "")
-        if wanted_title and not any(_team_matches(label, wanted_title) for label in labels):
+        if title and not any(_team_matches(label, title) for label in labels):
             continue
         status_type = (((event.get("competitions") or [{}])[0].get("status") or {}).get("type") or {})
         completed = status_type.get("completed") is True or str(status_type.get("name") or "").upper() in {"STATUS_FINAL", "STATUS_FINAL_OT"}
@@ -1237,8 +1229,59 @@ def _resolve_nba_pick(pick: Dict[str, Any]) -> Optional[tuple[str, Optional[floa
             return "open", None, "espn_nba"
         if not winner_label:
             return "unknown", None, "espn_nba"
-        return "resolved", 1.0 if _team_matches(wanted_outcome, winner_label) else 0.0, "espn_nba"
+        return "resolved", 1.0 if _team_matches(outcome_label, winner_label) else 0.0, "espn_nba"
     return "open" if game_date >= datetime.now().astimezone().date() else "unknown", None, "espn_nba"
+
+
+def _resolve_nba_pick(pick: Dict[str, Any]) -> Optional[tuple[str, Optional[float], str]]:
+    if _domain(str(pick.get("topic") or pick.get("title") or "")) != "nba":
+        return None
+    game_date = _nba_pick_date(pick)
+    if not game_date:
+        return None
+    return _resolve_nba_game(
+        str(pick.get("title") or pick.get("question") or ""),
+        str(pick.get("outcome_label") or ""),
+        game_date
+    )
+
+
+def _resolve_paper_bundle(pick: Dict[str, Any]) -> tuple[str, Optional[float], str]:
+    notes = _safe_json_loads(pick.get("notes_json"))
+    domain = notes.get("domain")
+    legs = notes.get("legs") or []
+    if domain != "nba" or not legs:
+        return "unknown", None, "paper_bundle:unsupported_domain"
+
+    resolved_legs = []
+    for leg in legs:
+        # Extract date from live_game_context: "start 2024-04-25T23:30Z"
+        context = str(leg.get("live_game_context") or "")
+        match = re.search(r"start (\d{4}-\d{2}-\d{2})", context)
+        if not match:
+            return "unknown", None, "paper_bundle:espn_nba_unknown_date"
+        try:
+            game_date = datetime.strptime(match.group(1), "%Y-%m-%d").date()
+        except ValueError:
+            return "unknown", None, "paper_bundle:espn_nba_unknown_date"
+
+        status, value, source = _resolve_nba_game(
+            str(leg.get("title") or ""),
+            str(leg.get("outcome_label") or ""),
+            game_date
+        )
+        resolved_legs.append((status, value))
+
+    if any(status == "open" for status, value in resolved_legs):
+        return "open", None, "paper_bundle:espn_nba"
+
+    if any(status == "resolved" and value == 0.0 for status, value in resolved_legs):
+        return "resolved", 0.0, "paper_bundle:espn_nba"
+
+    if all(status == "resolved" and value == 1.0 for status, value in resolved_legs):
+        return "resolved", 1.0, "paper_bundle:espn_nba"
+
+    return "unknown", None, "paper_bundle:espn_nba_unknown"
 
 
 def _weather_target_date(pick: Dict[str, Any]) -> datetime.date:
@@ -1421,6 +1464,8 @@ def _resolve_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
             status, value, source = _resolve_polymarket_payload(pick, payload)
     elif venue == "weather_api":
         status, value, source = _resolve_weather_pick(pick)
+    elif venue == "paper_bundle":
+        status, value, source = _resolve_paper_bundle(pick)
     elif _domain(topic) == "crypto":
         status, value, source = _resolve_crypto_pick(pick)
     else:
@@ -2058,6 +2103,16 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     esports_prop_rows: List[Dict[str, Any]] = []
     esports_prop_degraded_by_reason: Dict[str, int] = {}
     esports_prop_missing_degraded_reason_count = 0
+    
+    paper_bundle_rows: List[Dict[str, Any]] = []
+    paper_bundle_by_topic: Dict[str, int] = {}
+    paper_bundle_past_due = 0
+    paper_bundle_future = 0
+    
+    model_implied_rows: List[Dict[str, Any]] = []
+    model_implied_by_topic: Dict[str, int] = {}
+    model_implied_by_degraded_reason: Dict[str, int] = {}
+    
     now = datetime.now()
     for pick in open_picks:
         is_paper_bundle = pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle"
@@ -2122,10 +2177,78 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             source_rollup[status] = int(source_rollup.get(status, 0) or 0) + 1
         if pick.get("venue") == "model_implied" or pick.get("anchor_source") == "model_implied":
             model_implied += 1
+            topic = str(pick.get("topic") or "")
+            model_implied_by_topic[topic] = model_implied_by_topic.get(topic, 0) + 1
+            notes = _safe_json_loads(pick.get("notes_json"))
+            degraded_reason = str(notes.get("degraded_reason_class") or "")
+            if degraded_reason:
+                model_implied_by_degraded_reason[degraded_reason] = model_implied_by_degraded_reason.get(degraded_reason, 0) + 1
+            if len(model_implied_rows) < 10:
+                model_implied_rows.append({
+                    "id": pick.get("id"),
+                    "topic": topic,
+                    "title": str(pick.get("title") or pick.get("question") or ""),
+                    "model_probability": probability,
+                    "created_at": pick.get("created_at"),
+                    "skill_version": skill_bucket,
+                    "domain": domain,
+                    "subdomain": subdomain,
+                    "degraded_reason_class": degraded_reason,
+                })
+        
+        if is_paper_bundle:
+            topic = str(pick.get("topic") or "")
+            paper_bundle_by_topic[topic] = paper_bundle_by_topic.get(topic, 0) + 1
+            notes = _safe_json_loads(pick.get("notes_json"))
+            legs = notes.get("legs") or []
+            
+            readiness = "unknown_date"
+            past_due_count = 0
+            future_count = 0
+            
+            for leg in legs:
+                context = str(leg.get("live_game_context") or "")
+                match = re.search(r"start (\d{4}-\d{2}-\d{2})", context)
+                if match:
+                    try:
+                        game_date = datetime.strptime(match.group(1), "%Y-%m-%d").date()
+                        if game_date < now.date():
+                            past_due_count += 1
+                        else:
+                            future_count += 1
+                    except ValueError:
+                        pass
+            
+            if not legs:
+                readiness = "missing_leg_metadata"
+            elif past_due_count > 0:
+                readiness = "past_due"
+                paper_bundle_past_due += 1
+            elif future_count > 0:
+                readiness = "future"
+                paper_bundle_future += 1
+            
+            if len(paper_bundle_rows) < 10:
+                paper_bundle_rows.append({
+                    "id": pick.get("id"),
+                    "topic": topic,
+                    "title": str(pick.get("title") or pick.get("question") or ""),
+                    "model_probability": probability,
+                    "created_at": pick.get("created_at"),
+                    "leg_count": len(legs),
+                    "legs": [
+                        {"title": leg.get("title"), "outcome": leg.get("outcome_label")}
+                        for leg in legs
+                    ],
+                    "resolution_readiness": readiness,
+                    "age_bucket": age_bucket,
+                })
+
         has_auto_resolver = (
             pick.get("venue") in {"kalshi", "polymarket", "weather_api"}
             or pick.get("resolution_source") in {"kalshi", "polymarket", "nws_observations", "espn_nba", "coingecko"}
             or (_domain(str(pick.get("topic") or "")) == "crypto")
+            or is_paper_bundle
         )
         if not is_paper_bundle and (pick.get("status") == "unknown" or not has_auto_resolver):
             manual_only += 1
@@ -2250,6 +2373,37 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_noisy_by_reason": dict(sorted(legacy_noisy_by_reason.items())),
         "legacy_noisy_examples": legacy_noisy_examples,
         "source_health_status_rollup": {key: dict(sorted(value.items())) for key, value in sorted(source_health_status_rollup.items())},
+        "paper_bundle_open_slice": {
+            "count": paper_bundle_count,
+            "by_topic": dict(sorted(paper_bundle_by_topic.items())),
+            "by_age_bucket": {
+                key: sum(1 for row in paper_bundle_rows if row.get("age_bucket") == key)
+                for key in sorted({str(row.get("age_bucket") or "") for row in paper_bundle_rows if row.get("age_bucket")})
+            },
+            "by_leg_count": {
+                key: sum(1 for row in paper_bundle_rows if row.get("leg_count") == key)
+                for key in sorted({int(row.get("leg_count") or 0) for row in paper_bundle_rows if row.get("leg_count")})
+            },
+            "past_due_count": paper_bundle_past_due,
+            "future_count": paper_bundle_future,
+            "rows": paper_bundle_rows[:10],
+            "empty_reason": "" if paper_bundle_count else "No open paper bundles right now.",
+        },
+        "model_implied_open_slice": {
+            "count": model_implied,
+            "by_topic": dict(sorted(model_implied_by_topic.items())),
+            "by_domain": {
+                key: sum(1 for row in model_implied_rows if row.get("domain") == key)
+                for key in sorted({str(row.get("domain") or "") for row in model_implied_rows if row.get("domain")})
+            },
+            "by_subdomain": {
+                key: sum(1 for row in model_implied_rows if row.get("subdomain") == key)
+                for key in sorted({str(row.get("subdomain") or "") for row in model_implied_rows if row.get("subdomain")})
+            },
+            "by_degraded_reason_class": dict(sorted(model_implied_by_degraded_reason.items())),
+            "rows": model_implied_rows[:10],
+            "empty_reason": "" if model_implied else "No open model-implied paper rows right now.",
+        },
         "esports_open_slice": {
             "count": len(esports_rows),
             "by_pick_type": {

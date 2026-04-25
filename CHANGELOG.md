@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.79] - 2026-04-25
+
+### Added
+- `scripts/paper.py`: NBA paper bundle resolver for automatic resolution of multi-leg NBA paper bundles using final ESPN outcomes.
+- `scripts/paper.py`: New `paper_bundle_open_slice` and `model_implied_open_slice` in `open_pick_diagnostics` for better visibility into actionable unresolved rows and legacy noise.
+
+### Changed
+- `scripts/paper.py`: Refactored `_resolve_nba_pick` to use a reusable `_resolve_nba_game` helper, improving consistency between single-pick and bundle resolution.
+- `scripts/paper.py`: `_resolve_pick` now routes `paper_bundle` venues to the new bundle resolver.
+- `SKILL.md`, `README.md`, `scripts/lib/ui.py`, `scripts/lib/bird_x.py`, `scripts/lib/youtube_yt.py`, `.claude-plugin/plugin.json`, and `gemini-extension.json`: Updated version to `v1.0.79`.
+
 ## [1.0.78] - 2026-04-25
 
 ### Changed
