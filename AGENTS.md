@@ -108,7 +108,8 @@ python3 scripts/last24hours.py "live sports games on Polymarket right now" --qui
 ## Release Memory
 
 - Treat meaningful feature, behavior, documentation, and safety-filter updates as normal versioned releases.
-- Keep bumping the release version for each shipped update, even while the repo is private, so the history is clear if the project becomes public again.
+- The repository is public again as of April 25, 2026. Treat public-readiness as an active requirement for every change, not a future cleanup pass.
+- Keep bumping the release version for each shipped update so the public project history remains clear and auditable.
 - Continue the current `v1.0.x` line through `v1.0.99`. After `v1.0.99`, roll to `v1.1.1` instead of `v1.0.100`.
 - After the `v1.1.1` rollover, use short minor lanes of ten patch releases: `v1.N.1` through `v1.N.10`, then `v1.(N+1).1`. Do not use `.0` as a shipped patch in those lanes.
 - Do not skip release numbers within the active lane. Each version bump must correspond to one reviewable release commit and one push on the current branch.

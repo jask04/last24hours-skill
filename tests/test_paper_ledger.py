@@ -216,6 +216,84 @@ class PaperExtractionTests(unittest.TestCase):
         evidence = json.loads(picks[0]["evidence_json"])
         self.assertEqual(evidence["source_health"]["source_status"]["x"]["status"], "empty")
 
+    def test_watchlist_json_prefers_calibration_useful_probability_over_extreme_favorite(self):
+        report = {
+            "topic": "Valorant markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "Valorant: Heavy Favorite vs Underdog",
+                    "question": "Valorant: Heavy Favorite vs Underdog",
+                    "outcome_label": "Heavy Favorite",
+                    "probability": 0.91,
+                    "market_type": "game_outcome",
+                    "url": "https://polymarket.com/event/valorant-heavy-favorite",
+                },
+                {
+                    "venue": "polymarket",
+                    "title": "Valorant: Balanced Team vs Other Team",
+                    "question": "Valorant: Balanced Team vs Other Team",
+                    "outcome_label": "Balanced Team",
+                    "probability": 0.62,
+                    "market_type": "game_outcome",
+                    "url": "https://polymarket.com/event/valorant-balanced",
+                },
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        self.assertIn("Balanced Team", picks[0]["title"])
+        self.assertEqual(picks[0]["model_probability"], 0.62)
+
+    def test_watchlist_json_rejects_extreme_probability_only_non_closing_board(self):
+        report = {
+            "topic": "Valorant markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "Valorant: Heavy Favorite vs Underdog",
+                    "question": "Valorant: Heavy Favorite vs Underdog",
+                    "outcome_label": "Heavy Favorite",
+                    "probability": 0.91,
+                    "market_type": "game_outcome",
+                    "url": "https://polymarket.com/event/valorant-heavy-favorite",
+                },
+            ],
+        }
+
+        self.assertEqual(paper.extract_paper_picks(report), [])
+        self.assertEqual(
+            paper._dry_run_reason_class({"topic": "Valorant markets to watch today"}, report, []),
+            "watchlist_extreme_probability_only",
+        )
+
+    def test_watchlist_json_rejects_extreme_longshot_only_non_closing_board(self):
+        report = {
+            "topic": "Valorant markets to watch today",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "polymarket",
+                    "title": "Valorant: Longshot vs Favorite",
+                    "question": "Valorant: Longshot vs Favorite",
+                    "outcome_label": "Longshot",
+                    "probability": 0.08,
+                    "market_type": "game_outcome",
+                    "url": "https://polymarket.com/event/valorant-longshot",
+                },
+            ],
+        }
+
+        self.assertEqual(paper.extract_paper_picks(report), [])
+        self.assertEqual(
+            paper._dry_run_reason_class({"topic": "Valorant markets to watch today"}, report, []),
+            "watchlist_extreme_probability_only",
+        )
+
     def test_nba_watchlist_json_prefers_game_scope_over_near_tied_series_scope(self):
         report = {
             "topic": "NBA markets to watch today",

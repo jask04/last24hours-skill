@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.77] - 2026-04-25
+
+### Changed
+- `scripts/paper.py`: Paper watchlist extraction now treats non-closing watchlist rows above 90% or below 10% as too extreme for calibration when no balanced alternative exists, preventing resolved watchlist overconfidence from feeding new paper rows.
+- `scripts/paper.py`: Non-closing watchlists now prefer candidates in the 35%-80% probability band once the top row is 80%+, while closing-soon paper rows keep their near-expiry selection behavior.
+- `scripts/paper.py`: Dry-run diagnostics can now return `watchlist_extreme_probability_only` or `no_calibration_useful_watchlist_candidate` when a watchlist board is valid for display but not useful enough for paper calibration.
+- `AGENTS.md`: Recorded that the repository is public again as of April 25, 2026, so public-readiness is an active requirement for every change.
+- `tests/test_paper_ledger.py`: Added regressions for selecting balanced watchlist paper candidates and rejecting extreme-only non-closing watchlist boards.
+
 ## [1.0.76] - 2026-04-25
 
 ### Changed

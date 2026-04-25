@@ -624,17 +624,28 @@ def _evidence_payload(report: Dict[str, Any], item: Dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True)
 
 
+def _watchlist_probability(item: Dict[str, Any]) -> Optional[float]:
+    value = item.get("probability")
+    if value is None:
+        value = item.get("implied_probability")
+    return _prob(value)
+
+
+def _calibration_useful_watchlist_probability(probability: Optional[float]) -> bool:
+    return probability is not None and 0.35 <= probability <= 0.80
+
+
 def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Prefer calibration-useful watchlist items when the top item is an extreme favorite."""
     if not items:
         return None
     if any(item.get("closing_soon_reason") for item in items):
         top = items[0]
-        top_probability = _prob(top.get("probability") or top.get("implied_probability"))
+        top_probability = _watchlist_probability(top)
         if top_probability is None or top_probability < 0.95:
             return top
         for item in items[1:]:
-            probability = _prob(item.get("probability") or item.get("implied_probability"))
+            probability = _watchlist_probability(item)
             if probability is not None and 0.20 <= probability <= 0.95 and item.get("closing_soon_reason"):
                 return item
         return top
@@ -654,14 +665,27 @@ def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, An
             )
             if preferred_game:
                 return preferred_game
-    top_probability = _prob(items[0].get("probability") or items[0].get("implied_probability"))
-    if top_probability is None or top_probability < 0.85:
+    top_probability = _watchlist_probability(items[0])
+    if top_probability is None or 0.10 < top_probability < 0.80:
         return items[0]
-    for item in items[1:]:
-        probability = _prob(item.get("probability") or item.get("implied_probability"))
-        if probability is not None and 0.35 <= probability <= 0.80:
+    for item in items:
+        if _calibration_useful_watchlist_probability(_watchlist_probability(item)):
             return item
+    if top_probability >= 0.90 or top_probability <= 0.10:
+        return None
     return items[0]
+
+
+def _watchlist_paper_selection_reason_class(topic: str, items: List[Dict[str, Any]]) -> str:
+    if not items or closing_soon.is_closing_soon_query(topic):
+        return ""
+    if _select_watchlist_item(items) is not None:
+        return ""
+    probabilities = [_watchlist_probability(item) for item in items]
+    probabilities = [probability for probability in probabilities if probability is not None]
+    if probabilities and all(probability >= 0.90 or probability <= 0.10 for probability in probabilities):
+        return "watchlist_extreme_probability_only"
+    return "no_calibration_useful_watchlist_candidate"
 
 
 def _pick_watchlist_scope(pick: Dict[str, Any]) -> str:
@@ -1920,6 +1944,9 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
             return reason
     watchlist = report.get("market_watchlist") or []
     if watchlist:
+        selection_reason = _watchlist_paper_selection_reason_class(topic, watchlist)
+        if selection_reason:
+            return selection_reason
         reason = _watchlist_item_reason_class(topic, _select_watchlist_item(watchlist) or {})
         if reason:
             return reason
