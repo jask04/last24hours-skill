@@ -164,7 +164,10 @@ def classify_market(title: str = "", question: str = "", url: str = "") -> Marke
 
     if any(marker in text_lower for marker in _ESPORTS_PROP_MARKERS):
         return "esports_prop"
-    if any(marker in text_lower for marker in _ESPORTS_TITLE_MARKERS):
+    if any(marker in text_lower for marker in _ESPORTS_TITLE_MARKERS) and (
+        tokens & _ESPORTS_TERMS
+        or any(marker in text_lower for marker in ("map pool", "cache", "add cache"))
+    ):
         return "esports_title"
     if (tokens & _ESPORTS_TERMS) and _has_matchup(text_lower):
         if any(marker in text_lower for marker in _ESPORTS_MATCH_MARKERS):

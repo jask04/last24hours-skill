@@ -21,6 +21,16 @@ def is_closing_soon_query(topic: str) -> bool:
     return bool(_INTENT_RE.search(topic or ""))
 
 
+def is_kalshi_live_board_query(topic: str) -> bool:
+    """Kalshi's Live page is a broad market board, not only a close-window scan."""
+    lowered = (topic or "").lower()
+    if "kalshi" not in lowered:
+        return False
+    if not re.search(r"\blive markets?\b|\blive kalshi\b|\bkalshi live\b", lowered):
+        return False
+    return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame|right now)\b", lowered)
+
+
 def wants_live_sports(topic: str) -> bool:
     lowered = (topic or "").lower()
     return bool(

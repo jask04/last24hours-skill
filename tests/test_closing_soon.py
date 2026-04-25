@@ -74,6 +74,13 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertEqual(query_type.detect_query_type("Polymarket markets closing soon"), "market_watchlist")
         self.assertEqual(query_type.detect_query_type("live sports games on Polymarket right now"), "market_watchlist")
 
+    def test_kalshi_live_board_is_not_closing_soon_scan(self):
+        self.assertTrue(closing_soon.is_closing_soon_query("Kalshi live markets"))
+        self.assertTrue(closing_soon.is_kalshi_live_board_query("Kalshi live markets"))
+        self.assertTrue(closing_soon.is_kalshi_live_board_query("live Kalshi"))
+        self.assertFalse(closing_soon.is_kalshi_live_board_query("Kalshi markets closing soon"))
+        self.assertFalse(closing_soon.is_kalshi_live_board_query("Polymarket live markets"))
+
     def test_broad_closing_soon_seed_pack_keeps_cross_domain_recovery_terms(self):
         seeds = closing_soon.closing_search_topics("Polymarket markets closing soon", max_seeds=8)
 

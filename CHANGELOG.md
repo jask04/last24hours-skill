@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.78] - 2026-04-25
+
+### Changed
+- `scripts/last24hours.py` and `scripts/lib/closing_soon.py`: `Kalshi live markets` now runs as a broad Kalshi live-board scan instead of being forced through the closing-soon pipeline.
+- `scripts/lib/kalshi.py`: Broad Kalshi live-board discovery now uses direct series routing and a diversity-preserving shortlist across BTC, ETH, AI, Fed/rates, CPI, jobs, and NBA families instead of depending on generic open-market pages.
+- `scripts/lib/kalshi.py`: AI and PGA/golf prompts now route into known Kalshi series such as `KXLLM1` and `KXPGATOUR`, improving coverage for live-market surfaces visible in the Kalshi UI.
+- `scripts/lib/render.py`: Empty Kalshi live-board output now reports a Kalshi-specific filter message instead of incorrectly describing a Polymarket closing-soon filter.
+- `scripts/lib/market_types.py`: PGA/golf championship markets no longer fall through as `esports_title` contracts.
+- `tests/test_closing_soon.py`, `tests/test_kalshi.py`, `tests/test_market_types.py`, and `tests/test_forecast_watchlist.py`: Added regressions for Kalshi live-board routing, direct series coverage, candidate diversity, empty-state diagnostics, and PGA market typing.
+
 ## [1.0.77] - 2026-04-25
 
 ### Changed

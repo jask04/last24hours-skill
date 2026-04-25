@@ -2419,7 +2419,10 @@ def main():
         sys.exit(1)
 
     initial_query_type = qt.detect_query_type(args.topic)
-    closing_soon_mode = closing_soon.is_closing_soon_query(args.topic) or args.live_sports
+    closing_soon_mode = (
+        closing_soon.is_closing_soon_query(args.topic)
+        and not closing_soon.is_kalshi_live_board_query(args.topic)
+    ) or args.live_sports
     if args.paper_watchlist and initial_query_type != "market_watchlist":
         print("Error: --paper-watchlist only supports market-watchlist runs.", file=sys.stderr)
         sys.exit(1)

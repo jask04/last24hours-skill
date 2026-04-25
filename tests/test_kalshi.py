@@ -14,6 +14,42 @@ class KalshiTests(unittest.TestCase):
         self.assertIn("KXFEDDECISION", series)
         self.assertIn("KXFED", series)
 
+    def test_kalshi_live_board_topic_adds_broad_direct_series(self):
+        series = kalshi._series_for_topic("Kalshi live markets")
+
+        self.assertIn("KXBTC", series)
+        self.assertIn("KXETH", series)
+        self.assertIn("KXLLM1", series)
+        self.assertIn("KXFEDDECISION", series)
+        self.assertIn("KXCPI", series)
+        self.assertIn("KXJOBS", series)
+        self.assertIn("KXNBAGAME", series)
+
+    def test_kalshi_closing_soon_topic_does_not_add_live_board_series(self):
+        self.assertNotIn("KXNBAGAME", kalshi._series_for_topic("Kalshi markets closing soon"))
+
+    def test_ai_and_golf_topics_route_to_live_kalshi_series(self):
+        self.assertIn("KXLLM1", kalshi._series_for_topic("Best AI this week"))
+        self.assertIn("KXCLAUDE", kalshi._series_for_topic("Claude markets"))
+        self.assertIn("KXPGATOUR", kalshi._series_for_topic("Zurich Classic winner"))
+
+    def test_kalshi_live_candidate_shortlist_keeps_series_diversity(self):
+        ranked = [
+            {"ticker": "KXFEDDECISION-26APR-H0", "event_ticker": "KXFEDDECISION-26APR"},
+            {"ticker": "KXFEDDECISION-26APR-C25", "event_ticker": "KXFEDDECISION-26APR"},
+            {"ticker": "KXFED-26APR-T3.75", "event_ticker": "KXFED-26APR"},
+            {"ticker": "KXBTC-26APR2505-B77500", "event_ticker": "KXBTC-26APR2505"},
+            {"ticker": "KXLLM1-26APR30-CLAUDE", "event_ticker": "KXLLM1-26APR30"},
+        ]
+
+        selected = kalshi._diverse_live_candidates(ranked, cap=2)
+        selected_series = {row["ticker"].split("-", 1)[0] for row in selected[:4]}
+
+        self.assertIn("KXFEDDECISION", selected_series)
+        self.assertIn("KXFED", selected_series)
+        self.assertIn("KXBTC", selected_series)
+        self.assertIn("KXLLM1", selected_series)
+
     def test_search_kalshi_filters_nba_games_to_topic_day(self):
         events = [
             {

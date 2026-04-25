@@ -134,6 +134,16 @@ class MarketTypeTests(unittest.TestCase):
             "esports_title",
         )
 
+    def test_pga_championship_winner_does_not_classify_as_esports_title(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "PGA Championship Winner",
+                "Will Matt Fitzpatrick win the PGA Championship?",
+                "https://api.elections.kalshi.com/trade-api/v2/markets/KXPGATOUR-PGC26-MFIT",
+            ),
+            "futures",
+        )
+
     def test_crypto_up_or_down_classifies_as_crypto_daily(self):
         self.assertEqual(
             market_types.classify_market(

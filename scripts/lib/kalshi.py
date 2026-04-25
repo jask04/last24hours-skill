@@ -64,6 +64,73 @@ _MONTHS = {
     "NOV": 11,
     "DEC": 12,
 }
+_BROAD_LIVE_SERIES = [
+    "KXBTC",
+    "KXETH",
+    "KXLLM1",
+    "KXFEDDECISION",
+    "KXFED",
+    "KXCPI",
+    "KXJOBS",
+    "KXNBAGAME",
+]
+
+
+def _is_broad_live_board_topic(topic: str) -> bool:
+    lowered = (topic or "").lower()
+    if "kalshi" not in lowered:
+        return False
+    if not re.search(r"\blive markets?\b|\blive kalshi\b|\bkalshi live\b", lowered):
+        return False
+    return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame|right now)\b", lowered)
+
+
+def _series_key(market: Dict[str, Any]) -> str:
+    for value in (market.get("series_ticker"), market.get("event_ticker"), market.get("ticker")):
+        if value:
+            return str(value).split("-", 1)[0]
+    return ""
+
+
+def _diverse_live_candidates(ranked: List[Dict[str, Any]], cap: int) -> List[Dict[str, Any]]:
+    """Keep broad Kalshi live boards from being filled by one high-volume family."""
+    limit = cap * 4
+    selected: List[Dict[str, Any]] = []
+    seen_tickers: set[str] = set()
+    seen_series: set[str] = set()
+    seen_events: set[str] = set()
+
+    def add(market: Dict[str, Any]) -> bool:
+        ticker = market.get("ticker", "")
+        if ticker and ticker in seen_tickers:
+            return False
+        selected.append(market)
+        if ticker:
+            seen_tickers.add(ticker)
+        series = _series_key(market)
+        if series:
+            seen_series.add(series)
+        event = market.get("event_ticker", "")
+        if event:
+            seen_events.add(event)
+        return len(selected) >= limit
+
+    for market in ranked:
+        series = _series_key(market)
+        if series and series not in seen_series:
+            if add(market):
+                return selected
+
+    for market in ranked:
+        event = market.get("event_ticker", "")
+        if event and event not in seen_events:
+            if add(market):
+                return selected
+
+    for market in ranked:
+        if add(market):
+            return selected
+    return selected
 
 
 def _matchup_side_tokens(text: str) -> List[set[str]]:
@@ -281,6 +348,12 @@ def _fetch_event(event_ticker: str) -> Dict[str, Any]:
 def _series_for_topic(topic: str) -> List[str]:
     tokens = set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split())
     series = []
+    if _is_broad_live_board_topic(topic):
+        series.extend(_BROAD_LIVE_SERIES)
+    if tokens & {"ai", "llm", "llms", "model", "models", "claude", "chatgpt", "openai", "anthropic", "gemini"}:
+        series.extend(["KXLLM1", "KXCLAUDE", "KXGPTCOST"])
+    if tokens & {"golf", "pga", "zurich", "masters"}:
+        series.append("KXPGATOUR")
     league = _detect_league(topic)
     if league == "nba":
         series.append("KXNBAGAME")
@@ -371,11 +444,19 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
     series = _series_for_topic(topic)
     if not series:
         return [], {}
-    event_limit = {"quick": 5, "default": 8, "deep": 12}.get(depth, 8)
+    live_board = _is_broad_live_board_topic(topic)
+    if live_board:
+        event_limit = {"quick": 2, "default": 3, "deep": 5}.get(depth, 3)
+    elif set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split()) & {"golf", "pga", "zurich", "masters"}:
+        event_limit = {"quick": 25, "default": 35, "deep": 50}.get(depth, 35)
+    else:
+        event_limit = {"quick": 5, "default": 8, "deep": 12}.get(depth, 8)
     markets: List[Dict[str, Any]] = []
     event_titles: Dict[str, str] = {}
     wanted_months = _topic_months(topic)
-    for series_ticker in series[:3]:
+    event_tickers: List[str] = []
+    series_limit = len(_BROAD_LIVE_SERIES) if live_board else 3
+    for series_ticker in series[:series_limit]:
         events = _fetch_events_for_series(series_ticker, event_limit)
         if wanted_months:
             month_matches = [
@@ -389,7 +470,14 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
             if not ticker:
                 continue
             event_titles[ticker] = event.get("title", "")
-            markets.extend(_fetch_markets_for_event(ticker))
+            event_tickers.append(ticker)
+    with ThreadPoolExecutor(max_workers=min(8, len(event_tickers) or 1)) as executor:
+        futures = {executor.submit(_fetch_markets_for_event, ticker): ticker for ticker in event_tickers}
+        for future in as_completed(futures):
+            try:
+                markets.extend(future.result())
+            except Exception as exc:
+                _log(f"series market fetch failed: {exc}")
     return markets, event_titles
 
 
@@ -703,7 +791,13 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
             -_safe_float(m.get("open_interest_fp")),
         )
     )
-    if _is_sports_slate_query(topic):
+    if _is_broad_live_board_topic(topic):
+        filtered_ranked = [
+            m for m in ranked
+            if not _is_combo_market(m) and (_market_has_quality(m) or _pick_current_probability(m) is not None)
+        ]
+        candidates = _diverse_live_candidates(filtered_ranked or ranked, cap)
+    elif _is_sports_slate_query(topic):
         filtered_ranked = [
             m for m in ranked
             if not _is_combo_market(m) and (_market_has_quality(m) or _pick_current_probability(m) is not None)

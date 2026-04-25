@@ -168,6 +168,13 @@ def _domain(topic: str) -> str:
 
 def search_topics(topic: str) -> list[str]:
     """Build topic-scoped market search seeds for watchlist mode."""
+    topic_lower = (topic or "").lower()
+    if (
+        "kalshi" in topic_lower
+        and re.search(r"\blive markets?\b|\blive kalshi\b|\bkalshi live\b", topic_lower)
+        and not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame|right now)\b", topic_lower)
+    ):
+        return [topic]
     domain = _domain(topic)
     seeds = list(_DOMAIN_SEEDS.get(domain, []))
     cleaned = _WATCHLIST_PHRASES.sub(" ", topic or "")

@@ -26,6 +26,9 @@ class ForecastWatchlistTests(unittest.TestCase):
         topics = market_watchlist.search_topics("Counter-Strike 2 markets to watch today")
         self.assertIn("counter strike", topics)
 
+    def test_kalshi_live_board_search_topics_preserve_venue_intent(self):
+        self.assertEqual(market_watchlist.search_topics("Kalshi live markets"), ["Kalshi live markets"])
+
     def test_nba_slate_render_shows_only_direct_game_markets(self):
         report = _report("NBA matchups April 21 through April 23")
         report.forecasts = [
@@ -1119,6 +1122,47 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertIn("No high-quality watchlist markets found.", compact)
         self.assertIn("no compatible same-day player-prop markets survived", compact.lower())
+
+    def test_kalshi_live_board_accepts_non_closing_kalshi_market(self):
+        report = _report("Kalshi live markets")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Bitcoin price today at 5am EDT?",
+                question="Will Bitcoin be $77,500 or above?",
+                url="https://kalshi.com/markets/KXBTC-26APR2505-B77500",
+                ticker="KXBTC-26APR2505-B77500",
+                event_ticker="KXBTC-26APR2505",
+                series_ticker="KXBTC",
+                current_probability=0.55,
+                best_bid=0.54,
+                best_ask=0.56,
+                spread=0.02,
+                movement_24h=4.0,
+                volume_24h=109_000,
+                market_signal_quality=0.60,
+                market_type="threshold",
+                engagement=_engagement(volume=109_000, liquidity=20_000, open_interest=40_000),
+                end_date="2026-04-25",
+                relevance=0.45,
+                score=60,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].venue, "Kalshi")
+        self.assertEqual(items[0].source_item_id, "KA1")
+
+    def test_kalshi_live_board_empty_state_does_not_claim_polymarket_closing_filter(self):
+        report = _report("Kalshi live markets")
+        report.planning_notes = ["closing_soon"]
+
+        compact = render.render_compact(report)
+
+        self.assertIn("Kalshi live-board filter", compact)
+        self.assertNotIn("Polymarket markets inside the close window", compact)
 
     def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
         poly_item = schema.PolymarketItem(

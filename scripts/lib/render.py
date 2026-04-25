@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from . import evidence_quality as eq, market_types, paper_bundles, query_type as qt, schema
+from . import closing_soon, evidence_quality as eq, market_types, paper_bundles, query_type as qt, schema
 
 OUTPUT_DIR = Path.home() / ".local" / "share" / "last24hours" / "out"
 
@@ -440,8 +440,10 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
         elif live_games_count is not None:
             matched = live_matches_count or 0
             lines.append(f"Live-sports filter: ESPN found {live_games_count} live/starting-soon game(s), but only {matched} direct matching Polymarket game-outcome market(s) cleared the scanner.")
-        elif "closing_soon" in getattr(report, "planning_notes", []):
+        elif "closing_soon" in getattr(report, "planning_notes", []) and not closing_soon.is_kalshi_live_board_query(report.topic):
             lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
+        elif closing_soon.is_kalshi_live_board_query(report.topic):
+            lines.append("Kalshi live-board filter: Kalshi discovery ran, but no active market row cleared depth, relevance, and settled-price filters.")
         elif eq.is_esports_player_prop_query(report.topic):
             lines.append("eSports prop filter: no compatible same-day player-prop markets survived domain, subdomain, and date/type compatibility filters.")
         else:
