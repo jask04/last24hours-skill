@@ -981,6 +981,20 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         lines.append("*Tip: Reddit public search already works. Add Reddit OAuth credentials for the free upgraded path, or `SCRAPECREATORS_API_KEY` only if you want paid Reddit enrichment plus TikTok/Instagram coverage.*")
         lines.append("")
 
+    # Trending Entities / Key Voices
+    if report.trending_entities:
+        entities = report.trending_entities
+        handles = entities.get("x_handles", [])
+        subs = entities.get("reddit_subreddits", [])
+        if handles or subs:
+            lines.append("### Key Voices / Trending Entities")
+            lines.append("")
+            if handles:
+                lines.append(f"**Top X Handles:** {', '.join('@' + h for h in handles[:5])}")
+            if subs:
+                lines.append(f"**Top Subreddits:** {', '.join('r/' + s for s in subs[:5])}")
+            lines.append("")
+
     # Reddit items
     if report.reddit_error:
         lines.append("### Reddit Threads")

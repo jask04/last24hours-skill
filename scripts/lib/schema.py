@@ -879,6 +879,7 @@ class Report:
     planning_notes: List[str] = field(default_factory=list)
     planned_queries: List[str] = field(default_factory=list)
     evidence_fusion_stats: Dict[str, Any] = field(default_factory=dict)
+    trending_entities: Dict[str, List[str]] = field(default_factory=dict)  # {'x_handles': [], 'reddit_subreddits': []}
     # Status tracking
     reddit_error: Optional[str] = None
     x_error: Optional[str] = None
@@ -931,6 +932,7 @@ class Report:
             'planning_notes': self.planning_notes,
             'planned_queries': self.planned_queries,
             'evidence_fusion_stats': self.evidence_fusion_stats,
+            'trending_entities': self.trending_entities,
         }
         if self.resolved_x_handle:
             d['resolved_x_handle'] = self.resolved_x_handle
@@ -1429,6 +1431,7 @@ class Report:
             planning_notes=data.get('planning_notes', []),
             planned_queries=data.get('planned_queries', []),
             evidence_fusion_stats=data.get('evidence_fusion_stats', {}),
+            trending_entities=data.get('trending_entities', {}),
             reddit_error=data.get('reddit_error'),
             x_error=data.get('x_error'),
             web_error=data.get('web_error'),

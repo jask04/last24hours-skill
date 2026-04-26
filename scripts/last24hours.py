@@ -1507,7 +1507,7 @@ def _run_supplemental(
         )
         sys.stderr.flush()
 
-    return supplemental_reddit, supplemental_x
+    return supplemental_reddit, supplemental_x, entities
 
 
 def run_research(
@@ -2139,8 +2139,9 @@ def run_research(
     # Phase 2: Supplemental search based on entities from Phase 1
     # Skip on --quick (speed matters), mock mode, or if Reddit is rate-limiting
     # Also skip Reddit supplemental when ScrapeCreators was used (subreddit drilling already done)
+    trending_entities = {}
     if depth != "quick" and not mock and (reddit_items or x_items):
-        sup_reddit, sup_x = _run_supplemental(
+        sup_reddit, sup_x, trending_entities = _run_supplemental(
             topic, reddit_items, x_items,
             from_date, to_date, depth, x_source, progress,
             skip_reddit=(rate_limited or reddit_used_sc),
@@ -2151,7 +2152,7 @@ def run_research(
         if sup_x:
             x_items.extend(sup_x)
 
-    return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error
+    return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error, trending_entities
 
 
 def main():
@@ -2633,7 +2634,7 @@ def main():
                 plan.notes.append("live-games-error")
 
     # Run research
-    reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error = run_research(
+    reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error, trending_entities = run_research(
         args.topic,
         sources,
         config,
