@@ -45,15 +45,23 @@ def search_web(
         http.HTTPError: On API errors
     """
     max_results = {"quick": 8, "default": 15, "deep": 25}.get(depth, 15)
+    chars = 1500 if depth == "deep" else 500
+    
+    objective = (
+        f"Find recent blog posts, tutorials, news articles, and discussions "
+        f"about {topic} from {from_date} to {to_date}. "
+        f"Exclude reddit.com, x.com, and twitter.com."
+    )
+    if depth == "deep":
+        objective += (
+            " Prioritize high-signal content with specific numbers, names, "
+            "dates, and detailed causal explanations. Extract detailed drivers."
+        )
 
     payload = {
-        "objective": (
-            f"Find recent blog posts, tutorials, news articles, and discussions "
-            f"about {topic} from {from_date} to {to_date}. "
-            f"Exclude reddit.com, x.com, and twitter.com."
-        ),
+        "objective": objective,
         "max_results": max_results,
-        "max_chars_per_result": 500,
+        "max_chars_per_result": chars,
     }
 
     sys.stderr.write(f"[Web] Searching Parallel AI for: {topic}\n")
@@ -125,7 +133,7 @@ def _normalize_results(response: Dict[str, Any]) -> List[Dict[str, Any]]:
             "title": title[:200],
             "url": url,
             "source_domain": domain,
-            "snippet": snippet[:500],
+            "snippet": snippet[:1500],
             "date": result.get("published_date", result.get("date")),
             "date_confidence": "med" if result.get("published_date") or result.get("date") else "low",
             "relevance": relevance,
