@@ -743,6 +743,8 @@ class MarketWatchItem:
     resolvability: str = ""
     settlement_rules: str = ""
     watchlist_scope: str = ""
+    trending_on_social: bool = False
+    social_sentiment: str = ""  # e.g. "positive", "bearish", "high volume"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -788,6 +790,8 @@ class MarketWatchItem:
             'resolvability': self.resolvability,
             'settlement_rules': self.settlement_rules,
             'watchlist_scope': self.watchlist_scope,
+            'trending_on_social': self.trending_on_social,
+            'social_sentiment': self.social_sentiment,
         }
 
 

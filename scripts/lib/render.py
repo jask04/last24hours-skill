@@ -468,6 +468,9 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             if len(item.settlement_rules) > 150:
                 rules += "..."
             lines.append(f"Settlement terms: {rules}")
+        if item.trending_on_social:
+            sentiment = f" ({item.social_sentiment})" if item.social_sentiment else ""
+            lines.append(f"Social signal: Trending on X/Reddit{sentiment}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
         catalyst = item.catalyst_summary

@@ -1171,6 +1171,59 @@ def _esports_prop_rank_adjust(base_score: int, evidence: float, movement: float,
     shift = 100 * (0.24 * evidence + 0.18 * movement - 0.16 * quality)
     return int(max(0, min(100, base_score + shift)))
 
+def _social_signal_for_market(report: schema.Report, market_text: str) -> tuple[bool, str]:
+    """Check if top handles or subreddits are discussing this market."""
+    trending = False
+    sentiment = ""
+    
+    entities = getattr(report, "trending_entities", {})
+    handles = entities.get("x_handles", [])
+    subs = entities.get("reddit_subreddits", [])
+    
+    if not handles and not subs:
+        return trending, sentiment
+
+    text_lower = market_text.lower()
+    
+    # Simple token-based matching for cross-ref
+    market_tokens = set(re.sub(r"[^\w\s]", " ", text_lower).split())
+    
+    # Check if Key Voices are talking about it
+    # We look at X posts and Reddit threads that survived filtering
+    mention_count = 0
+    positive_count = 0
+    negative_count = 0
+    
+    for x_item in report.x:
+        post_text = x_item.text.lower()
+        if any(token in post_text for token in market_tokens if len(token) > 3):
+            mention_count += 1
+            if any(p in post_text for p in ("buy", "long", "yes", "bullish", "in", "entering")):
+                positive_count += 1
+            if any(n in post_text for n in ("sell", "short", "no", "bearish", "out", "avoid")):
+                negative_count += 1
+                
+    for r_item in report.reddit:
+        post_text = f"{r_item.title} {r_item.text}".lower()
+        if any(token in post_text for token in market_tokens if len(token) > 3):
+            mention_count += 1
+            if any(p in post_text for p in ("buy", "long", "yes", "bullish", "in", "entering")):
+                positive_count += 1
+            if any(n in post_text for n in ("sell", "short", "no", "bearish", "out", "avoid")):
+                negative_count += 1
+
+    if mention_count >= 2:
+        trending = True
+        if positive_count > negative_count:
+            sentiment = "bullish chatter"
+        elif negative_count > positive_count:
+            sentiment = "bearish chatter"
+        else:
+            sentiment = "high discussion volume"
+            
+    return trending, sentiment
+
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     base_date = _report_base_date(report)
     if _is_bad_candidate(report.topic, item, base_date=base_date):
@@ -1227,6 +1280,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     live_match_confidence = getattr(item, "live_match_confidence", None)
     live_match_reason = getattr(item, "live_match_reason", "") or ""
     resolvability = getattr(item, "resolvability", "") or ""
+    trending_on_social, social_sentiment = _social_signal_for_market(report, f"{getattr(item, 'title', '')} {getattr(item, 'question', '')}")
     closing_signal = _closing_score(minutes_to_close, closing_reason)
     tech_actionability = _tech_actionability_score(item, market_type) if domain == "tech" else 0.0
     resolvability_score = _resolvability_score(resolvability, broad=(domain == "broad" and closing_mode))
@@ -1465,6 +1519,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         resolvability=resolvability,
         settlement_rules=getattr(item, "settlement_rules", ""),
         watchlist_scope=watchlist_scope,
+        trending_on_social=trending_on_social,
+        social_sentiment=social_sentiment,
     )
 
 
