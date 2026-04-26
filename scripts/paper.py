@@ -2098,9 +2098,21 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     legacy_noisy_examples: List[Dict[str, Any]] = []
     source_health_status_rollup: Dict[str, Dict[str, int]] = {}
     esports_rows: List[Dict[str, Any]] = []
+    esports_count = 0
+    esports_by_pick_type: Dict[str, int] = {}
+    esports_by_subdomain: Dict[str, int] = {}
+    esports_by_market_type: Dict[str, int] = {}
+    esports_missing_subdomain_count = 0
+    
     esports_flagged_rows: List[Dict[str, Any]] = []
+    esports_flagged_count = 0
     esports_flagged_by_reason: Dict[str, int] = {}
+    
     esports_prop_rows: List[Dict[str, Any]] = []
+    esports_prop_count = 0
+    esports_prop_by_subdomain: Dict[str, int] = {}
+    esports_prop_by_market_type: Dict[str, int] = {}
+    esports_prop_by_anchor_source: Dict[str, int] = {}
     esports_prop_degraded_by_reason: Dict[str, int] = {}
     esports_prop_missing_degraded_reason_count = 0
     
@@ -2263,31 +2275,55 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not is_paper_bundle and (pick.get("status") == "unknown" or not has_auto_resolver):
             manual_only += 1
         if domain == "esports":
+            esports_count += 1
+            esports_by_pick_type[pick_type] = esports_by_pick_type.get(pick_type, 0) + 1
+            if subdomain:
+                esports_by_subdomain[subdomain] = esports_by_subdomain.get(subdomain, 0) + 1
+            else:
+                esports_missing_subdomain_count += 1
+            
+            market_type = str(pick.get("market_type") or "unknown")
+            esports_by_market_type[market_type] = esports_by_market_type.get(market_type, 0) + 1
+            
             esports_row = {
                 "id": pick.get("id"),
                 "title": str(pick.get("title") or pick.get("question") or pick.get("topic") or ""),
                 "subdomain": subdomain,
                 "pick_type": pick_type,
-                "market_type": str(pick.get("market_type") or ""),
+                "market_type": market_type,
                 "status": str(pick.get("status") or ""),
             }
-            esports_rows.append(esports_row)
+            if len(esports_rows) < 8:
+                esports_rows.append(esports_row)
+            
             if eq.is_esports_player_prop_query(str(pick.get("topic") or "")):
+                esports_prop_count += 1
+                anchor_source = str(pick.get("anchor_source") or "")
                 degraded_reason = str(_safe_json_loads(pick.get("notes_json")).get("degraded_reason_class") or "")
+                
+                esports_prop_by_subdomain[subdomain] = esports_prop_by_subdomain.get(subdomain, 0) + 1
+                esports_prop_by_market_type[market_type] = esports_prop_by_market_type.get(market_type, 0) + 1
+                esports_prop_by_anchor_source[anchor_source] = esports_prop_by_anchor_source.get(anchor_source, 0) + 1
+                
                 prop_row = dict(esports_row)
-                prop_row["anchor_source"] = str(pick.get("anchor_source") or "")
+                prop_row["anchor_source"] = anchor_source
                 prop_row["degraded_reason_class"] = degraded_reason
-                esports_prop_rows.append(prop_row)
+                if len(esports_prop_rows) < 8:
+                    esports_prop_rows.append(prop_row)
+                
                 if degraded_reason:
                     esports_prop_degraded_by_reason[degraded_reason] = esports_prop_degraded_by_reason.get(degraded_reason, 0) + 1
-                elif str(pick.get("anchor_source") or "") == "model_implied":
+                elif anchor_source == "model_implied":
                     esports_prop_missing_degraded_reason_count += 1
                     esports_prop_degraded_by_reason["missing"] = esports_prop_degraded_by_reason.get("missing", 0) + 1
+            
             warning_reasons = _esports_open_warning_reasons(pick)
             if warning_reasons:
+                esports_flagged_count += 1
                 flagged_row = dict(esports_row)
                 flagged_row["warning_reasons"] = warning_reasons
-                esports_flagged_rows.append(flagged_row)
+                if len(esports_flagged_rows) < 8:
+                    esports_flagged_rows.append(flagged_row)
                 for reason in warning_reasons:
                     esports_flagged_by_reason[reason] = esports_flagged_by_reason.get(reason, 0) + 1
     duplicate_market_key_count = sum(1 for count in duplicate_keys.values() if count > 1)
@@ -2403,48 +2439,29 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "empty_reason": "" if model_implied else "No open model-implied paper rows right now.",
         },
         "esports_open_slice": {
-            "count": len(esports_rows),
-            "by_pick_type": {
-                key: sum(1 for row in esports_rows if row.get("pick_type") == key)
-                for key in sorted({str(row.get("pick_type") or "") for row in esports_rows if row.get("pick_type")})
-            },
-            "by_subdomain": {
-                key: value for key, value in sorted(by_subdomain.items())
-                if key in {row["subdomain"] for row in esports_rows if row["subdomain"]}
-            },
-            "by_market_type": {
-                key: sum(1 for row in esports_rows if row.get("market_type") == key)
-                for key in sorted({str(row.get("market_type") or "") for row in esports_rows if row.get("market_type")})
-            },
-            "missing_subdomain_count": sum(1 for row in esports_rows if not row.get("subdomain")),
-            "rows_missing_subdomain": [row for row in esports_rows if not row.get("subdomain")][:5],
-            "rows": esports_rows[:8],
-            "empty_reason": "" if esports_rows else "No open esports paper rows right now.",
+            "count": esports_count,
+            "by_pick_type": dict(sorted(esports_by_pick_type.items())),
+            "by_subdomain": dict(sorted(esports_by_subdomain.items())),
+            "by_market_type": dict(sorted(esports_by_market_type.items())),
+            "missing_subdomain_count": esports_missing_subdomain_count,
+            "rows": esports_rows,
+            "empty_reason": "" if esports_count else "No open esports paper rows right now.",
         },
         "esports_legacy_degraded_slice": {
-            "count": len(esports_flagged_rows),
+            "count": esports_flagged_count,
             "by_reason": dict(sorted(esports_flagged_by_reason.items())),
-            "rows": esports_flagged_rows[:8],
-            "empty_reason": "" if esports_flagged_rows else "No open esports audit-warning rows right now.",
+            "rows": esports_flagged_rows,
+            "empty_reason": "" if esports_flagged_count else "No open esports audit-warning rows right now.",
         },
         "esports_named_prop_slice": {
-            "count": len(esports_prop_rows),
-            "by_subdomain": {
-                key: sum(1 for row in esports_prop_rows if row.get("subdomain") == key)
-                for key in sorted({str(row.get("subdomain") or "") for row in esports_prop_rows if row.get("subdomain")})
-            },
-            "by_market_type": {
-                key: sum(1 for row in esports_prop_rows if row.get("market_type") == key)
-                for key in sorted({str(row.get("market_type") or "") for row in esports_prop_rows if row.get("market_type")})
-            },
-            "by_anchor_source": {
-                key: sum(1 for row in esports_prop_rows if row.get("anchor_source") == key)
-                for key in sorted({str(row.get("anchor_source") or "") for row in esports_prop_rows if row.get("anchor_source")})
-            },
+            "count": esports_prop_count,
+            "by_subdomain": dict(sorted(esports_prop_by_subdomain.items())),
+            "by_market_type": dict(sorted(esports_prop_by_market_type.items())),
+            "by_anchor_source": dict(sorted(esports_prop_by_anchor_source.items())),
             "by_degraded_reason_class": dict(sorted(esports_prop_degraded_by_reason.items())),
             "missing_degraded_reason_count": esports_prop_missing_degraded_reason_count,
-            "rows": esports_prop_rows[:8],
-            "empty_reason": "" if esports_prop_rows else "No open named eSports prop rows right now.",
+            "rows": esports_prop_rows,
+            "empty_reason": "" if esports_prop_count else "No open named eSports prop rows right now.",
         },
         "warnings": warnings,
     }

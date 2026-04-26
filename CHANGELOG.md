@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.81] - 2026-04-25
+
+### Changed
+- `scripts/lib/kalshi.py`: Expanded `_BROAD_LIVE_SERIES` to include more esports families (`KXCS2`, `KXVAL`, `KXLOL`, `KXESPORTS`, `KXCCT`) for a more diverse live board.
+- `SKILL.md`, `README.md`, `scripts/lib/ui.py`, `scripts/lib/bird_x.py`, `scripts/lib/youtube_yt.py`, `.claude-plugin/plugin.json`, and `gemini-extension.json`: Updated version to `v1.0.81`.
+
+### Fixed
+- `scripts/paper.py`: Implemented robust row-level counters for all esports diagnostic slices (`esports_open_slice`, `esports_legacy_degraded_slice`, `esports_named_prop_slice`) to ensure `count` reflects unique rows and bypasses truncation issues.
+- `tests/test_paper_ledger.py`: Fixed regression in esports diagnostic tests caused by summary counter mismatch.
+
 ## [1.0.80] - 2026-04-25
 
 ### Added

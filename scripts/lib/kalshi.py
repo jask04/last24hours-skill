@@ -76,6 +76,11 @@ _BROAD_LIVE_SERIES = [
     "KXCS2GAME",
     "KXVALGAME",
     "KXLOLGAME",
+    "KXCS2",
+    "KXVAL",
+    "KXLOL",
+    "KXESPORTS",
+    "KXCCT",
 ]
 
 
