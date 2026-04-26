@@ -151,6 +151,60 @@ def save_model_cache(data: dict):
         pass
 
 
+def get_granular_cache(domain: str, key: str, ttl_hours: int = 48) -> Optional[Any]:
+    """Get a value from the granular cache if it exists and is within TTL.
+
+    Args:
+        domain: Domain name (e.g. 'tiktok', 'youtube')
+        key: Unique key (e.g. video_id)
+        ttl_hours: Cache TTL in hours (default: 48)
+
+    Returns:
+        The cached value or None
+    """
+    ensure_cache_dir()
+    domain_dir = CACHE_DIR / domain
+    if not domain_dir.exists():
+        return None
+
+    safe_key = hashlib.sha256(key.encode()).hexdigest()[:16]
+    cache_path = domain_dir / f"{safe_key}.json"
+
+    if not is_cache_valid(cache_path, ttl_hours):
+        return None
+
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def set_granular_cache(domain: str, key: str, value: Any):
+    """Save a value to the granular cache.
+
+    Args:
+        domain: Domain name (e.g. 'tiktok', 'youtube')
+        key: Unique key (e.g. video_id)
+        value: Value to cache (must be JSON-serializable)
+    """
+    ensure_cache_dir()
+    domain_dir = CACHE_DIR / domain
+    try:
+        domain_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+
+    safe_key = hashlib.sha256(key.encode()).hexdigest()[:16]
+    cache_path = domain_dir / f"{safe_key}.json"
+
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(value, f)
+    except OSError:
+        pass
+
+
 def get_cached_model(provider: str) -> Optional[str]:
     """Get cached model selection for a provider."""
     cache = load_model_cache()

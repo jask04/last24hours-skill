@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from . import http
+from . import http, cache
 
 SCRAPECREATORS_BASE = "https://api.scrapecreators.com"
 
@@ -242,6 +242,13 @@ def fetch_captions(
         url = item.get("url", "")
         if not url:
             continue
+
+        # Check granular cache first
+        cached = cache.get_granular_cache("instagram", vid)
+        if cached:
+            captions[vid] = cached
+            continue
+
         try:
             params = {"url": url}
             api_url = f"{SCRAPECREATORS_BASE}/v2/instagram/media/transcript"
@@ -259,6 +266,8 @@ def fetch_captions(
                     if len(words) > CAPTION_MAX_WORDS:
                         transcript_text = ' '.join(words[:CAPTION_MAX_WORDS]) + '...'
                     captions[vid] = transcript_text
+                    # Save to granular cache
+                    cache.set_granular_cache("instagram", vid, transcript_text)
         except Exception as e:
             _log(f"Transcript fetch failed for {vid}: {e}")
 

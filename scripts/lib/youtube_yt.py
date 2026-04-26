@@ -35,7 +35,7 @@ TRANSCRIPT_LIMITS = {
 # Max words to keep from each transcript
 TRANSCRIPT_MAX_WORDS = 5000
 
-from .relevance import token_overlap_relevance as _compute_relevance
+from . import relevance, cache
 
 
 def extract_transcript_highlights(transcript: str, topic: str, limit: int = 5) -> List[str]:
@@ -268,15 +268,12 @@ def _clean_vtt(vtt_text: str) -> str:
 
 
 def fetch_transcript(video_id: str, temp_dir: str) -> Optional[str]:
-    """Fetch auto-generated transcript for a YouTube video.
+    """Fetch auto-generated transcript for a YouTube video."""
+    # Check granular cache first
+    cached = cache.get_granular_cache("youtube", video_id)
+    if cached:
+        return cached
 
-    Args:
-        video_id: YouTube video ID
-        temp_dir: Temporary directory for subtitle files
-
-    Returns:
-        Plaintext transcript string, or None if no captions available.
-    """
     ytdlp_cmd = _ytdlp_command()
     if not ytdlp_cmd:
         return None
@@ -338,6 +335,10 @@ def fetch_transcript(video_id: str, temp_dir: str) -> Optional[str]:
     words = transcript.split()
     if len(words) > TRANSCRIPT_MAX_WORDS:
         transcript = ' '.join(words[:TRANSCRIPT_MAX_WORDS]) + '...'
+
+    if transcript:
+        # Save to granular cache
+        cache.set_granular_cache("youtube", video_id, transcript)
 
     return transcript if transcript else None
 
