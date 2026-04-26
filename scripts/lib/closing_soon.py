@@ -48,6 +48,22 @@ def preferred_venue(topic: str) -> str:
     return ""
 
 
+def infer_closing_window(topic: str, default_hours: int = 12) -> int:
+    """Infer an appropriate 'closing soon' window (in hours) based on topic."""
+    lowered = (topic or "").lower()
+    # High frequency / high volatility -> narrow window
+    if any(term in lowered for term in ("crypto", "bitcoin", "ethereum", "btc", "eth", "daily", "today")):
+        return 6
+    # Sports -> game day window
+    if any(term in lowered for term in ("nba", "nfl", "mlb", "nhl", "sports", "game", "games")):
+        return 24
+    # Macro / Politics / Elections -> much broader window
+    if any(term in lowered for term in ("election", "president", "politics", "fed", "rate", "inflation", "cpi")):
+        return 72  # 3 days
+    # Default
+    return default_hours
+
+
 def _now_local(now: Optional[datetime] = None) -> datetime:
     if now:
         return now.astimezone()
@@ -295,10 +311,12 @@ def scan_kalshi_closing_soon(
 ) -> List[dict]:
     """Return normalized raw Kalshi dicts for near-expiry markets.
 
-    Mirrors scan_polymarket_closing_soon but uses Kalshi's close_time field and
+     Mirrors scan_polymarket_closing_soon but uses Kalshi's close_time field and
     skips the live-sports / matchup-rejection paths that only apply to Polymarket
     game-outcome markets.
     """
+    if window_hours == 12:
+        window_hours = infer_closing_window(topic, 12)
     local_now = _now_local(now)
     now_utc = local_now.astimezone(timezone.utc)
     window_minutes = int(window_hours * 60)
@@ -373,6 +391,8 @@ def scan_polymarket_closing_soon(
     search_depth: str = "default",
 ) -> List[dict]:
     """Return normalized raw Polymarket dicts for near-expiry/live markets."""
+    if window_hours == 12:
+        window_hours = infer_closing_window(topic, 12)
     live_games = live_games or []
     live_only = bool(live_games) and wants_live_sports(topic)
     reject_counts: Counter[str] = Counter()
