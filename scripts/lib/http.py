@@ -16,8 +16,8 @@ DEBUG = os.environ.get("LAST24HOURS_DEBUG", "").lower() in ("1", "true", "yes")
 
 # Domain locks to serialize requests to sensitive APIs
 _DOMAIN_LOCKS = {
-    "kalshi.com": threading.Lock(),
-    "scrapecreators.com": threading.Lock(),
+    "kalshi.com": threading.BoundedSemaphore(3),
+    "scrapecreators.com": threading.BoundedSemaphore(3),
 }
 
 
