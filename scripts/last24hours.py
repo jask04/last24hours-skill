@@ -1304,13 +1304,12 @@ def _search_xiaohongshu(
     to_date: str,
     depth: str,
 ) -> tuple:
-    """Search Xiaohongshu via xiaohongshu-mcp HTTP API (runs in thread).
-
-    Returns:
-        Tuple of (xiaohongshu_items, xiaohongshu_error)
-        Items are in web-item dict shape and can be normalized with websearch module.
-    """
+    """Search Xiaohongshu via local bridge with public web fallback."""
     base_url = env.get_xiaohongshu_api_base(config)
+    items = []
+    error = None
+    
+    # Try local bridge first
     try:
         items = xiaohongshu_api.search_feeds(
             topic=topic,
@@ -1320,7 +1319,22 @@ def _search_xiaohongshu(
             depth=depth,
         )
     except Exception as e:
-        return [], f"{type(e).__name__}: {e}"
+        error = f"Bridge error: {e}"
+
+    # Fallback to public web search if bridge failed or returned nothing
+    if not items:
+        try:
+            # Re-use web search logic but filter for xiaohongshu.com
+            fallback_query = f"site:xiaohongshu.com {topic}"
+            web_source = env.get_web_search_source(config)
+            if web_source:
+                items, _ = _search_web(fallback_query, config, from_date, to_date, "quick")
+                for item in items:
+                    item["why_relevant"] = "Found via public web search fallback"
+                if items:
+                    error = None
+        except Exception as e:
+            error = error or f"Fallback error: {e}"
 
     # Ensure all required keys exist for normalize_websearch_items()
     for i, item in enumerate(items):
@@ -1336,7 +1350,7 @@ def _search_xiaohongshu(
         item.setdefault("relevance", 0.5)
         item.setdefault("why_relevant", "")
 
-    return items, None
+    return items, error
 
 
 def _run_supplemental(

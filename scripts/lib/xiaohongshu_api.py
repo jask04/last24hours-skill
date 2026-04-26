@@ -74,16 +74,20 @@ def search_feeds(
     """Search Xiaohongshu feeds and normalize to web-item shape."""
     base = (base_url or "").rstrip("/")
     if not base:
-        raise ValueError("Missing Xiaohongshu API base URL")
+        return []
 
-    # Quick login sanity check.
-    login = http.get(f"{base}/api/v1/login/status", timeout=8, retries=1)
-    is_logged_in = (
-        login.get("data", {}).get("is_logged_in")
-        if isinstance(login, dict) else False
-    )
-    if not is_logged_in:
-        raise http.HTTPError("Xiaohongshu API reachable but not logged in")
+    try:
+        # Quick login sanity check.
+        login = http.get(f"{base}/api/v1/login/status", timeout=8, retries=1)
+        is_logged_in = (
+            login.get("data", {}).get("is_logged_in")
+            if isinstance(login, dict) else False
+        )
+        if not is_logged_in:
+            return []
+    except Exception:
+        # Bridge is likely down
+        return []
 
     # API supports filters; use recency-oriented defaults.
     publish_time = "一天内" if depth == "quick" else "一周内" if depth == "default" else "半年内"
