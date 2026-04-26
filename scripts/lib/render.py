@@ -463,6 +463,11 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
         if item.live_match_reason:
             confidence = f" ({item.live_match_confidence:.0%})" if item.live_match_confidence is not None else ""
             lines.append(f"Live match: {item.live_match_reason.replace('_', ' ')}{confidence}")
+        if item.settlement_rules:
+            rules = item.settlement_rules[:150]
+            if len(item.settlement_rules) > 150:
+                rules += "..."
+            lines.append(f"Settlement terms: {rules}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
         catalyst = item.catalyst_summary
@@ -1851,6 +1856,8 @@ def render_full_report(report: schema.Report) -> str:
                 lines.append(f"- **Timing:** {close_line}")
             if item.live_game_context:
                 lines.append(f"- **{_game_context_label(item.live_game_context)}:** {item.live_game_context}")
+            if item.settlement_rules:
+                lines.append(f"- **Settlement terms:** {item.settlement_rules}")
             lines.append(f"- **Why it ranks:** {item.why_ranks} (rank score {item.rank_score}/100)")
             lines.append(f"- **Market signal:** {item.market_signal}")
             lines.append(f"- **Catalyst / evidence:** {item.catalyst_summary}")

@@ -517,6 +517,7 @@ class PolymarketItem:
     live_match_confidence: Optional[float] = None
     live_match_reason: str = ""
     resolvability: str = ""
+    settlement_rules: str = ""
     relevance: float = 0.5
     why_relevant: str = ""
     subs: SubScores = field(default_factory=SubScores)
@@ -556,6 +557,7 @@ class PolymarketItem:
             'live_match_confidence': self.live_match_confidence,
             'live_match_reason': self.live_match_reason,
             'resolvability': self.resolvability,
+            'settlement_rules': self.settlement_rules,
             'relevance': self.relevance,
             'why_relevant': self.why_relevant,
             'subs': self.subs.to_dict(),
@@ -599,6 +601,7 @@ class KalshiItem:
     live_match_confidence: Optional[float] = None
     live_match_reason: str = ""
     resolvability: str = ""
+    settlement_rules: str = ""
     relevance: float = 0.5
     why_relevant: str = ""
     subs: SubScores = field(default_factory=SubScores)
@@ -637,6 +640,7 @@ class KalshiItem:
             'live_match_confidence': self.live_match_confidence,
             'live_match_reason': self.live_match_reason,
             'resolvability': self.resolvability,
+            'settlement_rules': self.settlement_rules,
             'relevance': self.relevance,
             'why_relevant': self.why_relevant,
             'subs': self.subs.to_dict(),
@@ -737,6 +741,7 @@ class MarketWatchItem:
     live_match_confidence: Optional[float] = None
     live_match_reason: str = ""
     resolvability: str = ""
+    settlement_rules: str = ""
     watchlist_scope: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -781,6 +786,7 @@ class MarketWatchItem:
             'live_match_confidence': self.live_match_confidence,
             'live_match_reason': self.live_match_reason,
             'resolvability': self.resolvability,
+            'settlement_rules': self.settlement_rules,
             'watchlist_scope': self.watchlist_scope,
         }
 

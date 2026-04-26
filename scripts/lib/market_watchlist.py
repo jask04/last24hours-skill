@@ -1463,6 +1463,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         live_match_confidence=live_match_confidence,
         live_match_reason=live_match_reason,
         resolvability=resolvability,
+        settlement_rules=getattr(item, "settlement_rules", ""),
         watchlist_scope=watchlist_scope,
     )
 

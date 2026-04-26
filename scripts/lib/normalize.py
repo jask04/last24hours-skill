@@ -501,6 +501,7 @@ def normalize_polymarket_items(
             live_match_confidence=item.get("live_match_confidence"),
             live_match_reason=item.get("live_match_reason", ""),
             resolvability=item.get("resolvability", ""),
+            settlement_rules=item.get("description", item.get("rules", "")),
             relevance=item.get("relevance", 0.5),
             why_relevant=item.get("why_relevant", ""),
         ))
@@ -558,6 +559,7 @@ def normalize_kalshi_items(
             live_match_confidence=item.get("live_match_confidence"),
             live_match_reason=item.get("live_match_reason", ""),
             resolvability=item.get("resolvability", ""),
+            settlement_rules=item.get("description", item.get("rules", "")),
             relevance=item.get("relevance", 0.5),
             why_relevant=item.get("why_relevant", ""),
         ))
