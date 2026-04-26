@@ -36,6 +36,7 @@ TRANSCRIPT_LIMITS = {
 TRANSCRIPT_MAX_WORDS = 5000
 
 from . import relevance, cache
+from .relevance import token_overlap_relevance as _compute_relevance
 
 
 def extract_transcript_highlights(transcript: str, topic: str, limit: int = 5) -> List[str]:

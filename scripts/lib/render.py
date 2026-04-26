@@ -1826,6 +1826,20 @@ def render_full_report(report: schema.Report) -> str:
     lines.append(f"**Mode:** {report.mode}")
     lines.append("")
 
+    # Trending Entities / Key Voices
+    if report.trending_entities:
+        entities = report.trending_entities
+        handles = entities.get("x_handles", [])
+        subs = entities.get("reddit_subreddits", [])
+        if handles or subs:
+            lines.append("## Key Voices / Trending Entities")
+            lines.append("")
+            if handles:
+                lines.append(f"- **Top X Handles:** {', '.join('@' + h for h in handles[:5])}")
+            if subs:
+                lines.append(f"- **Top Subreddits:** {', '.join('r/' + s for s in subs[:5])}")
+            lines.append("")
+
     if report.forecasts:
         lines.append("## Forecast Summary")
         lines.append("")

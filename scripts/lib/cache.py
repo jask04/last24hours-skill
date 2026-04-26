@@ -6,7 +6,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 CACHE_DIR = Path.home() / ".cache" / "last24hours"
 DEFAULT_TTL_HOURS = 12

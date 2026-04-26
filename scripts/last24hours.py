@@ -1351,51 +1351,60 @@ def _run_supplemental(
     skip_reddit: bool = False,
     resolved_handle: str = None,
 ) -> tuple:
-    """Run Phase 2 supplemental searches based on entities from Phase 1.
-
-    Extracts handles/subreddits from initial results, then runs targeted
-    searches to find additional content the broad search missed.
-
-    Args:
-        topic: Original search topic
-        reddit_items: Phase 1 Reddit items (raw dicts)
-        x_items: Phase 1 X items (raw dicts)
-        from_date: Start date
-        to_date: End date
-        depth: Research depth
-        x_source: 'bird' or 'xai'
-        progress: Optional progress display
-        skip_reddit: If True, skip Reddit supplemental (e.g. rate-limited)
-        resolved_handle: X handle resolved by the agent (without @), searched unfiltered
+    """Run Phase 2 supplemental logic (extraction + targeted searches).
 
     Returns:
-        Tuple of (supplemental_reddit, supplemental_x)
+        Tuple of (supplemental_reddit, supplemental_x, entities)
     """
-    # Depth-dependent caps
-    if depth == "default":
+    # Depth-dependent caps for extraction
+    if depth == "quick":
         max_handles = 3
         max_subs = 3
-        count_per = 3
+    elif depth == "default":
+        max_handles = 3
+        max_subs = 3
     else:  # deep
         max_handles = 5
         max_subs = 5
-        count_per = 5
 
-    # Extract entities from Phase 1 results
+    # Always extract entities (for the report section)
     entities = entity_extract.extract_entities(
         reddit_items, x_items,
         max_handles=max_handles,
         max_subreddits=max_subs,
     )
 
+    # Only run extra searches if not on --quick
+    supplemental_reddit = []
+    supplemental_x = []
+    if depth != "quick":
+        supplemental_reddit, supplemental_x = _run_phase2_searches(
+            topic, reddit_items, x_items, entities,
+            from_date, to_date, depth, x_source, progress,
+            skip_reddit=skip_reddit,
+            resolved_handle=resolved_handle,
+        )
+
+    return supplemental_reddit, supplemental_x, entities
+
+
+def _run_phase2_searches(
+    topic: str,
+    reddit_items: list,
+    x_items: list,
+    entities: dict,
+    from_date: str,
+    to_date: str,
+    depth: str,
+    x_source: str,
+    progress: ui.ProgressDisplay = None,
+    skip_reddit: bool = False,
+    resolved_handle: str = None,
+) -> tuple:
+    """Run Phase 2 targeted searches based on extracted entities."""
+    count_per = 3 if depth == "default" else 5
     has_handles = entities["x_handles"] and x_source == "bird"
     has_subs = entities["reddit_subreddits"] and not skip_reddit
-
-    # Always run unfiltered search for resolved handle (even if entity-extracted).
-    # Entity-extracted handles get topic-filtered queries (from:handle topic),
-    # but resolved handles need UNFILTERED search (from:handle) to find posts
-    # that don't mention the topic string (e.g. Dor Brothers' viral tweet about
-    # Logan Paul doesn't contain "dor brothers" in the text).
     has_resolved = bool(resolved_handle) and x_source == "bird"
 
     if not has_handles and not has_subs and not has_resolved:
@@ -1507,7 +1516,7 @@ def _run_supplemental(
         )
         sys.stderr.flush()
 
-    return supplemental_reddit, supplemental_x, entities
+    return supplemental_reddit, supplemental_x
 
 
 def run_research(
@@ -2136,21 +2145,18 @@ def run_research(
             sys.stderr.write(f"[HN] Enrichment error: {e}\n")
             sys.stderr.flush()
 
-    # Phase 2: Supplemental search based on entities from Phase 1
-    # Skip on --quick (speed matters), mock mode, or if Reddit is rate-limiting
-    # Also skip Reddit supplemental when ScrapeCreators was used (subreddit drilling already done)
-    trending_entities = {}
-    if depth != "quick" and not mock and (reddit_items or x_items):
-        sup_reddit, sup_x, trending_entities = _run_supplemental(
-            topic, reddit_items, x_items,
-            from_date, to_date, depth, x_source, progress,
-            skip_reddit=(rate_limited or reddit_used_sc),
-            resolved_handle=resolved_handle,
-        )
-        if sup_reddit:
-            reddit_items.extend(sup_reddit)
-        if sup_x:
-            x_items.extend(sup_x)
+    # Phase 2: Supplemental logic (extraction + searches)
+    # Always extract entities, but only run extra searches if not on --quick
+    sup_reddit, sup_x, trending_entities = _run_supplemental(
+        topic, reddit_items, x_items,
+        from_date, to_date, depth, x_source, progress,
+        skip_reddit=(rate_limited or reddit_used_sc),
+        resolved_handle=resolved_handle,
+    )
+    if sup_reddit:
+        reddit_items.extend(sup_reddit)
+    if sup_x:
+        x_items.extend(sup_x)
 
     return reddit_items, x_items, youtube_items, tiktok_items, instagram_items, hackernews_items, bluesky_items, truthsocial_items, polymarket_items, kalshi_items, web_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error, youtube_error, tiktok_error, instagram_error, hackernews_error, bluesky_error, truthsocial_error, polymarket_error, kalshi_error, web_error, trending_entities
 
@@ -2867,6 +2873,7 @@ def main():
         selected_models.get("openai"),
         selected_models.get("xai"),
     )
+    report.trending_entities = trending_entities
     report.reddit = deduped_reddit
     report.x = deduped_x
     report.youtube = deduped_youtube

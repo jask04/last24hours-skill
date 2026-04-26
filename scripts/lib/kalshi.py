@@ -844,6 +844,7 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
 
     _apply_candlestick_signals(candidates)
 
+    event_data: Dict[str, dict] = {}
     event_titles: Dict[str, str] = dict(series_event_titles)
     unique_events = sorted({m.get("event_ticker", "") for m in candidates if m.get("event_ticker")})
     with ThreadPoolExecutor(max_workers=min(8, len(unique_events) or 1)) as executor:
@@ -851,24 +852,27 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
         for future in as_completed(futures):
             ticker = futures[future]
             try:
-                event = future.result().get("event", {})
-                event_titles[ticker] = event.get("title", "")
+                raw_event = future.result().get("event", {})
+                event_data[ticker] = raw_event
+                event_titles[ticker] = raw_event.get("title", "")
             except Exception as exc:
                 _log(f"event fetch failed for {ticker}: {exc}")
 
-    return {"markets": candidates, "event_titles": event_titles, "_cap": cap}
+    return {"markets": candidates, "event_titles": event_titles, "event_data": event_data, "_cap": cap}
 
 
 def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dict[str, Any]]:
     """Parse Kalshi search response into normalized dicts."""
     items = []
     event_titles = response.get("event_titles", {})
+    event_data = response.get("event_data", {})
     cap = response.get("_cap", RESULT_CAP["default"])
 
     for market in response.get("markets", []):
         ticker = market.get("ticker", "")
         event_ticker = market.get("event_ticker", "")
         series_ticker = market.get("series_ticker", "")
+        raw_event = event_data.get(event_ticker, {})
         event_title = event_titles.get(event_ticker, market.get("subtitle", "")) or market.get("title", "")
         if _is_combo_market(market, event_title):
             continue
@@ -953,6 +957,8 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
             "date": updated,
             "end_date": end_date,
             "end_datetime": end_datetime,
+            "rules": raw_event.get("settlement_terms", market.get("rules", "")),
+            "description": raw_event.get("description", ""),
             "volume": volume,
             "liquidity": liquidity,
             "open_interest": open_interest,

@@ -897,6 +897,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             "date": date_str,
             "end_date": end_date,
             "end_datetime": end_datetime,
+            "description": event.get("description", top_market.get("description", "")),
             "relevance": round(relevance, 2),
             "why_relevant": f"Prediction market: {title[:60]}",
         })
