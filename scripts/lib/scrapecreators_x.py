@@ -11,10 +11,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-try:
-    import requests as _requests
-except ImportError:
-    _requests = None
+from . import http
 
 SCRAPECREATORS_BASE = "https://api.scrapecreators.com/v1/twitter"
 
@@ -109,14 +106,13 @@ def search_x(
     _log(f"Searching X for '{core_topic}' (depth={depth}, count={config['results_per_page']})")
 
     try:
-        resp = _requests.get(
+        data = http.get(
             f"{SCRAPECREATORS_BASE}/search/tweets",
             params={"query": core_topic, "sort_by": "relevance"},
             headers=_sc_headers(token),
             timeout=30,
+            retries=3
         )
-        resp.raise_for_status()
-        data = resp.json()
     except Exception as e:
         _log(f"ScrapeCreators error: {e}")
         return {"items": [], "error": f"{type(e).__name__}: {e}"}

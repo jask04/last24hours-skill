@@ -202,6 +202,9 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
     Returns:
         Raw Bird JSON response or error dict.
     """
+    import time
+    import random
+
     cmd = [
         "node", str(_BIRD_SEARCH_MJS),
         query,
@@ -209,58 +212,74 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
         "--json",
     ]
 
-    # Use process groups for clean cleanup on timeout/kill
-    preexec = os.setsid if hasattr(os, 'setsid') else None
+    max_retries = 3
+    last_error = "Unknown error"
 
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            preexec_fn=preexec,
-            env=_subprocess_env(),
-        )
-
-        # Register for cleanup tracking (if available)
-        try:
-            from last24hours import register_child_pid, unregister_child_pid
-            register_child_pid(proc.pid)
-        except ImportError:
-            pass
+    for attempt in range(max_retries):
+        # Use process groups for clean cleanup on timeout/kill
+        preexec = os.setsid if hasattr(os, 'setsid') else None
 
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            # Kill the entire process group
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                preexec_fn=preexec,
+                env=_subprocess_env(),
+            )
+
+            # Register for cleanup tracking (if available)
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                proc.kill()
-            proc.wait(timeout=5)
-            return {"error": f"Search timed out after {timeout}s", "items": []}
-        finally:
-            try:
-                from last24hours import unregister_child_pid
-                unregister_child_pid(proc.pid)
-            except (ImportError, Exception):
+                from last24hours import register_child_pid, unregister_child_pid
+                register_child_pid(proc.pid)
+            except ImportError:
                 pass
 
-        if proc.returncode != 0:
-            error = stderr.strip() if stderr else "Bird search failed"
-            return {"error": error, "items": []}
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # Kill the entire process group
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except (ProcessLookupError, PermissionError, OSError):
+                    proc.kill()
+                proc.wait(timeout=5)
+                last_error = f"Search timed out after {timeout}s"
+                if attempt < max_retries - 1:
+                    time.sleep(5 + random.uniform(1, 3))
+                    continue
+                return {"error": last_error, "items": []}
+            finally:
+                try:
+                    from last24hours import unregister_child_pid
+                    unregister_child_pid(proc.pid)
+                except (ImportError, Exception):
+                    pass
 
-        output = stdout.strip() if stdout else ""
-        if not output:
-            return {"items": []}
+            if proc.returncode != 0:
+                error = stderr.strip() if stderr else "Bird search failed"
+                last_error = error
+                if "429" in error and attempt < max_retries - 1:
+                    delay = 10 * (2 ** attempt) + random.uniform(2, 5)
+                    _log(f"Rate limited (429) on X. Waiting {delay:.1f}s before retry {attempt + 2}/{max_retries}")
+                    time.sleep(delay)
+                    continue
+                return {"error": error, "items": []}
 
-        return json.loads(output)
+            output = stdout.strip() if stdout else ""
+            if not output:
+                return {"items": []}
 
-    except json.JSONDecodeError as e:
-        return {"error": f"Invalid JSON response: {e}", "items": []}
-    except Exception as e:
-        return {"error": str(e), "items": []}
+            return json.loads(output)
+
+        except json.JSONDecodeError as e:
+            return {"error": f"Invalid JSON response: {e}", "items": []}
+        except Exception as e:
+            return {"error": str(e), "items": []}
+
+    return {"error": last_error, "items": []}
 
 
 def search_x(

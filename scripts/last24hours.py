@@ -41,8 +41,8 @@ _child_pids_lock = threading.Lock()
 
 TIMEOUT_PROFILES = {
     "quick":   {"global": 60,  "future": 20, "reddit_future": 40,  "youtube_future": 40,  "tiktok_future": 60,   "instagram_future": 60,   "hackernews_future": 20,  "bluesky_future": 20,  "truthsocial_future": 20,  "polymarket_future": 18,  "kalshi_future": 12, "http": 10, "enrich_per": 5,  "enrich_total": 20, "enrich_max_items": 10},
-    "default": {"global": 120, "future": 40, "reddit_future": 60,  "youtube_future": 60,  "tiktok_future": 80,   "instagram_future": 80,   "hackernews_future": 40,  "bluesky_future": 40,  "truthsocial_future": 40,  "polymarket_future": 25,  "kalshi_future": 25, "http": 20, "enrich_per": 10, "enrich_total": 30, "enrich_max_items": 15},
-    "deep":    {"global": 200, "future": 60, "reddit_future": 80,  "youtube_future": 80,  "tiktok_future": 100,  "instagram_future": 100,  "hackernews_future": 60,  "bluesky_future": 60,  "truthsocial_future": 60,  "polymarket_future": 35,  "kalshi_future": 35, "http": 20, "enrich_per": 10, "enrich_total": 40, "enrich_max_items": 25},
+    "default": {"global": 120, "future": 40, "reddit_future": 75,  "youtube_future": 60,  "tiktok_future": 80,   "instagram_future": 80,   "hackernews_future": 40,  "bluesky_future": 40,  "truthsocial_future": 40,  "polymarket_future": 25,  "kalshi_future": 25, "http": 20, "enrich_per": 10, "enrich_total": 30, "enrich_max_items": 15},
+    "deep":    {"global": 200, "future": 60, "reddit_future": 90,  "youtube_future": 80,  "tiktok_future": 100,  "instagram_future": 100,  "hackernews_future": 60,  "bluesky_future": 60,  "truthsocial_future": 60,  "polymarket_future": 35,  "kalshi_future": 35, "http": 20, "enrich_per": 10, "enrich_total": 40, "enrich_max_items": 25},
 }
 
 # Valid source names for the --search flag

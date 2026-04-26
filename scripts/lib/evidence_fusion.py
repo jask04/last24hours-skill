@@ -103,6 +103,8 @@ def _is_signal(topic: str, text: str, context: str, query_type: qt.QueryType) ->
             allow_market_context=False,
         )
         return category == "high_signal"
+    if eq.is_esports_query(topic):
+        return eq.is_esports_rationale_evidence(text, context, topic=topic)
     return bool(tokens & (eq.DRIVER_TERMS | eq.MACRO_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS))
 
 
@@ -111,7 +113,7 @@ def _score(topic: str, text: str, context: str, source: str, base_score: int, qu
     topic_tokens = _topic_tokens(topic)
     overlap = len(tokens & topic_tokens)
     if overlap == 0 and query_type in {"prediction", "market_watchlist"}:
-        if not (tokens & (eq.DRIVER_TERMS | eq.MACRO_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS)):
+        if not (tokens & (eq.DRIVER_TERMS | eq.MACRO_SIGNAL_TERMS | eq.WEATHER_SIGNAL_TERMS)) and not eq.is_esports_query(topic):
             return None
     if not _is_signal(topic, text, context, query_type):
         return None
@@ -132,6 +134,12 @@ def _score(topic: str, text: str, context: str, source: str, base_score: int, qu
             score += 0.12
         if sports_category in {"low_signal", "generic_preview", "reject"}:
             score -= 0.30
+
+    if eq.is_esports_query(topic):
+        if eq.is_esports_rationale_evidence(text, context, topic=topic):
+            score += 0.15
+        else:
+            score -= 0.20
     return max(0.0, score)
 
 

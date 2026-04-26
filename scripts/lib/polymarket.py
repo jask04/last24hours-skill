@@ -290,7 +290,7 @@ def _search_single_query(query: str, page: int = 1) -> Dict[str, Any]:
     url = f"{GAMMA_SEARCH_URL}?{urlencode(params)}"
 
     try:
-        response = http.request("GET", url, timeout=15, retries=2)
+        response = http.request("GET", url, timeout=15, retries=3)
         return response
     except http.HTTPError as e:
         _log(f"Search failed for '{query}' page {page}: {e}")

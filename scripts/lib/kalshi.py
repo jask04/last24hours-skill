@@ -409,7 +409,7 @@ def _fetch_events_for_series(series_ticker: str, limit: int = 8) -> List[Dict[st
     params = {"series_ticker": series_ticker, "limit": str(max(limit, 25))}
     url = f"{EVENTS_URL}?{urlencode(params)}"
     try:
-        events = http.request("GET", url, timeout=15, retries=1).get("events", [])
+        events = http.request("GET", url, timeout=15, retries=2).get("events", [])
         now = datetime.now(timezone.utc)
         upcoming = []
         for event in events:
@@ -465,7 +465,7 @@ def _fetch_markets_for_event(event_ticker: str, limit: int = 200) -> List[Dict[s
     params = {"status": "open", "limit": str(limit), "event_ticker": event_ticker}
     url = f"{MARKETS_URL}?{urlencode(params)}"
     try:
-        return http.request("GET", url, timeout=15, retries=1).get("markets", [])
+        return http.request("GET", url, timeout=15, retries=2).get("markets", [])
     except Exception as exc:
         _log(f"event markets fetch failed for {event_ticker}: {exc}")
         return []
@@ -629,7 +629,7 @@ def _fetch_batch_candlesticks(tickers: List[str]) -> Dict[str, Any]:
     }
     url = f"{CANDLESTICKS_URL}?{urlencode(params)}"
     try:
-        return http.request("GET", url, timeout=20, retries=1)
+        return http.request("GET", url, timeout=20, retries=2)
     except Exception as exc:
         _log(f"candlestick fetch failed: {exc}")
         return {"error": str(exc)}

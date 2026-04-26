@@ -465,7 +465,12 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             lines.append(f"Live match: {item.live_match_reason.replace('_', ' ')}{confidence}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
-        catalyst = item.catalyst_summary or "Catalyst context is thin; ranking is mostly market-signal driven."
+        catalyst = item.catalyst_summary
+        if not catalyst:
+            if _prediction_domain(report.topic) == "esports":
+                catalyst = "Catalyst context is thin; eSports quality filters are strict to avoid noise (skins/streaming/betting-spam)."
+            else:
+                catalyst = "Catalyst context is thin; ranking is mostly market-signal driven."
         if item.evidence_refs:
             catalyst += f" Evidence refs: {', '.join(item.evidence_refs[:3])}."
         lines.append(f"Catalyst / evidence: {catalyst}")

@@ -2,7 +2,9 @@
 
 import json
 import os
+import random
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -12,6 +14,12 @@ from typing import Any, Dict, Optional
 DEFAULT_TIMEOUT = 30
 DEBUG = os.environ.get("LAST24HOURS_DEBUG", "").lower() in ("1", "true", "yes")
 
+# Domain locks to serialize requests to sensitive APIs
+_DOMAIN_LOCKS = {
+    "kalshi.com": threading.Lock(),
+    "scrapecreators.com": threading.Lock(),
+}
+
 
 def log(msg: str):
     """Log debug message to stderr."""
@@ -19,7 +27,7 @@ def log(msg: str):
         sys.stderr.write(f"[DEBUG] {msg}\n")
         sys.stderr.flush()
 MAX_RETRIES = 5
-MAX_429_RETRIES = 2
+MAX_429_RETRIES = 5
 RETRY_DELAY = 2.0
 USER_AGENT = "last24hours-skill/2.1 (Assistant Skill)"
 _BROKEN_PROXY_VALUES = {"http://127.0.0.1:9", "http://localhost:9"}
@@ -79,16 +87,33 @@ def request(
 
     log(f"{method} {_safe_url_for_log(url)}")
 
+    # Find matching domain lock
+    domain_lock = None
+    url_lower = url.lower()
+    for domain, lock in _DOMAIN_LOCKS.items():
+        if domain in url_lower:
+            domain_lock = lock
+            break
+
     last_error = None
     for attempt in range(retries):
         try:
             opener = _get_url_opener()
-            with opener.open(req, timeout=timeout) as response:
-                body = response.read().decode('utf-8')
-                log(f"Response: {response.status} ({len(body)} bytes)")
-                if raw:
-                    return body
-                return json.loads(body) if body else {}
+            if domain_lock:
+                with domain_lock:
+                    with opener.open(req, timeout=timeout) as response:
+                        body = response.read().decode('utf-8')
+                        log(f"Response: {response.status} ({len(body)} bytes)")
+                        if raw:
+                            return body
+                        return json.loads(body) if body else {}
+            else:
+                with opener.open(req, timeout=timeout) as response:
+                    body = response.read().decode('utf-8')
+                    log(f"Response: {response.status} ({len(body)} bytes)")
+                    if raw:
+                        return body
+                    return json.loads(body) if body else {}
         except urllib.error.HTTPError as e:
             body = None
             try:
@@ -116,18 +141,18 @@ def request(
                         try:
                             delay = float(retry_after)
                         except ValueError:
-                            delay = RETRY_DELAY * (2 ** attempt) + 1
+                            delay = RETRY_DELAY * (2 ** attempt) + random.uniform(0.5, 2.0)
                     else:
-                        delay = RETRY_DELAY * (2 ** attempt) + 1  # 2s, 5s, 9s...
+                        delay = RETRY_DELAY * (2 ** attempt) + random.uniform(1.0, 3.0)
                     log(f"Rate limited (429). Waiting {delay:.1f}s before retry {attempt + 2}/{retries}")
                 else:
-                    delay = RETRY_DELAY * (2 ** attempt)
+                    delay = RETRY_DELAY * (2 ** attempt) + random.uniform(0.1, 1.0)
                 time.sleep(delay)
         except urllib.error.URLError as e:
             log(f"URL Error: {e.reason}")
             last_error = HTTPError(f"URL Error: {e.reason}")
             if attempt < retries - 1:
-                time.sleep(RETRY_DELAY * (attempt + 1))
+                time.sleep(RETRY_DELAY * (attempt + 1) + random.uniform(0.1, 1.0))
         except json.JSONDecodeError as e:
             log(f"JSON decode error: {e}")
             last_error = HTTPError(f"Invalid JSON response: {e}")
@@ -137,7 +162,7 @@ def request(
             log(f"Connection error: {type(e).__name__}: {e}")
             last_error = HTTPError(f"Connection error: {type(e).__name__}: {e}")
             if attempt < retries - 1:
-                time.sleep(RETRY_DELAY * (attempt + 1))
+                time.sleep(RETRY_DELAY * (attempt + 1) + random.uniform(0.1, 1.0))
 
     if last_error:
         raise last_error

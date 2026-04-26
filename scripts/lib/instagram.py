@@ -12,11 +12,6 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-try:
-    import requests as _requests
-except ImportError:
-    _requests = None
-
 from . import http
 
 SCRAPECREATORS_BASE = "https://api.scrapecreators.com"
@@ -110,18 +105,7 @@ def search_instagram(
     depth: str = "default",
     token: str = None,
 ) -> Dict[str, Any]:
-    """Search Instagram Reels via ScrapeCreators API.
-
-    Args:
-        topic: Search topic
-        from_date: Start date (YYYY-MM-DD)
-        to_date: End date (YYYY-MM-DD)
-        depth: 'quick', 'default', or 'deep'
-        token: ScrapeCreators API key
-
-    Returns:
-        Dict with 'items' list and optional 'error'.
-    """
+    """Search Instagram Reels via ScrapeCreators API."""
     if not token:
         return {"items": [], "error": "No SCRAPECREATORS_API_KEY configured"}
 
@@ -130,31 +114,14 @@ def search_instagram(
 
     _log(f"Searching Instagram for '{core_topic}' (depth={depth}, count={config['results_per_page']})")
 
-    if not _requests:
-        _log("requests library not installed, falling back to urllib")
-        try:
-            from urllib.parse import urlencode
-            params = urlencode({"query": core_topic})
-            url = f"{SCRAPECREATORS_BASE}/v2/instagram/reels/search?{params}"
-            headers = _sc_headers(token)
-            headers["User-Agent"] = http.USER_AGENT
-            data = http.get(url, headers=headers, timeout=30, retries=2)
-        except Exception as e:
-            _log(f"ScrapeCreators error (urllib): {e}")
-            return {"items": [], "error": f"{type(e).__name__}: {e}"}
-    else:
-        try:
-            resp = _requests.get(
-                f"{SCRAPECREATORS_BASE}/v2/instagram/reels/search",
-                params={"query": core_topic},
-                headers=_sc_headers(token),
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            _log(f"ScrapeCreators error: {e}")
-            return {"items": [], "error": f"{type(e).__name__}: {e}"}
+    try:
+        params = {"query": core_topic}
+        url = f"{SCRAPECREATORS_BASE}/v2/instagram/reels/search"
+        headers = _sc_headers(token)
+        data = http.get(url, params=params, headers=headers, timeout=30, retries=3)
+    except Exception as e:
+        _log(f"ScrapeCreators error: {e}")
+        return {"items": [], "error": f"{type(e).__name__}: {e}"}
 
     # Items are in the 'reels' array (ScrapeCreators v2 response)
     raw_items = data.get("reels") or data.get("items") or data.get("data") or []
@@ -247,24 +214,11 @@ def fetch_captions(
     token: str,
     depth: str = "default",
 ) -> Dict[str, str]:
-    """Fetch transcripts for top N Instagram reels via ScrapeCreators.
-
-    Strategy:
-    1. Use the 'text' field (caption) as baseline
-    2. For top N, call /v2/instagram/media/transcript for spoken-word captions
-
-    Args:
-        video_items: Items from search_instagram()
-        token: ScrapeCreators API key
-        depth: Depth level for caption limit
-
-    Returns:
-        Dict mapping video_id -> caption text (truncated to 500 words)
-    """
+    """Fetch transcripts for top N Instagram reels via ScrapeCreators."""
     config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
     max_captions = config["max_captions"]
 
-    if not video_items or not token or not _requests:
+    if not video_items or not token:
         return {}
 
     top_items = video_items[:max_captions]
@@ -289,26 +243,22 @@ def fetch_captions(
         if not url:
             continue
         try:
-            resp = _requests.get(
-                f"{SCRAPECREATORS_BASE}/v2/instagram/media/transcript",
-                params={"url": url},
-                headers=_sc_headers(token),
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                transcripts = data.get("transcripts") or []
-                if transcripts and isinstance(transcripts, list):
-                    # Combine all transcript segments
-                    transcript_text = " ".join(
-                        t.get("text", "") for t in transcripts
-                        if isinstance(t, dict) and t.get("text")
-                    )
-                    if transcript_text:
-                        words = transcript_text.split()
-                        if len(words) > CAPTION_MAX_WORDS:
-                            transcript_text = ' '.join(words[:CAPTION_MAX_WORDS]) + '...'
-                        captions[vid] = transcript_text
+            params = {"url": url}
+            api_url = f"{SCRAPECREATORS_BASE}/v2/instagram/media/transcript"
+            headers = _sc_headers(token)
+            data = http.get(api_url, params=params, headers=headers, timeout=15, retries=2)
+            transcripts = data.get("transcripts") or []
+            if transcripts and isinstance(transcripts, list):
+                # Combine all transcript segments
+                transcript_text = " ".join(
+                    t.get("text", "") for t in transcripts
+                    if isinstance(t, dict) and t.get("text")
+                )
+                if transcript_text:
+                    words = transcript_text.split()
+                    if len(words) > CAPTION_MAX_WORDS:
+                        transcript_text = ' '.join(words[:CAPTION_MAX_WORDS]) + '...'
+                    captions[vid] = transcript_text
         except Exception as e:
             _log(f"Transcript fetch failed for {vid}: {e}")
 

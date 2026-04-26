@@ -37,6 +37,8 @@ SYNONYMS = {
     'sveltejs': {'svelte'},
     'vue': {'vuejs'},
     'vuejs': {'vue'},
+    'cs2': {'counter', 'strike', 'counterstrike'},
+    'csgo': {'counter', 'strike', 'counterstrike', 'cs2'},
 }
 
 # Generic query words that should not carry relevance on their own.

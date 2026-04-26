@@ -267,7 +267,7 @@ def search_sportsbook(
     }
 
     try:
-        response = http.get(url, params=params, timeout=timeout, retries=2, max_429_retries=1)
+        response = http.get(url, params=params, timeout=timeout, retries=2)
         record_api_call(1)
     except http.HTTPError as e:
         result["error"] = f"HTTPError: {e} (status={getattr(e, 'status_code', None)})"

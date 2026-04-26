@@ -16,11 +16,6 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
-try:
-    import requests as _requests
-except ImportError:
-    _requests = None
-
 from . import http
 
 SCRAPECREATORS_BASE = "https://api.scrapecreators.com/v1/reddit"
@@ -252,41 +247,12 @@ def _global_search(
     sort: str = "relevance",
     timeframe: str = "month",
 ) -> List[Dict[str, Any]]:
-    """Search across all of Reddit via ScrapeCreators global search.
-
-    Args:
-        query: Search query
-        token: ScrapeCreators API key
-        sort: Sort order (relevance, hot, top, new)
-        timeframe: Time filter (hour, day, week, month, year, all)
-
-    Returns:
-        List of post dicts
-    """
-    if not _requests:
-        _log("requests library not installed, falling back to urllib")
-        # Use stdlib http module as fallback
-        try:
-            from urllib.parse import urlencode
-            params = urlencode({"query": query, "sort": sort, "timeframe": timeframe})
-            url = f"{SCRAPECREATORS_BASE}/search?{params}"
-            headers = _sc_headers(token)
-            headers["User-Agent"] = http.USER_AGENT
-            data = http.get(url, headers=headers, timeout=30, retries=2)
-            return data.get("posts", data.get("data", []))
-        except Exception as e:
-            _log(f"Global search error (urllib): {e}")
-            return []
-
+    """Search across all of Reddit via ScrapeCreators global search."""
     try:
-        resp = _requests.get(
-            f"{SCRAPECREATORS_BASE}/search",
-            params={"query": query, "sort": sort, "timeframe": timeframe},
-            headers=_sc_headers(token),
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        params = {"query": query, "sort": sort, "timeframe": timeframe}
+        url = f"{SCRAPECREATORS_BASE}/search"
+        headers = _sc_headers(token)
+        data = http.get(url, params=params, headers=headers, timeout=30, retries=3)
         return data.get("posts", data.get("data", []))
     except Exception as e:
         _log(f"Global search error: {e}")
@@ -300,48 +266,15 @@ def _subreddit_search(
     sort: str = "relevance",
     timeframe: str = "month",
 ) -> List[Dict[str, Any]]:
-    """Search within a specific subreddit via ScrapeCreators.
-
-    Args:
-        subreddit: Subreddit name (without r/)
-        query: Search query
-        token: ScrapeCreators API key
-        sort: Sort order
-        timeframe: Time filter
-
-    Returns:
-        List of post dicts
-    """
-    if not _requests:
-        try:
-            from urllib.parse import urlencode
-            params = urlencode({
-                "subreddit": subreddit, "query": query,
-                "sort": sort, "timeframe": timeframe,
-            })
-            url = f"{SCRAPECREATORS_BASE}/subreddit/search?{params}"
-            headers = _sc_headers(token)
-            headers["User-Agent"] = http.USER_AGENT
-            data = http.get(url, headers=headers, timeout=30, retries=2)
-            return data.get("posts", data.get("data", []))
-        except Exception as e:
-            _log(f"Subreddit search error (urllib) for r/{subreddit}: {e}")
-            return []
-
+    """Search within a specific subreddit via ScrapeCreators."""
     try:
-        resp = _requests.get(
-            f"{SCRAPECREATORS_BASE}/subreddit/search",
-            params={
-                "subreddit": subreddit,
-                "query": query,
-                "sort": sort,
-                "timeframe": timeframe,
-            },
-            headers=_sc_headers(token),
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        params = {
+            "subreddit": subreddit, "query": query,
+            "sort": sort, "timeframe": timeframe,
+        }
+        url = f"{SCRAPECREATORS_BASE}/subreddit/search"
+        headers = _sc_headers(token)
+        data = http.get(url, params=params, headers=headers, timeout=30, retries=3)
         return data.get("posts", data.get("data", []))
     except Exception as e:
         _log(f"Subreddit search error for r/{subreddit}: {e}")
@@ -352,37 +285,12 @@ def fetch_post_comments(
     url: str,
     token: str,
 ) -> List[Dict[str, Any]]:
-    """Fetch comments for a Reddit post via ScrapeCreators.
-
-    Args:
-        url: Reddit post URL or permalink
-        token: ScrapeCreators API key
-
-    Returns:
-        List of comment dicts with score, author, body, etc.
-    """
-    if not _requests:
-        try:
-            from urllib.parse import urlencode
-            params = urlencode({"url": url})
-            api_url = f"{SCRAPECREATORS_BASE}/post/comments?{params}"
-            headers = _sc_headers(token)
-            headers["User-Agent"] = http.USER_AGENT
-            data = http.get(api_url, headers=headers, timeout=30, retries=2)
-            return data.get("comments", data.get("data", []))
-        except Exception as e:
-            _log(f"Comment fetch error (urllib): {e}")
-            return []
-
+    """Fetch comments for a Reddit post via ScrapeCreators."""
     try:
-        resp = _requests.get(
-            f"{SCRAPECREATORS_BASE}/post/comments",
-            params={"url": url},
-            headers=_sc_headers(token),
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        params = {"url": url}
+        api_url = f"{SCRAPECREATORS_BASE}/post/comments"
+        headers = _sc_headers(token)
+        data = http.get(api_url, params=params, headers=headers, timeout=30, retries=3)
         return data.get("comments", data.get("data", []))
     except Exception as e:
         _log(f"Comment fetch error: {e}")
