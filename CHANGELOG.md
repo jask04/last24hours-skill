@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.82] - 2026-04-25
+
+### Added
+- `scripts/lib/cache.py`: Extended caching module with a new granular key-value storage system for high-cost API results (transcripts, captions).
+- `scripts/lib/tiktok.py` and `scripts/lib/instagram.py`: Integrated granular caching for video transcripts to reduce ScrapeCreators credit usage.
+- `scripts/lib/youtube_yt.py`: Integrated granular caching for YouTube auto-generated transcripts to reduce yt-dlp/API overhead.
+- `scripts/lib/render.py`: Added a new "### Key Voices / Trending Entities" section to both compact and full reports to highlight top X handles and Subreddits.
+- `scripts/lib/schema.py`: Added `trending_entities`, `settlement_rules`, `trending_on_social`, and `social_sentiment` fields to `Report` and `MarketWatchItem`.
+- `scripts/lib/normalize.py`: Now extracts and preserves `settlement_rules` from raw Polymarket/Kalshi event metadata.
+- `scripts/lib/closing_soon.py`: Implemented `infer_closing_window` for dynamic "Ending Soon" lookahead windows based on topic domain (e.g. 6h for Crypto, 72h for Politics).
+- `scripts/lib/market_watchlist.py`: Implemented `_social_signal_for_market` to cross-reference prediction markets with "Key Voices" and high-signal social chatter, adding bullish/bearish sentiment flags.
+
+### Changed
+- `scripts/lib/http.py`: Increased `MAX_429_RETRIES` to 5 and added random jitter to exponential backoff to prevent "thundering herd" issues during concurrent API spikes.
+- `scripts/lib/http.py`: Replaced strict serial `Locks` with `BoundedSemaphores(3)` for Kalshi and ScrapeCreators, allowing controlled concurrency for faster market discovery.
+- `scripts/last24hours.py`: Migrated Reddit, TikTok, Instagram, and ScrapeCreators-X modules from raw `requests` to the centralized `http.py` utility for unified rate-limit handling.
+- `scripts/last24hours.py`: Increased the default Reddit search timeout from 60s to 75s for better stability under load.
+- `scripts/lib/bird_x.py`: Implemented a robust 429-aware retry loop for the vendored Node.js search subprocess.
+- `scripts/lib/evidence_fusion.py`: Enhanced eSports signal detection and scoring, improving the ability to find and rank relevant news for markets like CS2/CSGO.
+- `scripts/lib/relevance.py`: Added `cs2` and `csgo` synonyms for improved token-overlap matching.
+- `scripts/last24hours.py`: Refactored `_run_supplemental` to always extract trending entities even in `--quick` mode.
+- `SKILL.md`, `README.md`, `scripts/lib/ui.py`, `scripts/lib/bird_x.py`, `scripts/lib/youtube_yt.py`, `.claude-plugin/plugin.json`, and `gemini-extension.json`: Updated version to `v1.0.82`.
+
+### Fixed
+- `scripts/lib/kalshi.py`: Fixed a `NameError` in the detailed event metadata fetcher (missing `event_titles` initialization).
+- `scripts/last24hours.py`: Implemented a public web search fallback (`site:xiaohongshu.com`) for Xiaohongshu when the local MCP bridge is unavailable.
+- `scripts/lib/render.py`: Fixed duplicate heading logic for "Key Voices" and "Trending Entities" across different report modes.
+
 ## [1.0.81] - 2026-04-25
 
 ### Changed
