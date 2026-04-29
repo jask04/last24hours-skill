@@ -258,9 +258,9 @@ def _topic_esports_subdomain(topic: str) -> str:
 
 def _report_base_date(report: schema.Report) -> date:
     for value in (
-        getattr(report, "generated_at", ""),
         getattr(report, "range_to", ""),
         getattr(report, "range_from", ""),
+        getattr(report, "generated_at", ""),
     ):
         if not value:
             continue
@@ -1193,23 +1193,31 @@ def _social_signal_for_market(report: schema.Report, market_text: str) -> tuple[
     mention_count = 0
     positive_count = 0
     negative_count = 0
+    positive_terms = {"buy", "long", "yes", "bullish", "entering", "backing", "support"}
+    negative_terms = {"sell", "short", "no", "bearish", "out", "avoid", "fade"}
+
+    def sentiment_hits(post_text: str) -> tuple[bool, bool]:
+        words = set(re.findall(r"\b[a-z][a-z0-9_+-]*\b", post_text.lower()))
+        return bool(words & positive_terms), bool(words & negative_terms)
     
     for x_item in report.x:
-        post_text = x_item.text.lower()
+        post_text = getattr(x_item, "text", "").lower()
         if any(token in post_text for token in market_tokens if len(token) > 3):
             mention_count += 1
-            if any(p in post_text for p in ("buy", "long", "yes", "bullish", "in", "entering")):
+            positive, negative = sentiment_hits(post_text)
+            if positive:
                 positive_count += 1
-            if any(n in post_text for n in ("sell", "short", "no", "bearish", "out", "avoid")):
+            if negative:
                 negative_count += 1
                 
     for r_item in report.reddit:
-        post_text = f"{r_item.title} {r_item.text}".lower()
+        post_text = f"{getattr(r_item, 'title', '')} {getattr(r_item, 'text', '')}".lower()
         if any(token in post_text for token in market_tokens if len(token) > 3):
             mention_count += 1
-            if any(p in post_text for p in ("buy", "long", "yes", "bullish", "in", "entering")):
+            positive, negative = sentiment_hits(post_text)
+            if positive:
                 positive_count += 1
-            if any(n in post_text for n in ("sell", "short", "no", "bearish", "out", "avoid")):
+            if negative:
                 negative_count += 1
 
     if mention_count >= 2:
@@ -1240,9 +1248,9 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     if domain == "esports" and market_type == "game_outcome" and not _watchlist_date_compatible(item, target_date):
         return None
     if domain == "esports" and "today" in (report.topic or "").lower():
-        if market_type == "game_outcome" and not _watchlist_end_day_compatible(item, target_date, slack_days=1):
+        if market_type == "game_outcome" and not _watchlist_end_day_compatible(item, target_date, slack_days=0):
             return None
-        if market_type == "esports_prop" and not _watchlist_end_day_compatible(item, target_date, slack_days=1):
+        if market_type == "esports_prop" and not _watchlist_end_day_compatible(item, target_date, slack_days=0):
             return None
 
     if _item_effectively_settled(item):

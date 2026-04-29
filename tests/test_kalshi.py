@@ -50,6 +50,16 @@ class KalshiTests(unittest.TestCase):
         self.assertIn("KXBTC", selected_series)
         self.assertIn("KXLLM1", selected_series)
 
+    def test_kalshi_live_candidate_shortlist_keeps_quick_enrichment_bounded(self):
+        ranked = [
+            {"ticker": f"KXTEST{i}-26APR", "event_ticker": f"KXTEST{i}-26APR"}
+            for i in range(20)
+        ]
+
+        selected = kalshi._diverse_live_candidates(ranked, cap=5)
+
+        self.assertEqual(len(selected), 10)
+
     def test_search_kalshi_filters_nba_games_to_topic_day(self):
         events = [
             {

@@ -102,7 +102,7 @@ def _series_key(market: Dict[str, Any]) -> str:
 
 def _diverse_live_candidates(ranked: List[Dict[str, Any]], cap: int) -> List[Dict[str, Any]]:
     """Keep broad Kalshi live boards from being filled by one high-volume family."""
-    limit = cap * 4
+    limit = cap * 2
     selected: List[Dict[str, Any]] = []
     seen_tickers: set[str] = set()
     seen_series: set[str] = set()
@@ -478,7 +478,7 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
         return [], {}
     live_board = _is_broad_live_board_topic(topic)
     if live_board:
-        event_limit = {"quick": 2, "default": 3, "deep": 5}.get(depth, 3)
+        event_limit = {"quick": 1, "default": 3, "deep": 5}.get(depth, 3)
     elif set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split()) & {"golf", "pga", "zurich", "masters"}:
         event_limit = {"quick": 25, "default": 35, "deep": 50}.get(depth, 35)
     else:
@@ -487,7 +487,10 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
     event_titles: Dict[str, str] = {}
     wanted_months = _topic_months(topic)
     event_tickers: List[str] = []
-    series_limit = len(_BROAD_LIVE_SERIES) if live_board else 3
+    if live_board and depth == "quick":
+        series_limit = min(10, len(_BROAD_LIVE_SERIES))
+    else:
+        series_limit = len(_BROAD_LIVE_SERIES) if live_board else 3
     for series_ticker in series[:series_limit]:
         events = _fetch_events_for_series(series_ticker, event_limit)
         if wanted_months:
@@ -846,17 +849,18 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
 
     event_data: Dict[str, dict] = {}
     event_titles: Dict[str, str] = dict(series_event_titles)
-    unique_events = sorted({m.get("event_ticker", "") for m in candidates if m.get("event_ticker")})
-    with ThreadPoolExecutor(max_workers=min(8, len(unique_events) or 1)) as executor:
-        futures = {executor.submit(_fetch_event, ticker): ticker for ticker in unique_events}
-        for future in as_completed(futures):
-            ticker = futures[future]
-            try:
-                raw_event = future.result().get("event", {})
-                event_data[ticker] = raw_event
-                event_titles[ticker] = raw_event.get("title", "")
-            except Exception as exc:
-                _log(f"event fetch failed for {ticker}: {exc}")
+    if not (_is_broad_live_board_topic(topic) and depth == "quick"):
+        unique_events = sorted({m.get("event_ticker", "") for m in candidates if m.get("event_ticker")})
+        with ThreadPoolExecutor(max_workers=min(8, len(unique_events) or 1)) as executor:
+            futures = {executor.submit(_fetch_event, ticker): ticker for ticker in unique_events}
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    raw_event = future.result().get("event", {})
+                    event_data[ticker] = raw_event
+                    event_titles[ticker] = raw_event.get("title", "")
+                except Exception as exc:
+                    _log(f"event fetch failed for {ticker}: {exc}")
 
     return {"markets": candidates, "event_titles": event_titles, "event_data": event_data, "_cap": cap}
 

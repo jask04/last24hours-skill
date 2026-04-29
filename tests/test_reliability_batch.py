@@ -155,7 +155,7 @@ class HttpHelperTests(unittest.TestCase):
             with self.assertRaises(http.HTTPError):
                 http.get("https://api.example.com", retries=5)
 
-        self.assertEqual(opener.open.call_count, 2)
+        self.assertEqual(opener.open.call_count, 5)
 
     def test_500_errors_use_full_retry_count(self):
         error = urllib.error.HTTPError("https://api.example.com", 500, "Server Error", {}, None)

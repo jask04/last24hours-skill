@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.83] - 2026-04-28
+
+### Fixed
+- `scripts/lib/http.py` and `tests/test_reliability_batch.py`: Kept the intentional five-attempt 429 retry policy and updated the stale reliability regression so the standard suite is green again.
+- `scripts/lib/kalshi.py` and `scripts/last24hours.py`: Bounded quick Kalshi live-board discovery/enrichment and raised the quick Kalshi future budget so `Kalshi live markets` can complete without broad-board starvation.
+- `scripts/lib/market_watchlist.py`: Tightened `today` eSports watchlists to prefer the local report date range over UTC generation time and reject next-day rows from the rendered board.
+- `scripts/lib/market_watchlist.py`: Made social sentiment matching use whole-word terms, removed the noisy `in` bullish marker, and guarded Reddit items without text bodies.
+- `scripts/last24hours.py`: Enabled Xiaohongshu public-web fallback when a native web backend is available, even if the local XHS bridge is unavailable.
+
+### Changed
+- `SKILL.md`, `README.md`, `scripts/lib/ui.py`, `scripts/lib/bird_x.py`, `scripts/lib/youtube_yt.py`, `.claude-plugin/plugin.json`, and `gemini-extension.json`: Updated version to `v1.0.83`.
+
 ## [1.0.82] - 2026-04-25
 
 ### Added

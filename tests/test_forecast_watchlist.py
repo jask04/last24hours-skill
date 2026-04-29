@@ -729,6 +729,103 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertIn("Astralis vs G2", items[0].title)
 
+    def test_cs2_watchlist_today_excludes_next_day_rows(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_NEXT_DAY",
+                title="Counter-Strike: Vitality vs FUT Esports (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Vitality vs FUT Esports (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-vit-fut-2026-04-22",
+                outcome_prices=[("Vitality", 0.94), ("FUT Esports", 0.06)],
+                engagement=_engagement(volume=272_000, liquidity=538_000),
+                market_signal_quality=0.79,
+                volume_24h=59_000,
+                best_bid=0.93,
+                best_ask=0.94,
+                spread=0.01,
+                movement_24h=2.0,
+                relevance=0.95,
+                score=91,
+                market_type="game_outcome",
+                end_datetime="2026-04-22T21:00:00Z",
+            )
+        ]
+
+        self.assertEqual(market_watchlist.synthesize_market_watchlist(report), [])
+
+    def test_cs2_watchlist_today_prefers_local_range_over_utc_generated_day(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.range_from = "2026-04-21"
+        report.range_to = "2026-04-21"
+        report.generated_at = "2026-04-22T01:30:00+00:00"
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_NEXT_DAY",
+                title="Counter-Strike: Vitality vs FUT Esports (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Vitality vs FUT Esports (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-vit-fut-2026-04-22",
+                outcome_prices=[("Vitality", 0.94), ("FUT Esports", 0.06)],
+                engagement=_engagement(volume=272_000, liquidity=538_000),
+                market_signal_quality=0.79,
+                volume_24h=59_000,
+                best_bid=0.93,
+                best_ask=0.94,
+                spread=0.01,
+                movement_24h=2.0,
+                relevance=0.95,
+                score=91,
+                market_type="game_outcome",
+                end_datetime="2026-04-22T21:00:00Z",
+            ),
+            schema.PolymarketItem(
+                id="PM_TODAY",
+                title="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                question="Counter-Strike: Astralis vs G2 (BO3) - BLAST Rivals Group A",
+                url="https://polymarket.com/event/cs2-astr-g2-2026-04-21",
+                outcome_prices=[("Astralis", 0.47), ("G2", 0.53)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_signal_quality=0.77,
+                volume_24h=180_000,
+                best_bid=0.52,
+                best_ask=0.54,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.95,
+                score=88,
+                market_type="game_outcome",
+                end_datetime="2026-04-21T21:00:00Z",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("Astralis vs G2", items[0].title)
+
+    def test_social_signal_uses_whole_words_for_sentiment(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.trending_entities = {"x_handles": ["counterstrike"], "reddit_subreddits": []}
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Vitality information before the match",
+                url="https://x.com/a/status/1",
+                author_handle="counterstrike",
+            ),
+            schema.XItem(
+                id="X2",
+                text="Vitality lineup notes incoming",
+                url="https://x.com/a/status/2",
+                author_handle="counterstrike",
+            ),
+        ]
+
+        trending, sentiment = market_watchlist._social_signal_for_market(report, "Vitality vs FUT Esports")
+
+        self.assertTrue(trending)
+        self.assertEqual(sentiment, "high discussion volume")
+
     def test_cs2_matches_today_handles_short_team_tags(self):
         report = _report("Counter-Strike 2 matches today")
         report.generated_at = "2026-04-21T18:00:00+00:00"
@@ -961,7 +1058,7 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertLessEqual(sum(1 for item in items if item.title.startswith("LoL:")), 1, titles)
         self.assertFalse(any("2026-04-24" in (item.url or "") for item in items), titles)
 
-    def test_broad_esports_watchlist_drops_rows_more_than_one_day_past_today_window(self):
+    def test_broad_esports_watchlist_today_drops_later_date_rows(self):
         report = _report("esports markets to watch today")
         report.polymarket = [
             schema.PolymarketItem(
@@ -1002,9 +1099,7 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         items = market_watchlist.synthesize_market_watchlist(report)
 
-        self.assertEqual(len(items), 1)
-        self.assertIn("LoL:", items[0].title)
-        self.assertNotIn("2026-04-24", items[0].url or "")
+        self.assertEqual(items, [])
 
     def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
         report = _report("esports markets to watch today")
