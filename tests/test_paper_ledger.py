@@ -63,6 +63,52 @@ class PaperStoreTests(unittest.TestCase):
         self.assertEqual(len(paper.store.list_recent_paper_picks()), 2)
         self.assertEqual(paper.store.list_recent_paper_picks()[0]["skill_version"], "1.0.test")
 
+    def test_unresolved_pick_queue_includes_unknown_paper_bundles_only(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "NBA paper bundle tomorrow",
+            "query_type": "market_watchlist",
+            "pick_type": "bundle",
+            "venue": "paper_bundle",
+            "venue_market_key": "paper_bundle|nba|1",
+            "title": "Paper Bundle 1",
+            "model_probability": 0.42,
+            "status": "unknown",
+            "skill_version": "1.0.test",
+        })
+        paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "NBA paper bundle next 2 days",
+            "query_type": "market_watchlist",
+            "pick_type": "bundle",
+            "venue": "polymarket",
+            "venue_market_key": "paper_bundle|nba|2",
+            "title": "Paper Bundle 2",
+            "model_probability": 0.38,
+            "status": "unknown",
+            "skill_version": "1.0.test",
+        })
+        paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "TenZ total kills tonight",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "model_implied",
+            "venue_market_key": "model_implied|tenz",
+            "title": "TenZ total kills tonight",
+            "model_probability": 0.50,
+            "status": "unknown",
+            "skill_version": "1.0.test",
+        })
+
+        queued = paper.store.list_unresolved_paper_picks()
+        keys = {row["venue_market_key"] for row in queued}
+
+        self.assertIn("paper_bundle|nba|1", keys)
+        self.assertIn("paper_bundle|nba|2", keys)
+        self.assertNotIn("model_implied|tenz", keys)
+
     def test_load_portfolio_normalizes_entry_schema(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
@@ -1331,6 +1377,86 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["paper_only_bundle_count"], 1)
         self.assertEqual(diagnostics["manual_or_unknown_resolution_count"], 1)
         self.assertTrue(any("model-implied" in warning for warning in diagnostics["warnings"]))
+
+    def test_open_pick_diagnostics_model_implied_groups_use_all_rows(self):
+        rows = []
+        for idx in range(13):
+            topic = "TenZ total kills tonight" if idx < 8 else "Bitcoin above 100k this week"
+            rows.append({
+                "id": idx + 1,
+                "status": "unknown",
+                "topic": topic,
+                "title": topic,
+                "question": topic,
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "venue_market_key": f"model_implied|{idx}",
+                "market_type": "model_implied",
+                "model_probability": 0.50,
+                "resolution_source": "",
+                "skill_version": "1.0.83",
+                "notes_json": json.dumps({
+                    "domain": "esports" if idx < 8 else "crypto",
+                    "subdomain": "valorant" if idx < 8 else "",
+                    "degraded_reason_class": "degraded_model_implied_only",
+                }),
+            })
+
+        diagnostics = paper.open_pick_diagnostics(rows)
+        model_implied = diagnostics["model_implied_open_slice"]
+
+        self.assertEqual(model_implied["count"], 13)
+        self.assertEqual(sum(model_implied["by_domain"].values()), 13)
+        self.assertEqual(model_implied["by_domain"]["esports"], 8)
+        self.assertEqual(model_implied["by_domain"]["crypto"], 5)
+        self.assertEqual(model_implied["by_subdomain"]["valorant"], 8)
+        self.assertEqual(len(model_implied["rows"]), 10)
+
+    def test_open_pick_diagnostics_bundle_groups_use_all_rows(self):
+        rows = []
+        for idx in range(12):
+            legs = [
+                {
+                    "title": "Celtics vs. 76ers",
+                    "outcome_label": "Celtics",
+                    "live_game_context": "NBA Thu, April 30th at 8:00 PM EDT; start 2026-05-01T00:00Z",
+                },
+                {
+                    "title": "Knicks vs. Hawks",
+                    "outcome_label": "Knicks",
+                    "live_game_context": "NBA Thu, April 30th at 7:00 PM EDT; start 2026-04-30T23:00Z",
+                },
+            ]
+            if idx >= 10:
+                legs.append({
+                    "title": "Lakers vs. Rockets",
+                    "outcome_label": "Lakers",
+                    "live_game_context": "NBA Thu, April 30th at 10:00 PM EDT; start 2026-05-01T02:00Z",
+                })
+            rows.append({
+                "id": idx + 1,
+                "status": "unknown",
+                "topic": "NBA paper bundle tomorrow" if idx % 2 else "NBA paper bundle next 2 days",
+                "title": f"Paper Bundle {idx + 1}",
+                "pick_type": "bundle",
+                "venue": "paper_bundle",
+                "venue_market_key": f"paper_bundle|nba|{idx}",
+                "model_probability": 0.40,
+                "resolution_source": "",
+                "skill_version": "1.0.83",
+                "created_at": "2026-04-20 08:00:00",
+                "notes_json": json.dumps({"domain": "nba", "legs": legs}),
+            })
+
+        diagnostics = paper.open_pick_diagnostics(rows)
+        bundles = diagnostics["paper_bundle_open_slice"]
+
+        self.assertEqual(bundles["count"], 12)
+        self.assertEqual(sum(bundles["by_age_bucket"].values()), 12)
+        self.assertEqual(bundles["by_leg_count"]["2"], 10)
+        self.assertEqual(bundles["by_leg_count"]["3"], 2)
+        self.assertEqual(len(bundles["rows"]), 10)
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.84] - 2026-04-29
+
+### Fixed
+- `scripts/store.py`: Included unknown paper-only bundle rows in the resolver queue so NBA bundle samples can resolve instead of accumulating as skipped `unknown` rows.
+- `scripts/paper.py`: Locked paper diagnostics around full-row aggregate counters for model-implied rows and paper bundles while keeping example rows capped for readability.
+
+### Tests
+- `tests/test_paper_ledger.py`: Added regressions for unknown bundle resolver eligibility and uncapped paper diagnostic group counts.
+
 ## [1.0.83] - 2026-04-28
 
 ### Fixed

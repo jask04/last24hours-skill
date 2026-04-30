@@ -632,6 +632,7 @@ def list_unresolved_paper_picks(limit: int = 200) -> List[Dict[str, Any]]:
             """SELECT * FROM paper_picks
                WHERE status = 'open'
                   OR (status = 'unknown' AND venue = 'weather_api')
+                  OR (status = 'unknown' AND (venue = 'paper_bundle' OR pick_type = 'bundle'))
                ORDER BY created_at ASC
                LIMIT ?""",
             (limit,),
