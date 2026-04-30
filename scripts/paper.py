@@ -598,6 +598,52 @@ def _existing_pick_rows(
         conn.close()
 
 
+def _normalize_bundle_leg_text(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9\s]", " ", str(value or "").lower())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _bundle_leg_signature(leg: Dict[str, Any]) -> str:
+    """Stable paper-only bundle leg identity for duplicate reporting/admission."""
+    title = _normalize_bundle_leg_text(leg.get("title"))
+    outcome = _normalize_bundle_leg_text(leg.get("outcome_label"))
+    context = str(leg.get("live_game_context") or "")
+    date_match = re.search(r"start (\d{4}-\d{2}-\d{2})", context)
+    date = date_match.group(1) if date_match else ""
+    return "|".join(part for part in (title, outcome, date) if part)
+
+
+def _bundle_duplicate_key_from_legs(legs: Iterable[Dict[str, Any]]) -> str:
+    signatures = sorted(signature for signature in (_bundle_leg_signature(leg) for leg in legs) if signature)
+    return "||".join(signatures)
+
+
+def _bundle_duplicate_key_from_pick(pick: Dict[str, Any]) -> str:
+    notes = _safe_json_loads(pick.get("notes_json"))
+    return _bundle_duplicate_key_from_legs(notes.get("legs") or [])
+
+
+def _existing_open_bundle_duplicate_rows(bundle_key: str) -> List[Dict[str, Any]]:
+    if not bundle_key:
+        return []
+    conn = store._connect()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status IN ('open', 'unknown')
+                 AND (pick_type = 'bundle' OR venue = 'paper_bundle')
+               ORDER BY created_at DESC"""
+        ).fetchall()
+        matches = []
+        for row in rows:
+            payload = dict(row)
+            if _bundle_duplicate_key_from_pick(payload) == bundle_key:
+                matches.append(payload)
+        return matches
+    finally:
+        conn.close()
+
+
 def _market_map(items: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return {str(item.get("id", "")): item for item in items if item.get("id")}
 
@@ -1030,6 +1076,34 @@ def _validate_expected_pick_types(entry: Dict[str, Any], picks: List[Dict[str, A
     return []
 
 
+def _admission_filtered_picks(
+    entry: Dict[str, Any],
+    report: Dict[str, Any],
+    picks: List[Dict[str, Any]],
+    warnings: List[str],
+) -> List[Dict[str, Any]]:
+    topic = str(entry.get("topic") or "")
+    if not eq.is_esports_player_prop_query(topic):
+        return picks
+    if bool(entry.get("allow_model_implied_esports_props")):
+        return picks
+    kept = []
+    reason = _named_esports_prop_reason_class_for_report(topic, report) or "degraded_model_implied_only"
+    for pick in picks:
+        model_implied_pick = (
+            str(pick.get("venue") or "") == "model_implied"
+            or str(pick.get("anchor_source") or "") == "model_implied"
+            or str(pick.get("market_type") or "") == "model_implied"
+        )
+        if model_implied_pick:
+            warnings.append(
+                f"{topic}: skipped model-implied eSports prop paper row; no compatible market anchor survived ({reason})."
+            )
+            continue
+        kept.append(pick)
+    return kept
+
+
 def _apply_dedupe_policy(
     entry: Dict[str, Any],
     picks: List[Dict[str, Any]],
@@ -1048,12 +1122,16 @@ def _apply_dedupe_policy(
             continue
         duplicates = []
         if policy == "skip_if_open_duplicate":
-            duplicates = _existing_pick_rows(key, open_only=True)
+            if pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle":
+                duplicates = _existing_open_bundle_duplicate_rows(_bundle_duplicate_key_from_pick(pick))
+            else:
+                duplicates = _existing_pick_rows(key, open_only=True)
         elif policy == "skip_if_recent_duplicate":
             duplicates = _existing_pick_rows(key, window_days=window_days)
         if duplicates:
+            duplicate_label = _bundle_duplicate_key_from_pick(pick) if pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle" else key
             warnings.append(
-                f"{entry['topic']}: skipped duplicate {pick.get('pick_type', 'pick')} for {key} under {policy} ({len(duplicates)} existing row(s))"
+                f"{entry['topic']}: skipped duplicate {pick.get('pick_type', 'pick')} for {duplicate_label or key} under {policy} ({len(duplicates)} existing row(s))"
             )
             if debug_counters is not None:
                 debug_counters["skipped_duplicate_paper_rows"] = int(debug_counters.get("skipped_duplicate_paper_rows", 0) or 0) + 1
@@ -1699,6 +1777,44 @@ def closing_soon_health_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     return summary
 
 
+def kalshi_live_board_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    relevant = [
+        pick for pick in picks
+        if pick.get("pick_type") == "watchlist"
+        and closing_soon.is_kalshi_live_board_query(str(pick.get("topic") or ""))
+    ]
+    rows = []
+    for pick in relevant[:10]:
+        rows.append({
+            "id": pick.get("id"),
+            "topic": pick.get("topic") or "",
+            "title": pick.get("title") or pick.get("question") or "",
+            "venue": pick.get("venue") or "",
+            "market_type": pick.get("market_type") or "",
+            "status": pick.get("status") or "",
+            "end_date": pick.get("end_date"),
+            "model_probability": pick.get("model_probability"),
+            "skill_version": pick.get("skill_version") or "",
+        })
+    by_status = sorted({str(pick.get("status") or "") for pick in relevant if pick.get("status")})
+    by_market_type = sorted({str(pick.get("market_type") or "") for pick in relevant if pick.get("market_type")})
+    return {
+        "count": len(relevant),
+        "open_count": sum(1 for pick in relevant if pick.get("status") in {"open", "unknown"}),
+        "resolved_count": sum(1 for pick in relevant if pick.get("status") == "resolved"),
+        "by_status": {
+            status: sum(1 for pick in relevant if str(pick.get("status") or "") == status)
+            for status in by_status
+        },
+        "by_market_type": {
+            market_type: sum(1 for pick in relevant if str(pick.get("market_type") or "") == market_type)
+            for market_type in by_market_type
+        },
+        "rows": rows,
+        "empty_reason": "" if relevant else "No Kalshi live-board paper rows in the selected report window.",
+    }
+
+
 def recent_resolution_summary(
     picks: List[Dict[str, Any]],
     *,
@@ -1979,12 +2095,12 @@ def _report_market_subdomains(report: Dict[str, Any]) -> set[str]:
 def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: List[Dict[str, Any]]) -> str:
     if picks:
         return ""
-    if _is_degraded_report(report):
-        return "degraded_evidence_only"
     topic = str(entry.get("topic") or "")
     prop_reason = _named_esports_prop_reason_class_for_report(topic, report)
     if prop_reason:
         return prop_reason
+    if _is_degraded_report(report):
+        return "degraded_evidence_only"
     if str(entry.get("pick_policy") or "").strip().lower() == "bundle_only":
         reason = _bundle_reason_class_for_report(report)
         if reason:
@@ -2006,6 +2122,49 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
     if topic_subdomain and market_subdomains and topic_subdomain not in market_subdomains:
         return "wrong_subdomain"
     return "no_compatible_market"
+
+
+def _esports_watchlist_failure_counters(topic: str, report: Dict[str, Any]) -> Dict[str, int]:
+    if _domain(topic) != "esports":
+        return {}
+    if "watch" not in topic.lower() and "markets" not in topic.lower():
+        return {}
+    counters = {
+        "esports_watchlist_no_same_day_direct_rows": 0,
+        "esports_watchlist_filtered_later_date_rows": 0,
+        "esports_watchlist_wrong_subdomain_type_rows": 0,
+        "esports_watchlist_low_market_quality_rows": 0,
+        "esports_watchlist_evidence_only_degraded": 0,
+    }
+    target_subdomain = _subdomain(topic)
+    target_date = _target_date_for_topic(topic, report.get("generated_at")).isoformat() if any(token in topic.lower() for token in ("today", "tonight")) else ""
+    rows = list(report.get("market_watchlist") or []) + list(report.get("polymarket") or []) + list(report.get("kalshi") or [])
+    same_day_direct = 0
+    for item in rows:
+        text = " ".join(str(part or "") for part in (item.get("title"), item.get("question"), item.get("url"), item.get("ticker"), item.get("event_ticker")))
+        subdomain = eq.inferred_esports_subdomain(text)
+        market_type = str(item.get("market_type") or "")
+        if target_subdomain and subdomain and subdomain != target_subdomain:
+            counters["esports_watchlist_wrong_subdomain_type_rows"] += 1
+            continue
+        if market_type not in {"game_outcome", "esports_prop"}:
+            counters["esports_watchlist_wrong_subdomain_type_rows"] += 1
+            continue
+        if target_date and not _item_day_matches_target(item, target_date):
+            counters["esports_watchlist_filtered_later_date_rows"] += 1
+            continue
+        probability = _watchlist_probability(item)
+        if probability is not None and (probability >= 0.98 or probability <= 0.02):
+            counters["esports_watchlist_low_market_quality_rows"] += 1
+            continue
+        if market_type == "game_outcome":
+            same_day_direct += 1
+    if same_day_direct == 0:
+        counters["esports_watchlist_no_same_day_direct_rows"] = 1
+    source_status = (((report.get("evidence_fusion_stats") or {}).get("source_health") or {}).get("source_status") or {})
+    if source_status and not rows:
+        counters["esports_watchlist_evidence_only_degraded"] = 1
+    return {key: value for key, value in counters.items() if value}
 
 
 def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any]:
@@ -2051,6 +2210,8 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
     result["extracted_pick_count"] = len(picks)
     picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
     result["post_policy_pick_count"] = len(picks)
+    picks = _admission_filtered_picks(entry, report, picks, result["warnings"])
+    result["post_admission_pick_count"] = len(picks)
     picks = _apply_dedupe_policy(entry, picks, result["warnings"], debug_counters)
     result["post_dedupe_pick_count"] = len(picks)
     result["pick_types"] = _pick_types(picks)
@@ -2069,16 +2230,25 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
     duplicate_skip = any("skipped duplicate" in warning for warning in result["warnings"])
     if not picks and duplicate_skip:
         result["status"] = "duplicate_skip"
+    elif not picks and eq.is_esports_player_prop_query(entry["topic"]):
+        result["reason_class"] = _dry_run_reason_class(entry, report, picks)
+        result["degraded_reason_class"] = result["reason_class"]
+        result["status"] = "no_compatible_pick"
+        result["warnings"].append(
+            f"{entry['topic']}: no usable paper pick found after policy and compatibility filters (reason_class={result['reason_class']})."
+        )
     elif not picks and _is_degraded_report(report):
         result["status"] = "degraded_run"
         result["reason_class"] = "degraded_evidence_only"
         result["warnings"].append(f"{entry['topic']}: no usable paper pick found because the run degraded or only degraded evidence-level output remained.")
+        debug_counters.update(_esports_watchlist_failure_counters(str(entry.get("topic") or ""), report))
     elif not picks:
         result["reason_class"] = _dry_run_reason_class(entry, report, picks)
         result["status"] = "no_compatible_pick"
         result["warnings"].append(
             f"{entry['topic']}: no usable paper pick found after policy and compatibility filters (reason_class={result['reason_class']})."
         )
+        debug_counters.update(_esports_watchlist_failure_counters(str(entry.get("topic") or ""), report))
     else:
         result["status"] = "ready"
     if debug_counters:
@@ -2135,6 +2305,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     paper_bundle_by_topic: Dict[str, int] = {}
     paper_bundle_by_age_bucket: Dict[str, int] = {}
     paper_bundle_by_leg_count: Dict[int, int] = {}
+    paper_bundle_duplicate_groups: Dict[str, List[Dict[str, Any]]] = {}
     paper_bundle_past_due = 0
     paper_bundle_future = 0
     
@@ -2143,6 +2314,11 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     model_implied_by_domain: Dict[str, int] = {}
     model_implied_by_subdomain: Dict[str, int] = {}
     model_implied_by_degraded_reason: Dict[str, int] = {}
+    esports_model_implied_rows: List[Dict[str, Any]] = []
+    esports_model_implied_by_topic: Dict[str, int] = {}
+    esports_model_implied_by_subdomain: Dict[str, int] = {}
+    esports_model_implied_by_skill_version: Dict[str, int] = {}
+    esports_model_implied_by_degraded_reason: Dict[str, int] = {}
     
     now = datetime.now()
     for pick in open_picks:
@@ -2218,7 +2394,7 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             if degraded_reason:
                 model_implied_by_degraded_reason[degraded_reason] = model_implied_by_degraded_reason.get(degraded_reason, 0) + 1
             if len(model_implied_rows) < 10:
-                model_implied_rows.append({
+                row = {
                     "id": pick.get("id"),
                     "topic": topic,
                     "title": str(pick.get("title") or pick.get("question") or ""),
@@ -2228,7 +2404,26 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "domain": domain,
                     "subdomain": subdomain,
                     "degraded_reason_class": degraded_reason,
-                })
+                }
+                model_implied_rows.append(row)
+            if domain == "esports":
+                esports_model_implied_by_topic[topic] = esports_model_implied_by_topic.get(topic, 0) + 1
+                if subdomain:
+                    esports_model_implied_by_subdomain[subdomain] = esports_model_implied_by_subdomain.get(subdomain, 0) + 1
+                esports_model_implied_by_skill_version[skill_bucket] = esports_model_implied_by_skill_version.get(skill_bucket, 0) + 1
+                reason_bucket = degraded_reason or "missing"
+                esports_model_implied_by_degraded_reason[reason_bucket] = esports_model_implied_by_degraded_reason.get(reason_bucket, 0) + 1
+                if len(esports_model_implied_rows) < 10:
+                    esports_model_implied_rows.append({
+                        "id": pick.get("id"),
+                        "topic": topic,
+                        "title": str(pick.get("title") or pick.get("question") or ""),
+                        "model_probability": probability,
+                        "created_at": pick.get("created_at"),
+                        "skill_version": skill_bucket,
+                        "subdomain": subdomain,
+                        "degraded_reason_class": reason_bucket,
+                    })
         
         if is_paper_bundle:
             topic = str(pick.get("topic") or "")
@@ -2238,6 +2433,9 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             legs = notes.get("legs") or []
             leg_count = len(legs)
             paper_bundle_by_leg_count[leg_count] = paper_bundle_by_leg_count.get(leg_count, 0) + 1
+            duplicate_key = _bundle_duplicate_key_from_legs(legs)
+            if duplicate_key:
+                paper_bundle_duplicate_groups.setdefault(duplicate_key, []).append(pick)
             
             readiness = "unknown_date"
             past_due_count = 0
@@ -2363,6 +2561,17 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "domains": sorted({_domain(str(row.get("topic") or "")) for row in rows}),
             "version_eras": sorted({_skill_version_era(row.get("skill_version")) for row in rows}),
         })
+    paper_bundle_duplicate_rows = []
+    for key, rows in sorted(paper_bundle_duplicate_groups.items()):
+        if len(rows) <= 1:
+            continue
+        paper_bundle_duplicate_rows.append({
+            "bundle_leg_key": key,
+            "count": len(rows),
+            "topics": sorted({str(row.get("topic") or "") for row in rows}),
+            "ids": [row.get("id") for row in sorted(rows, key=lambda row: _parse_timestamp(row.get("created_at")) or datetime.min, reverse=True)],
+            "titles": sorted({str(row.get("title") or row.get("question") or "") for row in rows})[:5],
+        })
     nba_watch_rows = [pick for pick in open_picks if _domain(str(pick.get("topic") or "")) == "nba" and pick.get("pick_type") == "watchlist"]
     for pick in nba_watch_rows:
         if _pick_watchlist_scope(pick) != "series":
@@ -2452,6 +2661,21 @@ def open_pick_diagnostics(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "by_degraded_reason_class": dict(sorted(model_implied_by_degraded_reason.items())),
             "rows": model_implied_rows[:10],
             "empty_reason": "" if model_implied else "No open model-implied paper rows right now.",
+        },
+        "open_model_implied_esports_slice": {
+            "count": sum(esports_model_implied_by_topic.values()),
+            "by_topic": dict(sorted(esports_model_implied_by_topic.items())),
+            "by_subdomain": dict(sorted(esports_model_implied_by_subdomain.items())),
+            "by_skill_version": dict(sorted(esports_model_implied_by_skill_version.items())),
+            "by_degraded_reason_class": dict(sorted(esports_model_implied_by_degraded_reason.items())),
+            "rows": esports_model_implied_rows,
+            "empty_reason": "" if esports_model_implied_rows else "No open model-implied eSports paper rows right now.",
+        },
+        "paper_bundle_duplicate_slice": {
+            "duplicate_group_count": len(paper_bundle_duplicate_rows),
+            "duplicate_open_row_count": sum(max(0, row["count"] - 1) for row in paper_bundle_duplicate_rows),
+            "groups": paper_bundle_duplicate_rows[:10],
+            "empty_reason": "" if paper_bundle_duplicate_rows else "No duplicate open paper bundle leg sets right now.",
         },
         "esports_open_slice": {
             "count": esports_count,
@@ -2561,9 +2785,11 @@ def cmd_daily(args) -> None:
             report = _run_last24hours(entry["topic"], quick=args.quick, extra_args=entry.get("last24hours_args", []))
             picks = extract_paper_picks(report)
             picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
+            picks = _admission_filtered_picks(entry, report, picks, warnings)
             picks = _apply_dedupe_policy(entry, picks, warnings, debug_counters)
             if not picks:
-                warnings.append(f"{entry['topic']}: no usable paper pick found")
+                reason = _dry_run_reason_class(entry, report, picks)
+                warnings.append(f"{entry['topic']}: no usable paper pick found (reason_class={reason})")
             warnings.extend(_validate_expected_pick_types(entry, picks))
             warnings.extend(f"{entry['topic']}: {warning}" for warning in pick_quality_warnings(picks))
             created.extend(_store_picks(run_id, picks))
@@ -2601,6 +2827,7 @@ def cmd_report(args) -> None:
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
         "closing_soon_health": closing_soon_health_summary(recent),
+        "kalshi_live_board_sample": kalshi_live_board_summary(recent),
         "recent_resolution_summary": recent_resolution_summary(recent),
         "resolution_learning_summary": resolution_learning_summary(recent),
         "open_portfolio": open_pick_diagnostics(recent),

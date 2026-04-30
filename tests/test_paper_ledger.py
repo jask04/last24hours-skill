@@ -109,6 +109,57 @@ class PaperStoreTests(unittest.TestCase):
         self.assertIn("paper_bundle|nba|2", keys)
         self.assertNotIn("model_implied|tenz", keys)
 
+    def test_bundle_dedupe_matches_equivalent_leg_sets_across_topics(self):
+        legs = [
+            {
+                "source_item_id": "nba-lal-hou-2026-05-01",
+                "title": "Lakers vs. Rockets",
+                "outcome_label": "Rockets",
+                "live_game_context": "NBA Fri, May 1st at 10:00 PM EDT; start 2026-05-02T02:00Z",
+            },
+            {
+                "source_item_id": "nba-det-orl-2026-05-01",
+                "title": "Pistons vs. Magic",
+                "outcome_label": "Pistons",
+                "live_game_context": "NBA Fri, May 1st at 7:00 PM EDT; start 2026-05-01T23:00Z",
+            },
+        ]
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "NBA paper bundle next 2 days",
+            "query_type": "market_watchlist",
+            "pick_type": "bundle",
+            "venue": "paper_bundle",
+            "venue_market_key": "paper_bundle|nba|old-key",
+            "title": "Paper Bundle 1",
+            "market_type": "paper_bundle",
+            "model_probability": 0.35,
+            "status": "open",
+            "notes_json": json.dumps({"domain": "nba", "legs": legs}),
+            "skill_version": "1.0.test",
+        })
+        candidate = {
+            "topic": "NBA paper bundle tomorrow",
+            "pick_type": "bundle",
+            "venue": "paper_bundle",
+            "venue_market_key": "paper_bundle|nba|new-key",
+            "notes_json": json.dumps({"domain": "nba", "legs": list(reversed(legs))}),
+        }
+
+        warnings = []
+        debug = {}
+        kept = paper._apply_dedupe_policy(
+            {"topic": "NBA paper bundle tomorrow", "dedupe_policy": "skip_if_open_duplicate"},
+            [candidate],
+            warnings,
+            debug,
+        )
+
+        self.assertEqual(kept, [])
+        self.assertEqual(debug["skipped_duplicate_paper_rows"], 1)
+        self.assertIn("skipped duplicate bundle", " ".join(warnings))
+
     def test_load_portfolio_normalizes_entry_schema(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
@@ -800,6 +851,39 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(summary["count"], 1)
         self.assertEqual(summary["by_market_type"], {"threshold": 1})
 
+    def test_kalshi_live_board_summary_tracks_live_board_separately(self):
+        picks = [
+            {
+                "id": 10,
+                "topic": "Kalshi live markets",
+                "pick_type": "watchlist",
+                "venue": "kalshi",
+                "market_type": "macro_binary",
+                "status": "open",
+                "title": "CPI in May",
+                "model_probability": 0.35,
+                "skill_version": "1.0.86",
+            },
+            {
+                "id": 11,
+                "topic": "Kalshi markets closing soon",
+                "pick_type": "watchlist",
+                "venue": "kalshi",
+                "market_type": "threshold",
+                "status": "open",
+                "title": "BTC above target",
+            },
+        ]
+
+        live = paper.kalshi_live_board_summary(picks)
+        closing = paper.closing_soon_health_summary(picks)
+
+        self.assertEqual(live["count"], 1)
+        self.assertEqual(live["by_market_type"], {"macro_binary": 1})
+        self.assertEqual(live["rows"][0]["title"], "CPI in May")
+        self.assertEqual(closing["count"], 1)
+        self.assertEqual(closing["by_market_type"], {"threshold": 1})
+
     def test_recent_resolution_summary_groups_freshly_resolved_rows(self):
         picks = [
             {
@@ -941,6 +1025,40 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(entry["reason_class"], "wrong_subdomain")
         self.assertIn("wrong_subdomain", " ".join(entry["warnings"]))
 
+    def test_cmd_daily_dry_run_adds_esports_watchlist_failure_counters(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Counter-Strike 2 markets to watch today", "enabled": True, "pick_policy": "watchlist_only"},
+        ]), encoding="utf-8")
+        report = {
+            "topic": "Counter-Strike 2 markets to watch today",
+            "query_type": "market_watchlist",
+            "generated_at": "2026-04-22T18:00:00+00:00",
+            "forecasts": [],
+            "market_watchlist": [],
+            "polymarket": [
+                {
+                    "title": "Counter-Strike: Vitality vs G2 (BO3)",
+                    "question": "Counter-Strike: Vitality vs G2 (BO3)",
+                    "url": "https://polymarket.com/event/cs2-vit-g2-2026-04-23",
+                    "market_type": "game_outcome",
+                    "end_date": "2026-04-23",
+                    "probability": 0.56,
+                }
+            ],
+            "evidence_fusion_stats": {"source_health": {"source_status": {"web": {"status": "empty"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        entry = payload["results"][0]
+        self.assertEqual(entry["status"], "no_compatible_pick")
+        self.assertEqual(entry["debug_counters"]["esports_watchlist_filtered_later_date_rows"], 1)
+        self.assertEqual(entry["debug_counters"]["esports_watchlist_no_same_day_direct_rows"], 1)
+
     def test_cmd_daily_dry_run_reports_named_prop_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
@@ -1009,8 +1127,41 @@ class PaperExtractionTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         by_topic = {entry["topic"]: entry for entry in payload["results"]}
         self.assertEqual(by_topic["TenZ total kills tonight"]["degraded_reason_class"], "no_matching_player_market")
+        self.assertEqual(by_topic["TenZ total kills tonight"]["status"], "no_compatible_pick")
         self.assertEqual(by_topic["Faker total kills tonight"]["degraded_reason_class"], "no_same_day_prop_market")
         self.assertEqual(by_topic["Faker solo kills tonight"]["degraded_reason_class"], "wrong_stat_family")
+
+    def test_esports_prop_model_implied_rows_are_admission_filtered(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "TenZ total kills tonight",
+                "enabled": True,
+                "expected_pick_types": ["forecast"],
+                "pick_policy": "forecast_only",
+                "dedupe_policy": "skip_if_open_duplicate",
+            },
+        ]), encoding="utf-8")
+        report = {
+            "topic": "TenZ total kills tonight",
+            "query_type": "prediction",
+            "generated_at": "2026-04-22T18:00:00+00:00",
+            "forecasts": [{"title": "TenZ total kills tonight", "forecast_probability": 0.52, "anchor_source": "model_implied"}],
+            "market_watchlist": [],
+            "polymarket": [],
+            "evidence_fusion_stats": {"source_health": {"source_status": {"x": {"status": "used"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        entry = payload["results"][0]
+        self.assertEqual(entry["status"], "no_compatible_pick")
+        self.assertEqual(entry["post_admission_pick_count"], 0)
+        self.assertEqual(entry["reason_class"], "degraded_model_implied_only")
+        self.assertIn("skipped model-implied eSports prop", " ".join(entry["warnings"]))
 
     def test_cmd_daily_dry_run_reports_wrong_domain_and_market_type_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
@@ -1513,6 +1664,12 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(model_implied["by_domain"]["crypto"], 5)
         self.assertEqual(model_implied["by_subdomain"]["valorant"], 8)
         self.assertEqual(len(model_implied["rows"]), 10)
+        esports_slice = diagnostics["open_model_implied_esports_slice"]
+        self.assertEqual(esports_slice["count"], 8)
+        self.assertEqual(esports_slice["by_topic"]["TenZ total kills tonight"], 8)
+        self.assertEqual(esports_slice["by_subdomain"]["valorant"], 8)
+        self.assertEqual(esports_slice["by_skill_version"]["1.0.83"], 8)
+        self.assertEqual(esports_slice["by_degraded_reason_class"]["degraded_model_implied_only"], 8)
 
     def test_open_pick_diagnostics_bundle_groups_use_all_rows(self):
         rows = []
@@ -1558,6 +1715,10 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(bundles["by_leg_count"]["2"], 10)
         self.assertEqual(bundles["by_leg_count"]["3"], 2)
         self.assertEqual(len(bundles["rows"]), 10)
+        duplicate_slice = diagnostics["paper_bundle_duplicate_slice"]
+        self.assertEqual(duplicate_slice["duplicate_group_count"], 2)
+        self.assertEqual(duplicate_slice["duplicate_open_row_count"], 10)
+        self.assertTrue(all(group["count"] > 1 for group in duplicate_slice["groups"]))
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

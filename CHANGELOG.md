@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.87] - 2026-04-30
+
+### Added
+- `scripts/paper.py`: Added paper-report slices for open model-implied eSports rows, duplicate NBA paper bundle leg sets, and Kalshi live-board calibration rows.
+- `scripts/paper.py`: Added eSports watchlist failure counters in dry-run output so empty boards distinguish later-date, subdomain/type, quality, and evidence-only failures.
+
+### Fixed
+- `scripts/paper.py`: Suppressed duplicate open NBA paper bundles across the `next 2 days` and `tomorrow` fixtures when the normalized leg set is already open.
+- `scripts/paper.py`: Stopped storing model-implied-only eSports prop paper rows by default while preserving prop-specific dry-run reason classes.
+
+### Tests
+- `tests/test_paper_ledger.py`: Added regressions for bundle duplicate suppression, eSports prop no-store admission, Kalshi live-board reporting, and new paper diagnostic slices.
+
 ## [1.0.86] - 2026-04-29
 
 ### Added
