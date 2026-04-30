@@ -2021,6 +2021,15 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
             timeout_seconds=DRY_RUN_TOPIC_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
+        topic = str(entry.get("topic") or "")
+        if closing_soon.is_closing_soon_query(topic) and closing_soon.preferred_venue(topic) == "kalshi":
+            result["status"] = "degraded_run"
+            result["reason_class"] = "kalshi_closing_soon_timeout"
+            result["elapsed_seconds"] = round(time.time() - started, 2)
+            result["warnings"].append(
+                f"{entry['topic']}: Kalshi closing-soon dry-run timed out after {DRY_RUN_TOPIC_TIMEOUT_SECONDS}s before structured market output; treating this as a bounded degraded scan, not a paper pick."
+            )
+            return result
         result["status"] = "error"
         result["elapsed_seconds"] = round(time.time() - started, 2)
         result["warnings"].append(

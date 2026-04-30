@@ -1101,6 +1101,38 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(items, [])
 
+    def test_cs2_today_watchlist_reports_later_date_empty_reason(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Vitality vs FUT Esports (BO3) - IEM",
+                question="Counter-Strike: Vitality vs FUT Esports (BO3) - IEM",
+                url="https://polymarket.com/event/cs2-vitality-fut-2026-04-22",
+                outcome_prices=[("Vitality", 0.62), ("FUT Esports", 0.38)],
+                engagement=_engagement(volume=90_000, liquidity=125_000),
+                market_signal_quality=0.82,
+                volume_24h=90_000,
+                best_bid=0.61,
+                best_ask=0.63,
+                spread=0.02,
+                movement_24h=0.08,
+                relevance=0.93,
+                score=84,
+                market_type="game_outcome",
+                end_date="2026-04-22",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        rendered = render.render_compact(report)
+        counters = report.evidence_fusion_stats["debug_counters"]
+
+        self.assertEqual(items, [])
+        self.assertEqual(counters["suppressed_esports_later_date_watchlist_candidates"], 1)
+        self.assertEqual(counters["empty_esports_watchlist_boards"], 1)
+        self.assertIn("eSports filter: no same-day direct board survived", rendered)
+
     def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
         report = _report("esports markets to watch today")
         report.polymarket = [

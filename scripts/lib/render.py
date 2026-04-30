@@ -441,11 +441,40 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             matched = live_matches_count or 0
             lines.append(f"Live-sports filter: ESPN found {live_games_count} live/starting-soon game(s), but only {matched} direct matching Polymarket game-outcome market(s) cleared the scanner.")
         elif "closing_soon" in getattr(report, "planning_notes", []) and not closing_soon.is_kalshi_live_board_query(report.topic):
-            lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
+            if closing_soon.preferred_venue(report.topic) == "kalshi":
+                seeds = _planning_note_int(report, "closing-ka-seeds:")
+                raw = _planning_note_int(report, "closing-ka-raw:")
+                candidates = _planning_note_int(report, "closing-ka-candidates:")
+                if candidates == 0 and raw:
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived expiry, liquidity, settled-price, and close-window filters.")
+                elif raw == 0:
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s), but no Kalshi near-expiry rows were discovered.")
+                elif raw is not None and candidates is not None:
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but none cleared final watchlist ranking.")
+                else:
+                    lines.append("Kalshi closing-soon filter: needed active, liquid, non-expired Kalshi markets inside the close window.")
+            else:
+                lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
         elif closing_soon.is_kalshi_live_board_query(report.topic):
             lines.append("Kalshi live-board filter: Kalshi discovery ran, but no active market row cleared depth, relevance, and settled-price filters.")
         elif eq.is_esports_player_prop_query(report.topic):
             lines.append("eSports prop filter: no compatible same-day player-prop markets survived domain, subdomain, and date/type compatibility filters.")
+        elif eq.is_esports_query(report.topic):
+            debug = ((report.evidence_fusion_stats or {}).get("debug_counters") or {})
+            later = debug.get("suppressed_esports_later_date_watchlist_candidates", 0)
+            invalid = debug.get("suppressed_invalid_esports_watchlist_candidates", 0)
+            stale = debug.get("suppressed_stale_esports_watchlist_candidates", 0)
+            bits = []
+            if later:
+                bits.append(f"{later} later-date row(s)")
+            if invalid:
+                bits.append(f"{invalid} wrong subdomain/type row(s)")
+            if stale:
+                bits.append(f"{stale} stale near-certain row(s)")
+            if bits:
+                lines.append(f"eSports filter: no same-day direct board survived; filtered {', '.join(bits)}.")
+            else:
+                lines.append("eSports filter: no same-day direct market board survived the domain, type, date, and quality gates.")
         else:
             lines.append("Filters: needed topic-relevant Polymarket/Kalshi candidates with enough market depth, movement, catalyst evidence, or cross-market signal.")
         lines.append("If the prompt is broad, narrow it by domain, league, asset, or macro theme for a cleaner scan.")

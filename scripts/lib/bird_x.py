@@ -1,4 +1,4 @@
-"""Bird X search client - vendored Twitter GraphQL search for /last24hours v1.0.84.
+"""Bird X search client - vendored Twitter GraphQL search for /last24hours v1.0.85.
 
 Uses a vendored subset of @steipete/bird v0.8.0 (MIT License) to search X
 via Twitter's GraphQL API. No external `bird` CLI binary needed - just Node.js 22+.

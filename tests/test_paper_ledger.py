@@ -1002,6 +1002,28 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(entry["status"], "error")
         self.assertIn("timed out", " ".join(entry["warnings"]).lower())
 
+    def test_cmd_daily_dry_run_classifies_kalshi_closing_timeout(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "Kalshi markets closing soon",
+                "enabled": True,
+                "last24hours_args": ["--closing-window-hours", "6"],
+            },
+        ]), encoding="utf-8")
+
+        with mock.patch(
+            "scripts.paper._run_last24hours",
+            side_effect=subprocess.TimeoutExpired(cmd=["python3"], timeout=paper.DRY_RUN_TOPIC_TIMEOUT_SECONDS),
+        ), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        entry = payload["results"][0]
+        self.assertEqual(entry["status"], "degraded_run")
+        self.assertEqual(entry["reason_class"], "kalshi_closing_soon_timeout")
+        self.assertIn("bounded degraded scan", " ".join(entry["warnings"]).lower())
+
     def test_cmd_daily_skips_open_duplicates_under_entry_policy(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([

@@ -1246,11 +1246,14 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     if not _is_direct_espn_game_market(report, item, market_type):
         return None
     if domain == "esports" and market_type == "game_outcome" and not _watchlist_date_compatible(item, target_date):
+        _bump_debug_counter(report, "suppressed_esports_date_incompatible_watchlist_candidates")
         return None
     if domain == "esports" and "today" in (report.topic or "").lower():
         if market_type == "game_outcome" and not _watchlist_end_day_compatible(item, target_date, slack_days=0):
+            _bump_debug_counter(report, "suppressed_esports_later_date_watchlist_candidates")
             return None
         if market_type == "esports_prop" and not _watchlist_end_day_compatible(item, target_date, slack_days=0):
+            _bump_debug_counter(report, "suppressed_esports_later_date_watchlist_candidates")
             return None
 
     if _item_effectively_settled(item):
@@ -1815,4 +1818,6 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         results.append(candidate)
         if len(results) >= limit:
             break
+    if _domain(report.topic) == "esports" and not results:
+        _bump_debug_counter(report, "empty_esports_watchlist_boards")
     return results

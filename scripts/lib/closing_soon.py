@@ -308,6 +308,7 @@ def scan_kalshi_closing_soon(
     max_candidates: int = 25,
     raw_cap_per_seed: int = 40,
     search_depth: str = "default",
+    stop_after_compatible: Optional[int] = None,
 ) -> List[dict]:
     """Return normalized raw Kalshi dicts for near-expiry markets.
 
@@ -322,39 +323,34 @@ def scan_kalshi_closing_soon(
     window_minutes = int(window_hours * 60)
     markets_by_ticker: dict[str, dict] = {}
     raw_seen = 0
-    for seed in closing_search_topics(topic, max_seeds=max_seeds):
-        response = kalshi.search_kalshi(seed, from_date, to_date, depth=search_depth)
-        parsed_markets = kalshi.parse_kalshi_response(response, topic=topic)
-        limited_markets = parsed_markets[:max(1, int(raw_cap_per_seed or 1))]
-        raw_seen += len(limited_markets)
-        for market in limited_markets:
-            ticker = market.get("ticker") or market.get("url")
-            if ticker and ticker not in markets_by_ticker:
-                markets_by_ticker[ticker] = market
     candidates: List[dict] = []
     skipped_no_close = 0
     skipped_expired = 0
     skipped_no_liquidity = 0
     skipped_settled = 0
-    for item in markets_by_ticker.values():
+    seeds_attempted = 0
+    short_circuited = False
+
+    def add_candidate(item: dict) -> None:
+        nonlocal skipped_no_close, skipped_expired, skipped_no_liquidity, skipped_settled
         end_dt = _parse_end(item.get("end_datetime") or item.get("end_date"))
         if not end_dt:
             skipped_no_close += 1
-            continue
+            return
         minutes = (end_dt - now_utc).total_seconds() / 60.0
         if minutes < 0:
             skipped_expired += 1
-            continue
+            return
         if minutes > window_minutes:
-            continue
+            return
         liquidity = float(item.get("liquidity") or 0.0)
         volume = float(item.get("volume") or 0.0)
         if liquidity <= 0 and volume <= 0:
             skipped_no_liquidity += 1
-            continue
+            return
         if _kalshi_is_effectively_settled(item) and not include_effectively_settled:
             skipped_settled += 1
-            continue
+            return
         close_score = max(0.0, 1.0 - min(1.0, minutes / max(1, window_minutes)))
         liquidity_score = min(1.0, math.log1p(max(liquidity, volume)) / math.log1p(500_000))
         rank = 100 * (0.5 * close_score + 0.35 * liquidity_score + 0.15)
@@ -364,14 +360,32 @@ def scan_kalshi_closing_soon(
         item["relevance"] = max(float(item.get("relevance") or 0.0), min(1.0, rank / 100.0))
         item["_closing_rank"] = rank
         candidates.append(item)
+
+    for seed in closing_search_topics(topic, max_seeds=max_seeds):
+        seeds_attempted += 1
+        response = kalshi.search_kalshi(seed, from_date, to_date, depth=search_depth)
+        parsed_markets = kalshi.parse_kalshi_response(response, topic=topic)
+        limited_markets = parsed_markets[:max(1, int(raw_cap_per_seed or 1))]
+        raw_seen += len(limited_markets)
+        for market in limited_markets:
+            ticker = market.get("ticker") or market.get("url")
+            if not ticker or ticker in markets_by_ticker:
+                continue
+            markets_by_ticker[ticker] = market
+            add_candidate(market)
+        if stop_after_compatible and len(candidates) >= max(1, int(stop_after_compatible)):
+            short_circuited = True
+            break
     candidates.sort(key=lambda item: item.get("_closing_rank", 0), reverse=True)
     if diagnostics is not None:
+        diagnostics["kalshi_seeds_attempted"] = seeds_attempted
         diagnostics["kalshi_raw_seen"] = raw_seen
         diagnostics["kalshi_closing_candidates"] = len(candidates)
         diagnostics["kalshi_skipped_no_close"] = skipped_no_close
         diagnostics["kalshi_skipped_expired"] = skipped_expired
         diagnostics["kalshi_skipped_no_liquidity"] = skipped_no_liquidity
         diagnostics["kalshi_skipped_settled"] = skipped_settled
+        diagnostics["kalshi_short_circuited"] = int(short_circuited)
     return candidates[:max(1, int(max_candidates or 1))]
 
 

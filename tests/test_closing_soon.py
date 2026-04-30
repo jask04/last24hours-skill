@@ -641,6 +641,85 @@ class ScanKalshiClosingSoonTests(unittest.TestCase):
         self.assertTrue(all(depth == "quick" for _, depth in seen))
         self.assertEqual(len(result), 5)
 
+    def test_kalshi_fast_path_stops_after_compatible_shortlist(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        diagnostics: dict = {}
+        seen = []
+
+        def _search(seed, from_date, to_date, depth="default"):
+            seen.append(seed)
+            offset = len(seen) * 10
+            markets = [
+                self._kalshi_market(
+                    f"KXFAST-{offset + i}",
+                    f"Fast compatible contract {offset + i}",
+                    "2026-04-21T22:00:00Z",
+                    liquidity=25_000 + i,
+                    volume=25_000 + i,
+                )
+                for i in range(3)
+            ]
+            return {"markets": markets, "event_titles": {}, "_cap": 200}
+
+        with mock.patch("scripts.lib.closing_soon.closing_search_topics", return_value=["one", "two", "three", "four"]), \
+             mock.patch("scripts.lib.kalshi.search_kalshi", side_effect=_search):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+                diagnostics=diagnostics,
+                max_seeds=4,
+                max_candidates=5,
+                raw_cap_per_seed=12,
+                search_depth="quick",
+                stop_after_compatible=5,
+            )
+
+        self.assertEqual(len(result), 5)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(diagnostics.get("kalshi_seeds_attempted"), 2)
+        self.assertEqual(diagnostics.get("kalshi_raw_seen"), 6)
+        self.assertEqual(diagnostics.get("kalshi_short_circuited"), 1)
+
+    def test_kalshi_fast_path_keeps_raw_cap_per_seed_and_filters_bad_rows(self):
+        now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
+        diagnostics: dict = {}
+        markets = [
+            self._kalshi_market("KXEXPIRED", "Expired contract", "2026-04-21T19:00:00Z"),
+            self._kalshi_market("KXEMPTY", "Empty contract", "2026-04-21T22:00:00Z", liquidity=0, volume=0),
+            self._kalshi_market("KXSETTLED", "Settled contract", "2026-04-21T22:00:00Z", current_probability=0.99, spread=0.005),
+            self._kalshi_market("KXVALID", "Valid contract", "2026-04-21T22:00:00Z"),
+            self._kalshi_market("KXCAP", "Should be capped before parsing", "2026-04-21T22:00:00Z"),
+        ]
+        for market in markets:
+            market["end_datetime"] = market["close_time"]
+            market["liquidity"] = market["liquidity_dollars"]
+            market["volume"] = market["volume_24h"]
+            market["current_probability"] = (market["yes_bid_dollars"] + market["yes_ask_dollars"]) / 2
+
+        with mock.patch("scripts.lib.closing_soon.closing_search_topics", return_value=["one"]), \
+             mock.patch("scripts.lib.kalshi.search_kalshi", return_value={"markets": markets, "event_titles": {}, "_cap": 200}), \
+             mock.patch("scripts.lib.kalshi.parse_kalshi_response", return_value=markets):
+            result = closing_soon.scan_kalshi_closing_soon(
+                "Kalshi markets closing soon",
+                "2026-04-20",
+                "2026-04-21",
+                window_hours=6,
+                now=now,
+                diagnostics=diagnostics,
+                raw_cap_per_seed=4,
+                max_candidates=5,
+                search_depth="quick",
+            )
+
+        self.assertEqual([item.get("ticker") for item in result], ["KXVALID"])
+        self.assertEqual(diagnostics.get("kalshi_raw_seen"), 4)
+        self.assertEqual(diagnostics.get("kalshi_skipped_expired"), 1)
+        self.assertEqual(diagnostics.get("kalshi_skipped_no_liquidity"), 1)
+        self.assertEqual(diagnostics.get("kalshi_skipped_settled"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

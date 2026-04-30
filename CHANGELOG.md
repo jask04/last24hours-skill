@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.85] - 2026-04-29
+
+### Fixed
+- `scripts/last24hours.py` and `scripts/lib/closing_soon.py`: Added a Kalshi-only closing-soon quick path with bounded seeds, per-seed raw row caps, and shortlist short-circuiting so `Kalshi markets closing soon` can finish inside the quick global budget without loosening expired, settled, or no-liquidity filters.
+- `scripts/paper.py`: Classified Kalshi closing-soon dry-run child timeouts as structured `degraded_run` results with `kalshi_closing_soon_timeout` instead of an opaque raw timeout error.
+- `scripts/lib/render.py`: Added clearer Kalshi closing-soon empty-board diagnostics and CS2/eSports empty-board reasons while preserving fail-closed eSports gates.
+
+### Tests
+- `tests/test_closing_soon.py`: Added Kalshi closing-soon fast-path cap, short-circuit, and rejection-boundary regressions.
+- `tests/test_paper_ledger.py`: Added dry-run coverage for structured Kalshi closing-soon timeout classification.
+- `tests/test_forecast_watchlist.py`: Added CS2 same-day watchlist diagnostics coverage for rejected next-day rows.
+
 ## [1.0.84] - 2026-04-29
 
 ### Fixed

@@ -2540,6 +2540,16 @@ def main():
 
     # Detect query type for source tiering and scoring adjustments
     query_type = initial_query_type
+    preferred_closing_venue = closing_soon.preferred_venue(args.topic) if closing_soon_mode else ""
+    kalshi_closing_fast_path = (
+        closing_soon_mode
+        and query_type == "market_watchlist"
+        and preferred_closing_venue == "kalshi"
+        and not args.search
+        and not closing_soon.is_kalshi_live_board_query(args.topic)
+    )
+    kalshi_fast_scan = kalshi_closing_fast_path and (depth == "quick" or args.paper_fast_watchlist)
+    closing_seed_cap = 4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12
     expanded_schedule_date = None
     search_topics = None
     nba_window_start = None
@@ -2569,7 +2579,7 @@ def main():
             search_topics = closing_soon.closing_search_topics(
                 args.topic,
                 live_games,
-                max_seeds=8 if args.paper_fast_watchlist else 12,
+                max_seeds=closing_seed_cap,
             )
         elif nba_window_games:
             search_topics = [game.matchup for game in nba_window_games]
@@ -2620,6 +2630,20 @@ def main():
         sources = sources_mode_for_explicit_search(search_sources)
         mode = ",".join(sorted(search_sources)) if sources == "none" else mode_label_for_sources(sources)
 
+    if kalshi_closing_fast_path:
+        sources = "none"
+        mode = "kalshi"
+        search_do_hackernews = False
+        search_do_bluesky = False
+        search_do_truthsocial = False
+        search_do_polymarket = False
+        search_do_kalshi = True
+        search_do_weather = False
+        search_run_youtube = False
+        search_run_tiktok = False
+        search_run_instagram = False
+        search_run_xiaohongshu = False
+
     plan = forecast_plan.build_plan(
         args.topic,
         query_type,
@@ -2642,10 +2666,12 @@ def main():
         search_topics = closing_soon.closing_search_topics(
             args.topic,
             live_games,
-            max_seeds=8 if args.paper_fast_watchlist else 12,
+            max_seeds=closing_seed_cap,
         )
         if "closing_soon" not in plan.notes:
             plan.notes.append("closing_soon")
+        if kalshi_closing_fast_path:
+            plan.notes.append("kalshi-closing-fast-path")
         if args.paper_fast_watchlist:
             plan.notes.append("paper-fast-watchlist")
         if live_sports_mode:
@@ -2768,7 +2794,6 @@ def main():
     deduped_web = websearch.dedupe_websearch(sorted_web) if sorted_web else []
 
     if query_type == "market_watchlist" and closing_soon_mode:
-        preferred_closing_venue = closing_soon.preferred_venue(args.topic)
         try:
             if preferred_closing_venue == "kalshi":
                 closing_raw_pm = []
@@ -2829,15 +2854,19 @@ def main():
                     to_date,
                     window_hours=max(1, args.closing_window_hours),
                     diagnostics=kalshi_closing_diagnostics,
-                    max_seeds=8 if args.paper_fast_watchlist else 12,
-                    max_candidates=16 if args.paper_fast_watchlist else 25,
-                    raw_cap_per_seed=24 if args.paper_fast_watchlist else 40,
-                    search_depth="quick" if args.paper_fast_watchlist else "default",
+                    max_seeds=4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12,
+                    max_candidates=5 if kalshi_fast_scan else 16 if args.paper_fast_watchlist else 25,
+                    raw_cap_per_seed=12 if kalshi_fast_scan else 24 if args.paper_fast_watchlist else 40,
+                    search_depth="quick" if (args.paper_fast_watchlist or kalshi_fast_scan) else "default",
+                    stop_after_compatible=5 if kalshi_fast_scan else None,
                 )
                 plan.notes.append(f"closing-ka-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
                 plan.notes.append(f"closing-ka-raw:{kalshi_closing_diagnostics.get('kalshi_raw_seen', 0)}")
+                plan.notes.append(f"closing-ka-seeds:{kalshi_closing_diagnostics.get('kalshi_seeds_attempted', 0)}")
+                plan.notes.append(f"closing-ka-skipped-expired:{kalshi_closing_diagnostics.get('kalshi_skipped_expired', 0)}")
                 plan.notes.append(f"closing-ka-skipped-settled:{kalshi_closing_diagnostics.get('kalshi_skipped_settled', 0)}")
                 plan.notes.append(f"closing-ka-skipped-liquidity:{kalshi_closing_diagnostics.get('kalshi_skipped_no_liquidity', 0)}")
+                plan.notes.append(f"closing-ka-short-circuit:{kalshi_closing_diagnostics.get('kalshi_short_circuited', 0)}")
                 if closing_raw_ka:
                     closing_ka = normalize.normalize_kalshi_items(closing_raw_ka, from_date, to_date)
                     closing_ka = score.score_kalshi_items(closing_ka)
