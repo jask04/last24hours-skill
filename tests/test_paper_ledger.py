@@ -692,6 +692,60 @@ class PaperExtractionTests(unittest.TestCase):
 
         self.assertEqual(paper.extract_paper_picks(report), [])
 
+    def test_kalshi_live_board_watchlist_is_not_treated_as_closing_soon(self):
+        report = {
+            "topic": "Kalshi live markets",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "Kalshi",
+                    "title": "CPI in May",
+                    "question": "Will CPI rise more than 0.5% in May 2026?",
+                    "outcome_label": "Yes",
+                    "probability": 0.35,
+                    "implied_probability": 0.35,
+                    "market_type": "macro_binary",
+                    "url": "https://api.elections.kalshi.com/trade-api/v2/markets/KXCPI-26MAY-T0.5",
+                    "source_item_id": "KA1",
+                    "end_date": "2026-06-10",
+                }
+            ],
+            "polymarket": [],
+            "kalshi": [
+                {
+                    "id": "KA1",
+                    "ticker": "KXCPI-26MAY-T0.5",
+                    "title": "CPI in May",
+                    "question": "Will CPI rise more than 0.5% in May 2026?",
+                    "url": "https://api.elections.kalshi.com/trade-api/v2/markets/KXCPI-26MAY-T0.5",
+                    "market_type": "macro_binary",
+                    "implied_probability": 0.35,
+                    "best_bid": 0.34,
+                    "best_ask": 0.35,
+                    "spread": 0.01,
+                    "end_date": "2026-06-10",
+                }
+            ],
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(picks[0]["topic"], "Kalshi live markets")
+        self.assertEqual(picks[0]["venue"], "kalshi")
+        self.assertEqual(picks[0]["market_type"], "macro_binary")
+        self.assertEqual(picks[0]["status"], "open")
+
+    def test_kalshi_live_board_keeps_normal_watchlist_forwarding_args(self):
+        self.assertEqual(
+            paper._paper_watchlist_fast_args("Kalshi live markets", ["--search=kalshi"]),
+            ["--search=kalshi"],
+        )
+        self.assertIn(
+            "--paper-fast-watchlist",
+            paper._paper_watchlist_fast_args("Kalshi markets closing soon", ["--search=kalshi"]),
+        )
+
     def test_closing_soon_health_summary_groups_watchlist_rows(self):
         picks = [
             {
@@ -720,6 +774,31 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(summary["by_venue"]["kalshi"], 1)
         self.assertEqual(summary["by_market_type"]["crypto_daily"], 1)
         self.assertEqual(summary["open_anchor_mix"]["anchored"], 1)
+
+    def test_closing_soon_health_summary_excludes_kalshi_live_board(self):
+        picks = [
+            {
+                "topic": "Kalshi live markets",
+                "pick_type": "watchlist",
+                "venue": "kalshi",
+                "market_type": "macro_binary",
+                "status": "open",
+                "anchor_source": "kalshi",
+            },
+            {
+                "topic": "Kalshi markets closing soon",
+                "pick_type": "watchlist",
+                "venue": "kalshi",
+                "market_type": "threshold",
+                "status": "open",
+                "anchor_source": "kalshi",
+            },
+        ]
+
+        summary = paper.closing_soon_health_summary(picks)
+
+        self.assertEqual(summary["count"], 1)
+        self.assertEqual(summary["by_market_type"], {"threshold": 1})
 
     def test_recent_resolution_summary_groups_freshly_resolved_rows(self):
         picks = [

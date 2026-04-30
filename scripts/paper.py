@@ -48,17 +48,23 @@ def _skill_version() -> str:
 def _paper_watchlist_fast_args(topic: str, extra_args: Optional[List[str]] = None) -> List[str]:
     args = list(extra_args or [])
     lowered = (topic or "").lower()
+    if closing_soon.is_kalshi_live_board_query(topic or ""):
+        return args
     if not closing_soon.is_closing_soon_query(topic or ""):
         return args
     if "--paper-fast-watchlist" not in args:
         args.append("--paper-fast-watchlist")
-    if "--search" in args:
+    if "--search" in args or any(str(arg).startswith("--search=") for arg in args):
         return args
     if "kalshi" in lowered:
         args.extend(["--search", "kalshi"])
     else:
         args.extend(["--search", "polymarket"])
     return args
+
+
+def _is_closing_soon_paper_topic(topic: str) -> bool:
+    return closing_soon.is_closing_soon_query(topic or "") and not closing_soon.is_kalshi_live_board_query(topic or "")
 
 
 def _now_slug() -> str:
@@ -129,7 +135,7 @@ def _subdomain(topic: str) -> str:
 
 def _watchlist_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
     topic_text = str(topic or "")
-    if closing_soon.is_closing_soon_query(topic_text):
+    if _is_closing_soon_paper_topic(topic_text):
         return _closing_soon_item_reason_class(topic_text, item)
     if _domain(topic_text) != "esports":
         return ""
@@ -677,7 +683,7 @@ def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, An
 
 
 def _watchlist_paper_selection_reason_class(topic: str, items: List[Dict[str, Any]]) -> str:
-    if not items or closing_soon.is_closing_soon_query(topic):
+    if not items or _is_closing_soon_paper_topic(topic):
         return ""
     if _select_watchlist_item(items) is not None:
         return ""
@@ -1664,7 +1670,7 @@ def closing_soon_health_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
         if pick.get("pick_type") != "watchlist":
             continue
         topic = str(pick.get("topic") or "")
-        if not closing_soon.is_closing_soon_query(topic):
+        if not _is_closing_soon_paper_topic(topic):
             continue
         relevant.append(pick)
     summary = {
@@ -1983,7 +1989,7 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
         reason = _bundle_reason_class_for_report(report)
         if reason:
             return reason
-    if closing_soon.is_closing_soon_query(topic):
+    if _is_closing_soon_paper_topic(topic):
         reason = _closing_soon_reason_class_for_report(topic, report)
         if reason:
             return reason
@@ -2022,7 +2028,7 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         )
     except subprocess.TimeoutExpired:
         topic = str(entry.get("topic") or "")
-        if closing_soon.is_closing_soon_query(topic) and closing_soon.preferred_venue(topic) == "kalshi":
+        if _is_closing_soon_paper_topic(topic) and closing_soon.preferred_venue(topic) == "kalshi":
             result["status"] = "degraded_run"
             result["reason_class"] = "kalshi_closing_soon_timeout"
             result["elapsed_seconds"] = round(time.time() - started, 2)

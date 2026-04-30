@@ -81,6 +81,16 @@
     "notes": "Tech/product market-watchlist sample; stores the top ranked paper pick."
   },
   {
+    "topic": "Kalshi live markets",
+    "query_type": "market_watchlist",
+    "enabled": true,
+    "expected_pick_types": ["watchlist"],
+    "pick_policy": "watchlist_only",
+    "dedupe_policy": "skip_if_open_duplicate",
+    "last24hours_args": ["--search=kalshi"],
+    "notes": "Kalshi live-board calibration sample; should store a clean Kalshi watchlist row without treating the live-board prompt as closing-soon."
+  },
+  {
     "topic": "Counter-Strike 2 markets to watch today",
     "query_type": "market_watchlist",
     "enabled": true,

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.86] - 2026-04-29
+
+### Added
+- `fixtures/paper_portfolio.json`: Added a recurring `Kalshi live markets` watchlist fixture so the daily paper runner collects live-board Kalshi calibration rows in addition to closing-soon Kalshi samples.
+
+### Fixed
+- `scripts/paper.py`: Stopped treating `Kalshi live markets` as a closing-soon paper topic, preserving normal watchlist extraction and avoiding false `no_near_expiry_candidates` dry-run failures.
+
+### Tests
+- `tests/test_paper_ledger.py`: Added regressions for Kalshi live-board watchlist extraction and forwarding args so live-board paper rows stay separate from closing-soon fast-path behavior.
+
 ## [1.0.85] - 2026-04-29
 
 ### Fixed
