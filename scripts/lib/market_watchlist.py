@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 from typing import Optional
 
-from . import dates, evidence_fusion, evidence_quality as eq, market_types, paper_bundles, schema
+from . import dates, evidence_fusion, evidence_quality as eq, market_types, paper_bundles, query_type, schema
 
 
 _WATCHLIST_PHRASES = re.compile(
@@ -169,10 +169,12 @@ def _domain(topic: str) -> str:
 def search_topics(topic: str) -> list[str]:
     """Build topic-scoped market search seeds for watchlist mode."""
     topic_lower = (topic or "").lower()
+    if query_type.is_exchange_snapshot_query(topic):
+        return [topic]
     if (
         "kalshi" in topic_lower
         and re.search(r"\blive markets?\b|\blive kalshi\b|\bkalshi live\b", topic_lower)
-        and not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame|right now)\b", topic_lower)
+        and not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame)\b", topic_lower)
     ):
         return [topic]
     domain = _domain(topic)
@@ -989,6 +991,120 @@ def _closing_soon_preferred_venue(topic: str) -> str:
     return ""
 
 
+def _is_snapshot_mode(report: schema.Report) -> bool:
+    return query_type.is_exchange_snapshot_query(report.topic) and not _has_closing_soon_note(report)
+
+
+def _snapshot_days_to_close_score(end_date: Optional[str], *, reference_date: Optional[date] = None) -> float:
+    days_to_end = _days_to_end(end_date, reference_date=reference_date)
+    if days_to_end is None:
+        return 0.10
+    if days_to_end <= 1:
+        return 1.0
+    if days_to_end <= 3:
+        return 0.88
+    if days_to_end <= 7:
+        return 0.74
+    if days_to_end <= 14:
+        return 0.56
+    if days_to_end <= 30:
+        return 0.34
+    if days_to_end <= 45:
+        return 0.20
+    if days_to_end <= 90:
+        return 0.08
+    return 0.02
+
+
+def _snapshot_activity_score(volume: Optional[float], liquidity: Optional[float], open_interest: Optional[float]) -> float:
+    vol_score = min(1.0, math.log1p(max(volume or 0.0, 0.0)) / math.log1p(500_000))
+    liq_score = min(1.0, math.log1p(max(liquidity or 0.0, 0.0)) / math.log1p(250_000))
+    oi_score = min(1.0, math.log1p(max(open_interest or 0.0, 0.0)) / math.log1p(500_000))
+    return 0.52 * vol_score + 0.30 * liq_score + 0.18 * oi_score
+
+
+def _snapshot_actionability_score(
+    end_date: Optional[str],
+    volume: Optional[float],
+    liquidity: Optional[float],
+    open_interest: Optional[float],
+    spread_quality: float,
+    movement: float,
+    *,
+    reference_date: Optional[date] = None,
+) -> float:
+    return max(0.0, min(1.0, (
+        0.42 * _snapshot_days_to_close_score(end_date, reference_date=reference_date) +
+        0.30 * _snapshot_activity_score(volume, liquidity, open_interest) +
+        0.16 * spread_quality +
+        0.12 * movement
+    )))
+
+
+def _snapshot_long_dated_penalty(
+    market_type: str,
+    market_domain: str,
+    end_date: Optional[str],
+    *,
+    reference_date: Optional[date] = None,
+) -> float:
+    days_to_end = _days_to_end(end_date, reference_date=reference_date)
+    if days_to_end is None:
+        return 0.0
+    if days_to_end <= 14:
+        return 0.0
+    if days_to_end <= 30:
+        return 0.04 if market_type in {"threshold", "macro_binary"} else 0.02
+    if days_to_end <= 45:
+        return 0.10 if market_type in {"threshold", "macro_binary"} or market_domain == "macro" else 0.05
+    if days_to_end <= 90:
+        return 0.18 if market_type in {"threshold", "macro_binary"} or market_domain in {"macro", "elections"} else 0.10
+    return 0.26 if market_type in {"threshold", "macro_binary"} or market_domain in {"macro", "elections"} else 0.14
+
+
+def _snapshot_near_certain_penalty(
+    probability: Optional[float],
+    movement: float,
+    signal_quality: float,
+    volume: Optional[float],
+    liquidity: Optional[float],
+) -> float:
+    if probability is None or 0.10 < probability < 0.90:
+        return 0.0
+    if movement >= 0.55 and signal_quality >= 0.75 and ((volume or 0) >= 250_000 or (liquidity or 0) >= 100_000):
+        return 0.02
+    if probability >= 0.98 or probability <= 0.02:
+        return 0.22
+    if probability >= 0.95 or probability <= 0.05:
+        return 0.12
+    return 0.05
+
+
+def _snapshot_domain_bucket(item) -> str:
+    market_type = getattr(item, "market_type", "unknown")
+    title = getattr(item, "title", "") or ""
+    question = getattr(item, "question", "") or ""
+    market_text = f"{title} {question} {getattr(item, 'url', '')}"
+    market_tokens = _tokens(market_text)
+    domain = _market_evidence_domain("broad", market_type, market_tokens, market_text)
+    lowered = market_text.lower()
+    if domain != "broad":
+        return domain
+    if any(token in lowered for token in ("polymarket", "kalshi", "mindshare", "revenue")):
+        return "meta"
+    if any(token in lowered for token in ("album", "song", "drake", "iceman", "movie", "box office", "lyrics", "phrase")):
+        return "entertainment"
+    return "novelty"
+
+
+def _snapshot_relevance_weight(report: schema.Report, raw_relevance: float, market_domain: str) -> float:
+    if _domain(report.topic) != "broad":
+        return raw_relevance
+    if market_domain in {"crypto", "macro", "sports", "tech", "weather", "elections"}:
+        return min(raw_relevance, 0.45)
+    return min(raw_relevance, 0.28)
+
+
 def _is_nba_bundle_intent(report: schema.Report) -> bool:
     return _domain(report.topic) == "nba" and paper_bundles.wants_paper_bundles(report.topic)
 
@@ -1262,6 +1378,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         if not (closing_mode_flag and item_reason in {"live_sports", "starting_soon"}):
             return None
 
+    snapshot_mode = _is_snapshot_mode(report)
     relevance = _topic_relevance(report.topic, item)
     relevance += _esports_player_name_match_bonus(report.topic, item)
     if _domain(report.topic) != "broad" and relevance < 0.25:
@@ -1295,6 +1412,17 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     closing_signal = _closing_score(minutes_to_close, closing_reason)
     tech_actionability = _tech_actionability_score(item, market_type) if domain == "tech" else 0.0
     resolvability_score = _resolvability_score(resolvability, broad=(domain == "broad" and closing_mode))
+    snapshot_domain = _snapshot_domain_bucket(item)
+    snapshot_actionability = _snapshot_actionability_score(
+        getattr(item, "end_date", None),
+        volume,
+        liquidity,
+        open_interest,
+        spread_quality,
+        movement,
+        reference_date=base_date,
+    )
+    weighted_relevance = _snapshot_relevance_weight(report, relevance, snapshot_domain) if snapshot_mode else relevance
     if domain == "esports":
         explicit_props = _is_explicit_esports_prop_prompt(report.topic)
         explicit_title = _is_explicit_esports_title_prompt(report.topic)
@@ -1332,6 +1460,20 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             resolvability_score -
             certainty_penalty
         ))))
+    elif snapshot_mode:
+        rank_score = int(max(0, min(100, 100 * (
+            0.26 * quality +
+            0.22 * snapshot_actionability +
+            0.18 * movement +
+            0.14 * spread_quality +
+            0.08 * evidence_score +
+            0.05 * weighted_relevance +
+            0.04 * cross_score +
+            0.03 * max(0.0, resolvability_score) -
+            certainty_penalty -
+            _snapshot_long_dated_penalty(market_type, snapshot_domain, getattr(item, "end_date", None), reference_date=base_date) -
+            _snapshot_near_certain_penalty(probability, movement, quality, volume, liquidity)
+        ))))
     else:
         rank_score = int(max(0, min(100, 100 * (
             0.40 * quality +
@@ -1361,6 +1503,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     if closing_mode and not closing_signal:
         return None
     if rank_score < 24 and _domain(report.topic) != "broad":
+        return None
+    if snapshot_mode and rank_score < 18:
         return None
     if domain == "tech":
         days_to_end = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
@@ -1466,8 +1610,12 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         why_bits.insert(0, "playoff series")
     elif watchlist_scope == "game":
         why_bits.insert(0, "day-of-game watch")
+    elif snapshot_mode:
+        why_bits.insert(0, "snapshot board")
 
-    return schema.MarketWatchItem(
+    snapshot_bucket = snapshot_domain if snapshot_mode else ""
+
+    watch_item = schema.MarketWatchItem(
         id=f"MW{idx}",
         title=(getattr(item, "question", "") if market_type in {"player_prop", "team_prop", "threshold"} else getattr(item, "title", "")) or getattr(item, "question", ""),
         question=getattr(item, "question", "") or getattr(item, "title", ""),
@@ -1533,6 +1681,10 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         trending_on_social=trending_on_social,
         social_sentiment=social_sentiment,
     )
+    if snapshot_mode:
+        setattr(watch_item, "_snapshot_bucket", snapshot_bucket)
+        setattr(watch_item, "_snapshot_actionability", snapshot_actionability)
+    return watch_item
 
 
 def _should_suppress_low_signal_candidate(
@@ -1561,6 +1713,89 @@ def _should_suppress_low_signal_candidate(
     if not (long_dated and low_volume and low_signal):
         return False
     return any((candidate.rank_score - item.rank_score) >= 5 for candidate in stronger_items[:3])
+
+
+def _snapshot_bucket(item: schema.MarketWatchItem) -> str:
+    return str(getattr(item, "_snapshot_bucket", "") or _snapshot_domain_bucket(item))
+
+
+def _snapshot_actionability(item: schema.MarketWatchItem, report: schema.Report) -> float:
+    value = getattr(item, "_snapshot_actionability", None)
+    if value is not None:
+        return float(value)
+    return _snapshot_actionability_score(
+        item.end_date,
+        item.volume,
+        item.liquidity,
+        item.open_interest,
+        _spread_score(item.spread),
+        _movement_score(item.movement_24h if item.movement_24h is not None else item.price_movement_pct),
+        reference_date=_report_base_date(report),
+    )
+
+
+def _is_snapshot_novelty_candidate(item: schema.MarketWatchItem) -> bool:
+    return _snapshot_bucket(item) in {"meta", "novelty", "entertainment"}
+
+
+def _should_suppress_snapshot_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    stronger_items: list[schema.MarketWatchItem],
+    all_candidates: list[schema.MarketWatchItem],
+) -> bool:
+    if not _is_snapshot_mode(report):
+        return False
+    if len(all_candidates) <= 3 and candidate.rank_score >= 22:
+        return False
+    stronger_items = [item for item in stronger_items if item is not candidate]
+    if not stronger_items:
+        return False
+
+    days_to_end = _days_to_end(candidate.end_date, reference_date=_report_base_date(report))
+    bucket = _snapshot_bucket(candidate)
+    strong_competitors = [item for item in stronger_items[:5] if item.rank_score >= candidate.rank_score - 6]
+    if not strong_competitors:
+        strong_competitors = stronger_items[:3]
+    near_term_competitors = [
+        item for item in stronger_items[:6]
+        if (
+            (other_days := _days_to_end(item.end_date, reference_date=_report_base_date(report))) is not None
+            and other_days <= 14
+        )
+    ]
+
+    if (
+        (candidate.volume_24h or candidate.volume or 0) <= 0
+        and (candidate.liquidity or 0) < 5_000
+        and (candidate.market_signal_quality or 0.0) < 0.55
+        and len(strong_competitors) >= 2
+    ):
+        return True
+    if candidate.spread is not None and candidate.spread >= 0.18 and (candidate.market_signal_quality or 0.0) < 0.65:
+        return True
+    if (
+        days_to_end is not None and days_to_end > 45
+        and bucket in {"macro", "elections", "meta", "novelty"}
+        and near_term_competitors
+        and any(_snapshot_actionability(item, report) >= (_snapshot_actionability(candidate, report) + 0.12) for item in near_term_competitors)
+    ):
+        return True
+    if (
+        _is_snapshot_novelty_candidate(candidate)
+        and ((candidate.market_signal_quality or 0.0) < 0.62 or candidate.rank_score < 34)
+        and any(not _is_snapshot_novelty_candidate(item) and item.rank_score >= candidate.rank_score - 4 for item in stronger_items[:5])
+    ):
+        return True
+    probability = candidate.probability or candidate.implied_probability
+    if (
+        probability is not None and (probability >= 0.95 or probability <= 0.05)
+        and (candidate.market_signal_quality or 0.0) < 0.72
+        and abs(candidate.movement_24h or candidate.price_movement_pct or 0.0) < 8.0
+        and len(strong_competitors) >= 2
+    ):
+        return True
+    return False
 
 
 def _watch_item_domain(item: schema.MarketWatchItem) -> str:
@@ -1687,6 +1922,28 @@ def _should_delay_duplicate_domain_candidate(
     )
 
 
+def _should_delay_duplicate_snapshot_bucket_candidate(
+    report: schema.Report,
+    candidate: schema.MarketWatchItem,
+    results: list[schema.MarketWatchItem],
+    remaining: list[schema.MarketWatchItem],
+) -> bool:
+    if not _is_snapshot_mode(report):
+        return False
+    if len(results) >= 4:
+        return False
+    bucket = _snapshot_bucket(candidate)
+    if not bucket or bucket == "novelty":
+        return False
+    existing = {_snapshot_bucket(item) for item in results}
+    if bucket not in existing:
+        return False
+    return any(
+        (other_bucket := _snapshot_bucket(other)) and other_bucket not in existing and other_bucket != "novelty"
+        for other in remaining
+    )
+
+
 def _should_drop_broad_manual_rule_candidate(report: schema.Report, candidate: schema.MarketWatchItem) -> bool:
     if _domain(report.topic) != "broad" or not _has_closing_soon_note(report):
         return False
@@ -1759,6 +2016,7 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
             candidates.append(candidate)
 
     closing_mode = _has_closing_soon_note(report)
+    snapshot_mode = _is_snapshot_mode(report)
     explicit_series_prompt = _is_explicit_nba_series_prompt(report.topic)
     if closing_mode:
         candidates.sort(
@@ -1766,6 +2024,16 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
                 2 if item.closing_soon_reason == "live_sports" else 1 if item.closing_soon_reason == "starting_soon" else 0,
                 item.rank_score,
                 -(item.minutes_to_close if item.minutes_to_close is not None else 10_000),
+            ),
+            reverse=True,
+        )
+    elif snapshot_mode:
+        candidates.sort(
+            key=lambda item: (
+                1 if not _is_snapshot_novelty_candidate(item) else 0,
+                _snapshot_actionability(item, report),
+                item.rank_score,
+                item.market_signal_quality or 0.0,
             ),
             reverse=True,
         )
@@ -1789,11 +2057,17 @@ def synthesize_market_watchlist(report: schema.Report, limit: int = 5) -> list[s
         if _should_suppress_low_signal_candidate(report, candidate, results, candidates):
             _bump_debug_counter(report, "suppressed_long_dated_watchlist_candidates")
             continue
+        if _should_suppress_snapshot_candidate(report, candidate, results, candidates):
+            _bump_debug_counter(report, "suppressed_snapshot_watchlist_candidates")
+            continue
         if _should_suppress_stale_esports_candidate(report, candidate, results, candidates):
             _bump_debug_counter(report, "suppressed_stale_esports_watchlist_candidates")
             continue
         if _should_drop_broad_manual_rule_candidate(report, candidate):
             _bump_debug_counter(report, "suppressed_manual_rule_watchlist_candidates")
+            continue
+        if _should_delay_duplicate_snapshot_bucket_candidate(report, candidate, results, candidates[idx + 1:]):
+            _bump_debug_counter(report, "suppressed_duplicate_snapshot_bucket_candidates")
             continue
         if _should_delay_duplicate_domain_candidate(report, candidate, results, candidates[idx + 1:]):
             _bump_debug_counter(report, "suppressed_duplicate_domain_watchlist_candidates")

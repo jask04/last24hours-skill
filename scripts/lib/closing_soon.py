@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
 
-from . import dates, kalshi, market_types, polymarket, sports_schedule
+from . import dates, kalshi, market_types, polymarket, query_type, sports_schedule
 
 
 _INTENT_RE = re.compile(
@@ -24,11 +24,13 @@ def is_closing_soon_query(topic: str) -> bool:
 def is_kalshi_live_board_query(topic: str) -> bool:
     """Kalshi's Live page is a broad market board, not only a close-window scan."""
     lowered = (topic or "").lower()
+    if query_type.is_exchange_snapshot_query(topic, venue="kalshi"):
+        return True
     if "kalshi" not in lowered:
         return False
     if not re.search(r"\blive markets?\b|\blive kalshi\b|\bkalshi live\b", lowered):
         return False
-    return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame|right now)\b", lowered)
+    return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame)\b", lowered)
 
 
 def wants_live_sports(topic: str) -> bool:
@@ -83,8 +85,8 @@ def _parse_end(value: Optional[str]) -> Optional[datetime]:
 
 def _fmt_date_words(day) -> List[str]:
     return [
-        day.strftime("%B %-d") if hasattr(day, "strftime") else "",
-        day.strftime("%b %-d") if hasattr(day, "strftime") else "",
+        f"{day.strftime('%B')} {day.day}" if hasattr(day, "strftime") else "",
+        f"{day.strftime('%b')} {day.day}" if hasattr(day, "strftime") else "",
     ]
 
 
@@ -115,12 +117,12 @@ def closing_search_topics(
     seeds: List[str] = []
     if is_crypto:
         _extend_unique(seeds, [
-            f"bitcoin up or down {local_today.strftime('%B %-d')}",
-            f"ethereum up or down {local_today.strftime('%B %-d')}",
-            f"solana up or down {local_today.strftime('%B %-d')}",
-            f"bitcoin {local_today.strftime('%B %-d')}",
-            f"ethereum {local_today.strftime('%B %-d')}",
-            f"solana {local_today.strftime('%B %-d')}",
+            f"bitcoin up or down {local_today.strftime('%B')} {local_today.day}",
+            f"ethereum up or down {local_today.strftime('%B')} {local_today.day}",
+            f"solana up or down {local_today.strftime('%B')} {local_today.day}",
+            f"bitcoin {local_today.strftime('%B')} {local_today.day}",
+            f"ethereum {local_today.strftime('%B')} {local_today.day}",
+            f"solana {local_today.strftime('%B')} {local_today.day}",
             "bitcoin up or down today",
             "ethereum up or down today",
             "solana up or down today",
@@ -129,11 +131,11 @@ def closing_search_topics(
         ])
     elif is_kalshi:
         _extend_unique(seeds, [
-            f"fed {local_today.strftime('%B %-d')}",
-            f"cpi {local_today.strftime('%B %-d')}",
-            f"jobs {local_today.strftime('%B %-d')}",
-            f"bitcoin {local_today.strftime('%B %-d')}",
-            f"temperature {local_today.strftime('%B %-d')}",
+            f"fed {local_today.strftime('%B')} {local_today.day}",
+            f"cpi {local_today.strftime('%B')} {local_today.day}",
+            f"jobs {local_today.strftime('%B')} {local_today.day}",
+            f"bitcoin {local_today.strftime('%B')} {local_today.day}",
+            f"temperature {local_today.strftime('%B')} {local_today.day}",
             "fed",
             "cpi",
             "jobs",
@@ -142,8 +144,8 @@ def closing_search_topics(
         ])
     elif is_weather:
         _extend_unique(seeds, [
-            f"temperature {local_today.strftime('%B %-d')}",
-            f"temperature {tomorrow.strftime('%B %-d')}",
+            f"temperature {local_today.strftime('%B')} {local_today.day}",
+            f"temperature {tomorrow.strftime('%B')} {tomorrow.day}",
             "temperature today",
             "temperature tomorrow",
             "weather today",
@@ -152,10 +154,10 @@ def closing_search_topics(
         _extend_unique(seeds, ["NBA today", "MLB today", "NHL today", "NFL today", "sports today"])
     elif broad_topic and not live_games:
         _extend_unique(seeds, [
-            f"bitcoin up or down {local_today.strftime('%B %-d')}",
-            f"ethereum up or down {local_today.strftime('%B %-d')}",
-            f"temperature {local_today.strftime('%B %-d')}",
-            f"fed {local_today.strftime('%B %-d')}",
+            f"bitcoin up or down {local_today.strftime('%B')} {local_today.day}",
+            f"ethereum up or down {local_today.strftime('%B')} {local_today.day}",
+            f"temperature {local_today.strftime('%B')} {local_today.day}",
+            f"fed {local_today.strftime('%B')} {local_today.day}",
             "bitcoin up or down today",
             "ethereum up or down today",
             "temperature today",

@@ -29,6 +29,10 @@ class ForecastWatchlistTests(unittest.TestCase):
     def test_kalshi_live_board_search_topics_preserve_venue_intent(self):
         self.assertEqual(market_watchlist.search_topics("Kalshi live markets"), ["Kalshi live markets"])
 
+    def test_exchange_snapshot_search_topics_preserve_venue_intent(self):
+        self.assertEqual(market_watchlist.search_topics("Kalshi markets right now"), ["Kalshi markets right now"])
+        self.assertEqual(market_watchlist.search_topics("Polymarket board now"), ["Polymarket board now"])
+
     def test_nba_slate_render_shows_only_direct_game_markets(self):
         report = _report("NBA matchups April 21 through April 23")
         report.forecasts = [
@@ -1290,6 +1294,252 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertIn("Kalshi live-board filter", compact)
         self.assertNotIn("Polymarket markets inside the close window", compact)
+
+    def test_kalshi_snapshot_watchlist_row_does_not_trigger_model_implied_forecast_fallback(self):
+        report = _report("Kalshi markets right now")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA1",
+                title="Bitcoin price today at 5am EDT?",
+                question="Will Bitcoin be $77,500 or above?",
+                url="https://kalshi.com/markets/KXBTC-26APR2505-B77500",
+                ticker="KXBTC-26APR2505-B77500",
+                event_ticker="KXBTC-26APR2505",
+                series_ticker="KXBTC",
+                current_probability=0.55,
+                implied_probability=0.55,
+                best_bid=0.54,
+                best_ask=0.56,
+                spread=0.02,
+                movement_24h=4.0,
+                volume_24h=109_000,
+                market_signal_quality=0.60,
+                market_type="threshold",
+                engagement=_engagement(volume=109_000, liquidity=20_000, open_interest=40_000),
+                end_date="2026-04-25",
+                relevance=0.45,
+                score=60,
+            )
+        ]
+
+        report.forecasts = forecast.synthesize_forecasts(report)
+        report.market_watchlist = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(report.forecasts, [])
+        self.assertEqual(len(report.market_watchlist), 1)
+        self.assertEqual(report.market_watchlist[0].venue, "Kalshi")
+
+    def test_empty_kalshi_snapshot_render_explains_board_scan_failure_not_forecast_degradation(self):
+        report = _report("Kalshi markets right now")
+
+        compact = render.render_compact(report)
+
+        self.assertIn("No high-quality watchlist markets found.", compact)
+        self.assertIn("Kalshi snapshot filter", compact)
+        self.assertNotIn("DEGRADED RUN WARNING", compact)
+
+    def test_snapshot_board_prefers_near_term_active_rows_and_diversity_over_long_dated_macro(self):
+        report = _report("Kalshi markets right now")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA_BTC",
+                title="Bitcoin price today at 5pm EDT?",
+                question="Will Bitcoin be above $77,250?",
+                url="https://kalshi.com/markets/KXBTC-26MAY0117-B77250",
+                ticker="KXBTC-26MAY0117-B77250",
+                event_ticker="KXBTC-26MAY0117",
+                series_ticker="KXBTC",
+                current_probability=0.48,
+                implied_probability=0.48,
+                best_bid=0.47,
+                best_ask=0.48,
+                spread=0.01,
+                movement_24h=12.0,
+                volume_24h=425_000,
+                market_signal_quality=0.78,
+                market_type="threshold",
+                engagement=_engagement(volume=425_000, liquidity=120_000, open_interest=210_000),
+                end_date="2026-05-01",
+                relevance=0.19,
+                score=72,
+            ),
+            schema.KalshiItem(
+                id="KA_AI",
+                title="Best AI in May 2026?",
+                question="Will Anthropic lead the AI board on May 2, 2026?",
+                url="https://kalshi.com/markets/KXLLM1-26MAY02-ANTH",
+                ticker="KXLLM1-26MAY02-ANTH",
+                event_ticker="KXLLM1-26MAY02",
+                series_ticker="KXLLM1",
+                current_probability=0.62,
+                implied_probability=0.62,
+                best_bid=0.61,
+                best_ask=0.63,
+                spread=0.02,
+                movement_24h=9.0,
+                volume_24h=180_000,
+                market_signal_quality=0.71,
+                market_type="unknown",
+                engagement=_engagement(volume=180_000, liquidity=60_000, open_interest=95_000),
+                end_date="2026-05-02",
+                relevance=0.15,
+                score=64,
+            ),
+            schema.KalshiItem(
+                id="KA_FED",
+                title="Fed decision in Jun 2026?",
+                question="Will the Federal Reserve Hike rates by 0bps at their June 2026 meeting?",
+                url="https://kalshi.com/markets/KXFEDDECISION-26JUN-H0",
+                ticker="KXFEDDECISION-26JUN-H0",
+                event_ticker="KXFEDDECISION-26JUN",
+                series_ticker="KXFEDDECISION",
+                current_probability=0.95,
+                implied_probability=0.95,
+                best_bid=0.95,
+                best_ask=0.96,
+                spread=0.01,
+                movement_24h=0.0,
+                volume_24h=355_000,
+                market_signal_quality=0.66,
+                market_type="macro_binary",
+                engagement=_engagement(volume=355_000, liquidity=0, open_interest=713_000),
+                end_date="2026-06-17",
+                relevance=0.15,
+                score=47,
+            ),
+            schema.KalshiItem(
+                id="KA_ETH",
+                title="Ethereum price at May 2, 2026 at 4am EDT?",
+                question="Will Ethereum be above $2,260?",
+                url="https://kalshi.com/markets/KXETH-26MAY0204-B2260",
+                ticker="KXETH-26MAY0204-B2260",
+                event_ticker="KXETH-26MAY0204",
+                series_ticker="KXETH",
+                current_probability=0.36,
+                implied_probability=0.36,
+                best_bid=0.35,
+                best_ask=0.36,
+                spread=0.01,
+                movement_24h=8.0,
+                volume_24h=120_000,
+                market_signal_quality=0.69,
+                market_type="threshold",
+                engagement=_engagement(volume=120_000, liquidity=60_000, open_interest=95_000),
+                end_date="2026-05-02",
+                relevance=0.07,
+                score=58,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual([item.source_item_id for item in items[:2]], ["KA_BTC", "KA_AI"])
+        self.assertIn("KA_ETH", [item.source_item_id for item in items])
+        self.assertNotIn("KA_FED", [item.source_item_id for item in items[:3]])
+
+    def test_snapshot_board_suppresses_weak_wide_spread_and_novelty_rows(self):
+        report = _report("Polymarket board now")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_CRYPTO",
+                title="Bitcoin Up or Down on May 1?",
+                question="Bitcoin Up or Down on May 1?",
+                url="https://polymarket.com/event/btc-up-or-down",
+                outcome_prices=[("Up", 0.44), ("Down", 0.56)],
+                engagement=_engagement(volume=210_000, liquidity=120_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.80,
+                volume_24h=210_000,
+                best_bid=0.43,
+                best_ask=0.44,
+                spread=0.01,
+                movement_24h=11.0,
+                relevance=0.18,
+                end_date="2026-05-01",
+                score=70,
+            ),
+            schema.PolymarketItem(
+                id="PM_POWELL",
+                title="Will Trump try to fire Powell as Fed Board Member by December 31, 2026?",
+                question="Will Trump try to fire Powell as Fed Board Member by December 31, 2026?",
+                url="https://polymarket.com/event/powell-board",
+                outcome_prices=[("Yes", 0.18), ("No", 0.82)],
+                engagement=_engagement(volume=18_000, liquidity=30_000),
+                market_type="macro_binary",
+                market_signal_quality=0.68,
+                volume_24h=18_000,
+                best_bid=0.80,
+                best_ask=0.84,
+                spread=0.04,
+                movement_24h=22.0,
+                relevance=0.24,
+                end_date="2026-12-31",
+                score=56,
+            ),
+            schema.PolymarketItem(
+                id="PM_WEIRD",
+                title="Will Based Polymarket revenue hit $1M before 2027?",
+                question="Will Based Polymarket revenue hit $1M before 2027?",
+                url="https://polymarket.com/event/based-revenue",
+                outcome_prices=[("Yes", 0.22), ("No", 0.78)],
+                engagement=_engagement(volume=0, liquidity=919),
+                market_type="threshold",
+                market_signal_quality=0.17,
+                volume_24h=0,
+                best_bid=0.63,
+                best_ask=0.94,
+                spread=0.31,
+                movement_24h=1.5,
+                relevance=0.19,
+                end_date="2027-01-01",
+                score=19,
+            ),
+            schema.PolymarketItem(
+                id="PM_ENT",
+                title="What will be said on ICEMAN?",
+                question="Will \"Daddy\" be said on ICEMAN?",
+                url="https://polymarket.com/event/iceman",
+                outcome_prices=[("\"Daddy\"", 0.72), ("No", 0.28)],
+                engagement=_engagement(volume=4_000, liquidity=14_000),
+                market_type="market",
+                market_signal_quality=0.48,
+                volume_24h=4_000,
+                best_bid=None,
+                best_ask=None,
+                spread=None,
+                movement_24h=0.0,
+                relevance=0.18,
+                end_date="2026-05-15",
+                score=20,
+            ),
+            schema.PolymarketItem(
+                id="PM_SPORTS",
+                title="Lakers vs. Rockets",
+                question="Lakers vs. Rockets",
+                url="https://polymarket.com/event/lakers-rockets",
+                outcome_prices=[("Rockets", 0.58), ("Lakers", 0.42)],
+                engagement=_engagement(volume=95_000, liquidity=110_000),
+                market_type="game_outcome",
+                market_signal_quality=0.74,
+                volume_24h=95_000,
+                best_bid=0.57,
+                best_ask=0.58,
+                spread=0.01,
+                movement_24h=7.0,
+                relevance=0.11,
+                end_date="2026-05-02",
+                score=60,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=5)
+
+        ids = [item.source_item_id for item in items]
+        self.assertIn("PM_CRYPTO", ids)
+        self.assertIn("PM_SPORTS", ids)
+        self.assertNotIn("PM_WEIRD", ids)
+        self.assertNotIn("PM_ENT", ids)
+        self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_snapshot_watchlist_candidates"], 2)
 
     def test_kalshi_matchup_signature_matches_polymarket_nba_game(self):
         poly_item = schema.PolymarketItem(

@@ -9,11 +9,12 @@ import math
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 from . import evidence_quality as eq, http, market_types
-from .query_type import detect_query_type
+from .query_type import detect_query_type, is_exchange_snapshot_query
 from .relevance import LOW_SIGNAL_QUERY_TOKENS, token_overlap_relevance
 
 GAMMA_SEARCH_URL = "https://gamma-api.polymarket.com/public-search"
@@ -42,6 +43,14 @@ _ESPORTS_SEARCH_LABELS = {
     "valorant": "valorant",
     "lol": "league of legends",
 }
+_SNAPSHOT_BOARD_QUERIES = [
+    "bitcoin",
+    "ethereum",
+    "fed",
+    "nba",
+    "ai",
+    "election",
+]
 
 
 def _matchup_side_tokens(text: str) -> List[set[str]]:
@@ -188,6 +197,16 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
     return unique[:6]
 
 
+def _snapshot_board_queries(topic: str) -> List[str]:
+    venue = "polymarket" if "polymarket" in (topic or "").lower() else ""
+    if not is_exchange_snapshot_query(topic, venue=venue or "polymarket"):
+        return []
+    queries = list(_SNAPSHOT_BOARD_QUERIES)
+    if "crypto" in (topic or "").lower():
+        queries = ["bitcoin", "ethereum", "solana", "fed", "ai"]
+    return queries
+
+
 def _expand_queries(topic: str) -> List[str]:
     """Generate search queries to cast a wider net.
 
@@ -197,6 +216,9 @@ def _expand_queries(topic: str) -> List[str]:
     - Include the full topic if different from core
     - Cap at 6 queries, dedupe
     """
+    snapshot_queries = _snapshot_board_queries(topic)
+    if snapshot_queries:
+        return snapshot_queries
     core = _extract_core_subject(topic)
     esports_prop_queries = _named_esports_prop_queries(core)
     if esports_prop_queries:
@@ -353,6 +375,8 @@ def search_polymarket(
     """
     pages = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
     cap = RESULT_CAP.get(depth, RESULT_CAP["default"])
+    if is_exchange_snapshot_query(topic, venue="polymarket"):
+        cap = max(cap, 12)
     queries = _expand_queries(topic)
 
     _log(f"Searching for '{topic}' with queries: {queries} (pages={pages})")
@@ -623,6 +647,70 @@ def _market_signal_quality(
     return round(max(0.0, min(1.0, quality)), 3), "; ".join(dict.fromkeys(missing))
 
 
+def _snapshot_days_to_close_score(end_datetime: Optional[str], end_date: Optional[str]) -> float:
+    close_text = end_datetime or end_date or ""
+    if not close_text:
+        return 0.10
+    try:
+        close_dt = datetime.fromisoformat(str(close_text).replace("Z", "+00:00"))
+        if close_dt.tzinfo is None:
+            close_dt = close_dt.replace(tzinfo=timezone.utc)
+        days = max(0.0, (close_dt - datetime.now(timezone.utc)).total_seconds() / 86_400)
+    except ValueError:
+        return 0.10
+    if days <= 1:
+        return 1.0
+    if days <= 3:
+        return 0.88
+    if days <= 7:
+        return 0.70
+    if days <= 21:
+        return 0.48
+    if days <= 45:
+        return 0.28
+    return 0.08
+
+
+def _snapshot_item_priority(item: Dict[str, Any]) -> tuple[float, float, float, float]:
+    close_score = _snapshot_days_to_close_score(item.get("end_datetime"), item.get("end_date"))
+    volume_score = min(1.0, math.log1p(max(item.get("volume_24h") or 0.0, 0.0)) / math.log1p(2_000_000))
+    liquidity_score = min(1.0, math.log1p(max(item.get("liquidity") or 0.0, 0.0)) / math.log1p(1_000_000))
+    movement_score = min(1.0, abs(item.get("movement_24h") or 0.0) / 20.0)
+    signal_quality = item.get("market_signal_quality") or 0.0
+    spread = item.get("spread")
+    spread_score = 0.25 if spread is None else max(0.0, min(1.0, 1.0 - (spread / 0.20)))
+    actionability = (
+        0.34 * close_score +
+        0.24 * volume_score +
+        0.18 * liquidity_score +
+        0.12 * signal_quality +
+        0.07 * spread_score +
+        0.05 * movement_score
+    )
+    return (
+        actionability,
+        signal_quality,
+        item.get("volume_24h") or 0.0,
+        item.get("liquidity") or 0.0,
+    )
+
+
+def _is_snapshot_expired(end_datetime: Optional[str], end_date: Optional[str]) -> bool:
+    close_text = end_datetime or end_date or ""
+    if not close_text:
+        return False
+    try:
+        close_dt = datetime.fromisoformat(str(close_text).replace("Z", "+00:00"))
+        if close_dt.tzinfo is None:
+            close_dt = close_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        try:
+            close_dt = datetime.fromisoformat(f"{str(end_date)[:10]}T23:59:59+00:00")
+        except ValueError:
+            return False
+    return close_dt < datetime.now(timezone.utc)
+
+
 def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List[Dict[str, Any]]:
     """Parse Gamma API response into normalized item dicts.
 
@@ -639,6 +727,7 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
     items = []
     league = _detect_sports_league(topic) if topic else None
     topic_matchup_signature = _matchup_signature(topic) if topic else None
+    snapshot_mode = is_exchange_snapshot_query(topic, venue="polymarket")
     league_tag_map = {
         "nba": {"nba"},
         "nfl": {"nfl"},
@@ -799,6 +888,8 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
                 end_date = end_date[:10]
             except (IndexError, TypeError):
                 end_date = None
+        if snapshot_mode and _is_snapshot_expired(end_datetime, end_date):
+            continue
 
         # Semantic relevance should dominate. Market quality should refine
         # relevant matches, not rescue unrelated high-liquidity events.
@@ -902,7 +993,9 @@ def parse_polymarket_response(response: Dict[str, Any], topic: str = "") -> List
             "why_relevant": f"Prediction market: {title[:60]}",
         })
 
-    # Sort by relevance (quality-signal ranked) and apply cap
-    items.sort(key=lambda x: x["relevance"], reverse=True)
+    if is_exchange_snapshot_query(topic, venue="polymarket"):
+        items.sort(key=_snapshot_item_priority, reverse=True)
+    else:
+        items.sort(key=lambda x: x["relevance"], reverse=True)
     cap = response.get("_cap", len(items))
     return items[:cap]

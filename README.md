@@ -1,6 +1,6 @@
-# /last24hours v1.0.87.
+# /last24hours v1.0.88.
 
-`/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today` or `macro markets to watch around Fed cuts`.
+`/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today`, `macro markets to watch around Fed cuts`, or `Kalshi markets right now`.
 
 Codex chat is the primary target UX. The compact output is designed to open with a forecast block that feels native in chat, with raw evidence sections following underneath for inspection.
 
@@ -71,6 +71,7 @@ Current notable capabilities:
 - Kalshi can now lead NBA slate forecasts directly when it has the cleanest or only date-compatible game markets, instead of being limited to a blend/attachment role behind Polymarket.
 - Closing-soon Polymarket scanning with full close datetimes, minutes-to-close, liquidity/spread, 24h movement, and resolvability notes.
 - Market-watchlist catalyst filtering that rejects unrelated promo posts, picks/parlay chatter, and domain-mismatched snippets.
+- Exchange-snapshot routing for prompts such as `Kalshi markets right now` and `Polymarket board now`, with watchlist-only degraded output when no board rows survive.
 - Paper-only calibration loop with Brier score, log loss, probability buckets, favorite/longshot diagnostics, and conservative suggestions.
 - Disposable raw markdown report cleanup with `--save-dir`, `--save-retention-days`, and `--clean-save-dir`.
 - Deterministic relative-date testing with `--as-of-date YYYY-MM-DD` or `LAST24HOURS_AS_OF_DATE`.
@@ -226,6 +227,7 @@ Examples:
 - `/last24hours Lakers vs Nuggets odds tonight`
 - `/last24hours Bitcoin above 100k this week`
 - `/last24hours NBA markets to watch today`
+- `/last24hours Kalshi markets right now`
 - `/last24hours Polymarket markets closing soon`
 - `/last24hours live sports games on Polymarket right now`
 - `/last24hours macro markets to watch around Fed cuts`
@@ -239,6 +241,7 @@ Usage guidelines:
 - Live-sports watchlists return direct matching game-outcome markets only; if ESPN finds no live/starting-soon games or no direct Polymarket match, the output says so directly.
 - Narrow watchlist prompts by domain, league, asset, or macro theme when possible.
 - Broad prompts such as `markets to watch` degrade to a lower-confidence scan and may return no picks if market matches are weak.
+- Exchange snapshot prompts such as `Kalshi markets right now` stay in watchlist mode and will not fall back to a model-implied forecast.
 - Watchlist rankings are informational market-monitoring outputs, not trade execution or allocation advice.
 
 Useful CLI flags:
@@ -336,6 +339,7 @@ Recommended extra smoke tests:
 
 - Forecastable requests default to `prediction` mode.
 - Market-watchlist requests such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, `closing soon`, `live markets`, `live games`, and `settling soon` route to `market_watchlist` mode.
+- Venue-board prompts such as `Kalshi markets right now`, `Kalshi board now`, and `Polymarket board now` also route to `market_watchlist` mode.
 - Sports, weather, elections, macro, and event/outcome phrasing map to prediction mode automatically.
 - Comparison mode compares probability and market quality, not just sentiment.
 - Market evidence outranks social chatter when relevance is similar.
@@ -371,6 +375,7 @@ When a Kalshi candidate is within range of the watchlist cutoff, the renderer ma
 
 Good prompts:
 - `/last24hours NBA markets to watch today`
+- `/last24hours Kalshi markets right now`
 - `/last24hours Polymarket markets closing soon`
 - `/last24hours live sports games on Polymarket right now`
 - `/last24hours crypto markets closing soon tonight`

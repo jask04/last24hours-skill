@@ -455,6 +455,10 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                     lines.append("Kalshi closing-soon filter: needed active, liquid, non-expired Kalshi markets inside the close window.")
             else:
                 lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
+        elif qt.is_exchange_snapshot_query(report.topic, venue="kalshi"):
+            lines.append("Kalshi snapshot filter: board discovery ran, but no active market row cleared diversity, relevance, and settled-price filters.")
+        elif qt.is_exchange_snapshot_query(report.topic, venue="polymarket"):
+            lines.append("Polymarket snapshot filter: board discovery ran, but no active market row cleared relevance, liquidity, and settled-price filters.")
         elif closing_soon.is_kalshi_live_board_query(report.topic):
             lines.append("Kalshi live-board filter: Kalshi discovery ran, but no active market row cleared depth, relevance, and settled-price filters.")
         elif eq.is_esports_player_prop_query(report.topic):

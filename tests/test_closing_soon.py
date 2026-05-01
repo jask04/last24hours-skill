@@ -78,6 +78,9 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertTrue(closing_soon.is_closing_soon_query("Kalshi live markets"))
         self.assertTrue(closing_soon.is_kalshi_live_board_query("Kalshi live markets"))
         self.assertTrue(closing_soon.is_kalshi_live_board_query("live Kalshi"))
+        self.assertTrue(closing_soon.is_kalshi_live_board_query("Kalshi markets right now"))
+        self.assertTrue(closing_soon.is_kalshi_live_board_query("Kalshi markets now"))
+        self.assertTrue(closing_soon.is_kalshi_live_board_query("Kalshi board right now"))
         self.assertFalse(closing_soon.is_kalshi_live_board_query("Kalshi markets closing soon"))
         self.assertFalse(closing_soon.is_kalshi_live_board_query("Polymarket live markets"))
 

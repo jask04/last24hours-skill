@@ -10,7 +10,7 @@ import re
 
 from . import http
 from . import evidence_quality as eq
-from .query_type import detect_query_type
+from .query_type import detect_query_type, is_exchange_snapshot_query
 from .relevance import token_overlap_relevance
 
 API_BASE = "https://api.elections.kalshi.com/trade-api/v2"
@@ -68,6 +68,8 @@ _BROAD_LIVE_SERIES = [
     "KXBTC",
     "KXETH",
     "KXLLM1",
+    "KXCLAUDE",
+    "KXGPTCOST",
     "KXFEDDECISION",
     "KXFED",
     "KXCPI",
@@ -86,11 +88,13 @@ _BROAD_LIVE_SERIES = [
 
 def _is_broad_live_board_topic(topic: str) -> bool:
     lowered = (topic or "").lower()
+    if is_exchange_snapshot_query(topic, venue="kalshi"):
+        return True
     if "kalshi" not in lowered:
         return False
     if not re.search(r"\blive markets?\b|\blive kalshi\b|\bkalshi live\b", lowered):
         return False
-    return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame|right now)\b", lowered)
+    return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame)\b", lowered)
 
 
 def _series_key(market: Dict[str, Any]) -> str:
@@ -353,6 +357,100 @@ def _market_relevance(topic: str, market: Dict[str, Any], event_title: str = "")
     return round(max(0.0, min(1.0, relevance)), 2)
 
 
+def _snapshot_market_actionability(market: Dict[str, Any]) -> float:
+    current_probability = _pick_current_probability(market)
+    previous_probability = _safe_float(market.get("previous_price_dollars"))
+    movement_pct = None
+    if current_probability is not None and previous_probability > 0:
+        movement_pct = abs((current_probability - previous_probability) * 100)
+    volume = _safe_float(market.get("volume_24h_fp")) or _safe_float(market.get("volume_fp"))
+    liquidity = _safe_float(market.get("liquidity_dollars"))
+    open_interest = _safe_float(market.get("open_interest_fp"))
+    volume_score = min(1.0, math.log1p(volume) / math.log1p(500_000))
+    liquidity_score = min(1.0, math.log1p(liquidity) / math.log1p(250_000))
+    oi_score = min(1.0, math.log1p(open_interest) / math.log1p(500_000))
+    movement_score = min(1.0, (movement_pct or 0.0) / 15.0)
+    spread = None
+    best_bid = _normalize_probability(_safe_optional_float(market.get("yes_bid_dollars") or market.get("yes_bid")))
+    best_ask = _normalize_probability(_safe_optional_float(market.get("yes_ask_dollars") or market.get("yes_ask")))
+    if best_bid is not None and best_ask is not None:
+        spread = max(0.0, best_ask - best_bid)
+    spread_score = max(0.0, min(1.0, 1.0 - ((spread if spread is not None else 0.18) / 0.20)))
+    close_text = market.get("close_time") or market.get("expiration_time") or market.get("expected_expiration_time") or ""
+    close_score = 0.10
+    if close_text:
+        try:
+            days = max(0.0, (datetime.fromisoformat(str(close_text).replace("Z", "+00:00")) - datetime.now(timezone.utc)).total_seconds() / 86400.0)
+            if days <= 1:
+                close_score = 1.0
+            elif days <= 3:
+                close_score = 0.85
+            elif days <= 7:
+                close_score = 0.65
+            elif days <= 14:
+                close_score = 0.42
+            elif days <= 30:
+                close_score = 0.22
+            else:
+                close_score = 0.06
+        except ValueError:
+            close_score = 0.10
+    return (
+        0.34 * close_score +
+        0.26 * volume_score +
+        0.16 * liquidity_score +
+        0.10 * oi_score +
+        0.08 * spread_score +
+        0.06 * movement_score
+    )
+
+
+def _live_board_event_priority(series_ticker: str, event: Dict[str, Any]) -> tuple[float, float, float]:
+    event_dt = _event_datetime(event)
+    now = datetime.now(timezone.utc)
+    days_score = 0.0
+    if event_dt is not None:
+        delta_days = (event_dt - now).total_seconds() / 86_400
+        if delta_days < -1:
+            days_score = 0.0
+        elif delta_days <= 1:
+            days_score = 1.0
+        elif delta_days <= 3:
+            days_score = 0.90
+        elif delta_days <= 7:
+            days_score = 0.74
+        elif delta_days <= 21:
+            days_score = 0.50
+        elif delta_days <= 45:
+            days_score = 0.28
+        else:
+            days_score = max(0.02, 0.24 / (1.0 + (delta_days / 45.0)))
+
+    series_bonus = 0.0
+    if series_ticker in {"KXBTC", "KXETH", "KXNBAGAME", "KXCS2GAME", "KXVALGAME", "KXLOLGAME"}:
+        series_bonus = 0.18
+    elif series_ticker in {"KXLLM1", "KXCLAUDE", "KXGPTCOST"}:
+        series_bonus = 0.10
+    elif series_ticker in {"KXFEDDECISION", "KXFED", "KXCPI", "KXJOBS"}:
+        series_bonus = 0.04
+
+    updated_raw = event.get("last_updated_ts") or event.get("strike_date") or ""
+    updated_score = 0.0
+    if updated_raw:
+        try:
+            updated_dt = datetime.fromisoformat(str(updated_raw).replace("Z", "+00:00"))
+            age_days = max(0.0, (now - updated_dt).total_seconds() / 86_400)
+            updated_score = max(0.0, min(1.0, 1.0 - (age_days / 14.0)))
+        except ValueError:
+            updated_score = 0.0
+
+    return (
+        days_score + series_bonus,
+        1.0 if event.get("available_on_brokers", True) else 0.0,
+        updated_score,
+    )
+
+
 def _fetch_markets_page(cursor: Optional[str] = None, limit: int = 200) -> Dict[str, Any]:
     params = {
         "status": "open",
@@ -414,7 +512,7 @@ def _fetch_events_for_series(series_ticker: str, limit: int = 8) -> List[Dict[st
         upcoming = []
         for event in events:
             event_date = _event_datetime(event)
-            if event_date and event_date < now:
+            if event_date and event_date.date() < now.date():
                 continue
             upcoming.append(event)
         events = upcoming or events
@@ -478,7 +576,8 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
         return [], {}
     live_board = _is_broad_live_board_topic(topic)
     if live_board:
-        event_limit = {"quick": 1, "default": 3, "deep": 5}.get(depth, 3)
+        event_fetch_limit = {"quick": 8, "default": 10, "deep": 12}.get(depth, 10)
+        event_select_limit = {"quick": 1, "default": 2, "deep": 3}.get(depth, 2)
     elif set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split()) & {"golf", "pga", "zurich", "masters"}:
         event_limit = {"quick": 25, "default": 35, "deep": 50}.get(depth, 35)
     else:
@@ -488,11 +587,12 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
     wanted_months = _topic_months(topic)
     event_tickers: List[str] = []
     if live_board and depth == "quick":
-        series_limit = min(10, len(_BROAD_LIVE_SERIES))
+        series_limit = min(12, len(_BROAD_LIVE_SERIES))
     else:
         series_limit = len(_BROAD_LIVE_SERIES) if live_board else 3
     for series_ticker in series[:series_limit]:
-        events = _fetch_events_for_series(series_ticker, event_limit)
+        fetch_limit = event_fetch_limit if live_board else event_limit
+        events = _fetch_events_for_series(series_ticker, fetch_limit)
         if wanted_months:
             month_matches = [
                 event for event in events
@@ -500,6 +600,12 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
             ]
             if month_matches:
                 events = month_matches
+        if live_board:
+            events = sorted(
+                events,
+                key=lambda event: _live_board_event_priority(series_ticker, event),
+                reverse=True,
+            )[:event_select_limit]
         for event in events:
             ticker = event.get("event_ticker", "")
             if not ticker:
@@ -779,15 +885,17 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
     """Fetch open Kalshi markets, rank locally, and enrich the best matches with event titles."""
     page_count = PAGE_LIMITS.get(depth, PAGE_LIMITS["default"])
     cap = RESULT_CAP.get(depth, RESULT_CAP["default"])
+    live_board = _is_broad_live_board_topic(topic)
 
     markets: List[Dict[str, Any]] = []
-    cursor = None
-    for _ in range(page_count):
-        response = _fetch_markets_page(cursor=cursor)
-        markets.extend(response.get("markets", []))
-        cursor = response.get("cursor") or None
-        if not cursor:
-            break
+    if not live_board:
+        cursor = None
+        for _ in range(page_count):
+            response = _fetch_markets_page(cursor=cursor)
+            markets.extend(response.get("markets", []))
+            cursor = response.get("cursor") or None
+            if not cursor:
+                break
 
     series_markets, series_event_titles = _series_markets_for_topic(topic, depth)
     markets.extend(series_markets)
@@ -821,12 +929,15 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
 
     ranked.sort(
         key=lambda m: (
-            -m.get("relevance", 0.0),
+            -(
+                (0.60 * m.get("relevance", 0.0) + 0.40 * _snapshot_market_actionability(m))
+                if live_board else m.get("relevance", 0.0)
+            ),
             -_safe_float(m.get("volume_24h_fp")) - _safe_float(m.get("volume_fp")),
             -_safe_float(m.get("open_interest_fp")),
         )
     )
-    if _is_broad_live_board_topic(topic):
+    if live_board:
         filtered_ranked = [
             m for m in ranked
             if not _is_combo_market(m) and (_market_has_quality(m) or _pick_current_probability(m) is not None)
@@ -849,7 +960,7 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
 
     event_data: Dict[str, dict] = {}
     event_titles: Dict[str, str] = dict(series_event_titles)
-    if not (_is_broad_live_board_topic(topic) and depth == "quick"):
+    if not (live_board and depth == "quick"):
         unique_events = sorted({m.get("event_ticker", "") for m in candidates if m.get("event_ticker")})
         with ThreadPoolExecutor(max_workers=min(8, len(unique_events) or 1)) as executor:
             futures = {executor.submit(_fetch_event, ticker): ticker for ticker in unique_events}
@@ -970,6 +1081,31 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
             "relevance": relevance,
             "why_relevant": f"Kalshi market: {question[:60]}",
         })
+
+    if is_exchange_snapshot_query(topic, venue="kalshi"):
+        snapshot_cap = max(cap, 12)
+        items.sort(
+            key=lambda item: (
+                -_snapshot_market_actionability({
+                    "last_price_dollars": item.get("current_probability"),
+                    "previous_price_dollars": (
+                        item.get("current_probability") - ((item.get("movement_24h") or 0.0) / 100.0)
+                        if item.get("current_probability") is not None and item.get("movement_24h") is not None
+                        else None
+                    ),
+                    "yes_bid_dollars": item.get("best_bid"),
+                    "yes_ask_dollars": item.get("best_ask"),
+                    "volume_24h_fp": item.get("volume_24h"),
+                    "open_interest_fp": item.get("open_interest"),
+                    "liquidity_dollars": item.get("liquidity"),
+                    "expiration_time": item.get("end_datetime") or item.get("end_date"),
+                }),
+                -(item.get("market_signal_quality") or 0.0),
+                -(item.get("volume") or 0.0),
+                -(item.get("open_interest") or 0.0),
+            )
+        )
+        return items[:snapshot_cap]
 
     items.sort(
         key=lambda item: (

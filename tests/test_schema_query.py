@@ -1,13 +1,24 @@
 import unittest
 from unittest import mock
 
-from scripts.lib import env, query_type, schema, youtube_yt
+from scripts.lib import env, polymarket, query_type, schema, youtube_yt
 
 
 class SchemaQueryTests(unittest.TestCase):
     def test_query_type_regressions(self):
         self.assertEqual(query_type.detect_query_type("markets to watch"), "market_watchlist")
         self.assertEqual(query_type.detect_query_type("tornado watch in NYC"), "prediction")
+        self.assertEqual(query_type.detect_query_type("Kalshi markets right now"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("Kalshi markets now"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("Kalshi board right now"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("Polymarket markets right now"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("Polymarket board now"), "market_watchlist")
+
+    def test_polymarket_snapshot_queries_use_curated_board_seeds(self):
+        self.assertEqual(
+            polymarket._expand_queries("Polymarket board now"),
+            ["bitcoin", "ethereum", "fed", "nba", "ai", "election"],
+        )
 
     def test_report_round_trips_bluesky_and_market_signal_fields(self):
         report = schema.Report(

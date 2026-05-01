@@ -33,6 +33,15 @@ _MARKET_WATCHLIST_PATTERNS = re.compile(
     r")\b",
     re.I,
 )
+_EXCHANGE_SNAPSHOT_PATTERNS = re.compile(
+    r"\b("
+    r"(?:polymarket|kalshi)\s+(?:markets?|board)(?:\s+(?:right\s+now|now))|"
+    r"(?:polymarket|kalshi)\s+live\s+board|"
+    r"(?:polymarket|kalshi)\s+active\s+markets?|"
+    r"board\s+on\s+(?:polymarket|kalshi)"
+    r")\b",
+    re.I,
+)
 _BREAKING_PATTERNS = re.compile(
     r"\b(latest|breaking|just announced|launched|released|new|update|news|happened|today|this week)\b", re.I
 )
@@ -76,7 +85,17 @@ def _looks_like_sports_matchup(topic: str) -> bool:
 
 def is_market_watchlist_query(topic: str) -> bool:
     """Return True for one-shot market discovery/watchlist prompts."""
-    return bool(_MARKET_WATCHLIST_PATTERNS.search(topic or ""))
+    return bool(_MARKET_WATCHLIST_PATTERNS.search(topic or "") or is_exchange_snapshot_query(topic))
+
+
+def is_exchange_snapshot_query(topic: str, venue: str = "") -> bool:
+    """Return True for broad venue-board snapshot prompts such as 'Kalshi markets right now'."""
+    text = topic or ""
+    if not _EXCHANGE_SNAPSHOT_PATTERNS.search(text):
+        return False
+    if venue:
+        return venue.lower() in text.lower()
+    return True
 
 
 def detect_query_type(topic: str) -> QueryType:

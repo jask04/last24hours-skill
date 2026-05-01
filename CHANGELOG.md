@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.88] - 2026-05-01
+
+### Added
+- `scripts/lib/query_type.py`, `scripts/lib/market_watchlist.py`, and `README.md`: Added exchange-snapshot prompt support for venue-board phrasing such as `Kalshi markets right now`, `Kalshi markets now`, `Kalshi board right now`, and `Polymarket board now`.
+
+### Fixed
+- `scripts/lib/kalshi.py`, `scripts/lib/closing_soon.py`, and `scripts/lib/render.py`: Routed Kalshi `right now` and `now` board prompts through the broad live-board discovery path instead of the generic first open-markets page, preserving combo suppression and board diversity.
+- `scripts/lib/render.py` and `README.md`: Kept snapshot/watchlist runs in watchlist-only degraded mode so empty board scans explain the board-filter failure instead of falling back to a fake model-implied forecast.
+- `scripts/lib/closing_soon.py`: Replaced platform-specific `strftime('%-d')` formatting with Windows-safe month/day formatting so closing-soon seed generation and tests run correctly on this environment.
+
+### Tests
+- `tests/test_schema_query.py`, `tests/test_closing_soon.py`, `tests/test_kalshi.py`, and `tests/test_forecast_watchlist.py`: Added regressions for snapshot query classification, Kalshi `right now` live-board detection, board-scan retrieval without generic combo-page fallback, watchlist-only snapshot behavior, and empty snapshot rendering.
+
 ## [1.0.87] - 2026-04-30
 
 ### Added

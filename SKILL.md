@@ -1,8 +1,8 @@
 ---
 name: last24hours
-version: "1.0.87"
+version: "1.0.88"
 description: "Real-time forecasting and market-watchlist skill for the last 24 hours. Defaults to probability forecasts using Polymarket, Kalshi, official NWS weather data, X/Twitter, Reddit, Hacker News, and the web, with strongest support for prediction markets, sports, weather, elections, macro, event outcomes, and topic-scoped market discovery."
-argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h NBA markets to watch"
+argument-hint: "last24h Lakers vs Nuggets tonight, last24h NYC rain tomorrow odds, last24h Fed rate cut probability, last24h Kalshi markets right now"
 allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
 homepage: https://github.com/jask04/last24hours-skill
 repository: https://github.com/jask04/last24hours-skill
@@ -59,7 +59,7 @@ metadata:
       - research
 ---
 
-# last24hours v1.0.87: Forecast From the Last 24 Hours
+# last24hours v1.0.88: Forecast From the Last 24 Hours
 
 Use `/last24hours` as a forecasting assistant first, a topic-scoped market-watchlist assistant second, and a research brief only as fallback.
 Codex chat is the primary target UX for this skill.
@@ -71,7 +71,7 @@ The default job is to answer:
 - What uncertainty matters?
 - What would move the forecast up or down?
 
-For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, `closing soon`, `live markets`, `live games`, `paper bundle ideas`, `multi-leg watchlist`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
+For prompts such as `markets to watch`, `best markets`, `recommend markets`, `market picks`, `biggest market moves`, `closing soon`, `live markets`, `live games`, `Kalshi markets right now`, `Polymarket board now`, `paper bundle ideas`, `multi-leg watchlist`, or `interesting Polymarket/Kalshi markets`, the job changes to a ranked market-watchlist scan:
 - What are the best-ranked markets to monitor for this topic?
 - Which venue and outcome is being surfaced?
 - What exchange-native market signal explains the rank?
@@ -116,6 +116,10 @@ Treat these as `MARKET_WATCHLIST` prompts:
 - `closing soon`
 - `live markets`
 - `live games`
+- `markets right now`
+- `markets now`
+- `board right now`
+- `board now`
 - `in-game`
 - `paper parlay ideas`
 - `paper bundle`
@@ -346,6 +350,7 @@ Risk / what would change it: {stale, illiquid, wide-spread, or catalyst conditio
 
 Good prompts:
 - `/last24hours NBA markets to watch today`
+- `/last24hours Kalshi markets right now`
 - `/last24hours NBA games April 20 2026 through April 22 2026`
 - `/last24hours NBA paper bundle ideas April 20 through April 22`
 - `/last24hours Polymarket markets closing soon`

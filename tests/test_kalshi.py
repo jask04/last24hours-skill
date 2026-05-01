@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from scripts import last24hours
-from scripts.lib import forecast, kalshi, schema
+from scripts.lib import forecast, kalshi, query_type, schema
 
 
 class KalshiTests(unittest.TestCase):
@@ -24,6 +24,12 @@ class KalshiTests(unittest.TestCase):
         self.assertIn("KXCPI", series)
         self.assertIn("KXJOBS", series)
         self.assertIn("KXNBAGAME", series)
+
+    def test_exchange_snapshot_query_detection_matches_live_board_aliases(self):
+        self.assertTrue(query_type.is_exchange_snapshot_query("Kalshi markets right now", venue="kalshi"))
+        self.assertTrue(query_type.is_exchange_snapshot_query("Kalshi markets now", venue="kalshi"))
+        self.assertTrue(query_type.is_exchange_snapshot_query("Kalshi board right now", venue="kalshi"))
+        self.assertTrue(query_type.is_exchange_snapshot_query("Polymarket board now", venue="polymarket"))
 
     def test_kalshi_closing_soon_topic_does_not_add_live_board_series(self):
         self.assertNotIn("KXNBAGAME", kalshi._series_for_topic("Kalshi markets closing soon"))
@@ -59,6 +65,170 @@ class KalshiTests(unittest.TestCase):
         selected = kalshi._diverse_live_candidates(ranked, cap=5)
 
         self.assertEqual(len(selected), 10)
+
+    def test_search_kalshi_snapshot_uses_series_scan_and_skips_generic_first_page(self):
+        series_markets = [
+            {
+                "ticker": "KXBTC-26MAY0117-B77250",
+                "event_ticker": "KXBTC-26MAY0117",
+                "title": "Bitcoin price range on May 1, 2026?",
+                "subtitle": "Bitcoin price range on May 1, 2026?",
+                "last_price_dollars": "0.48",
+                "previous_price_dollars": "0.44",
+                "yes_bid_dollars": "0.47",
+                "yes_ask_dollars": "0.48",
+                "open_interest_fp": "210000.00",
+                "volume_24h_fp": "425000.00",
+                "volume_fp": "600000.00",
+                "liquidity_dollars": "120000.00",
+                "updated_time": "2026-05-01T06:00:00Z",
+                "expiration_time": "2026-05-01T21:00:00Z",
+                "status": "active",
+            },
+            {
+                "ticker": "KXMVECROSSCATEGORY-S2026BAD",
+                "event_ticker": "KXMVECROSSCATEGORY-S2026BAD",
+                "title": "yes Team A,yes Team B,yes Team C",
+                "subtitle": "crosscategory combo",
+                "last_price_dollars": "0.60",
+                "previous_price_dollars": "0.60",
+                "yes_bid_dollars": "0.59",
+                "yes_ask_dollars": "0.61",
+                "open_interest_fp": "500000.00",
+                "volume_24h_fp": "900000.00",
+                "volume_fp": "950000.00",
+                "liquidity_dollars": "200000.00",
+                "updated_time": "2026-05-01T06:00:00Z",
+                "expiration_time": "2026-05-01T21:00:00Z",
+                "status": "active",
+            },
+        ]
+
+        with mock.patch.object(kalshi, "_fetch_markets_page", side_effect=AssertionError("generic first-page fetch should be skipped")), \
+             mock.patch.object(kalshi, "_series_markets_for_topic", return_value=(series_markets, {"KXBTC-26MAY0117": "Bitcoin price range on May 1, 2026?"})), \
+             mock.patch.object(kalshi, "_apply_candlestick_signals", return_value=None), \
+             mock.patch.object(kalshi, "_fetch_event", return_value={"event": {"title": "Bitcoin price range on May 1, 2026?"}}):
+            response = kalshi.search_kalshi("Kalshi markets right now", "2026-04-30", "2026-05-01", depth="quick")
+            parsed = kalshi.parse_kalshi_response(response, "Kalshi markets right now")
+
+        self.assertEqual([row["ticker"] for row in parsed], ["KXBTC-26MAY0117-B77250"])
+
+    def test_search_kalshi_snapshot_prefers_nearer_term_active_rows_over_long_dated_macro(self):
+        series_markets = [
+            {
+                "ticker": "KXFEDDECISION-26JUN-H0",
+                "event_ticker": "KXFEDDECISION-26JUN",
+                "title": "Will the Federal Reserve Hike rates by 0bps at their June 2026 meeting?",
+                "subtitle": "Fed decision in Jun 2026?",
+                "last_price_dollars": "0.95",
+                "previous_price_dollars": "0.95",
+                "yes_bid_dollars": "0.95",
+                "yes_ask_dollars": "0.96",
+                "open_interest_fp": "713841.06",
+                "volume_24h_fp": "355329.10",
+                "volume_fp": "800000.00",
+                "liquidity_dollars": "0.00",
+                "updated_time": "2026-05-01T06:00:00Z",
+                "expiration_time": "2026-06-17T21:00:00Z",
+                "status": "active",
+            },
+            {
+                "ticker": "KXBTC-26MAY0117-B77250",
+                "event_ticker": "KXBTC-26MAY0117",
+                "title": "Bitcoin price range on May 1, 2026?",
+                "subtitle": "Bitcoin price range on May 1, 2026?",
+                "last_price_dollars": "0.48",
+                "previous_price_dollars": "0.44",
+                "yes_bid_dollars": "0.47",
+                "yes_ask_dollars": "0.48",
+                "open_interest_fp": "210000.00",
+                "volume_24h_fp": "425000.00",
+                "volume_fp": "600000.00",
+                "liquidity_dollars": "120000.00",
+                "updated_time": "2026-05-01T06:00:00Z",
+                "expiration_time": "2026-05-01T21:00:00Z",
+                "status": "active",
+            },
+            {
+                "ticker": "KXETH-26MAY0204-B2260",
+                "event_ticker": "KXETH-26MAY0204",
+                "title": "Ethereum price at May 2, 2026 at 4am EDT?",
+                "subtitle": "Ethereum price at May 2, 2026 at 4am EDT?",
+                "last_price_dollars": "0.36",
+                "previous_price_dollars": "0.31",
+                "yes_bid_dollars": "0.35",
+                "yes_ask_dollars": "0.36",
+                "open_interest_fp": "95000.00",
+                "volume_24h_fp": "120000.00",
+                "volume_fp": "225000.00",
+                "liquidity_dollars": "60000.00",
+                "updated_time": "2026-05-01T06:00:00Z",
+                "expiration_time": "2026-05-02T08:00:00Z",
+                "status": "active",
+            },
+        ]
+
+        with mock.patch.object(kalshi, "_fetch_markets_page", side_effect=AssertionError("generic first-page fetch should be skipped")), \
+             mock.patch.object(
+                 kalshi,
+                 "_series_markets_for_topic",
+                 return_value=(series_markets, {
+                     "KXFEDDECISION-26JUN": "Fed decision in Jun 2026?",
+                     "KXBTC-26MAY0117": "Bitcoin price range on May 1, 2026?",
+                     "KXETH-26MAY0204": "Ethereum price at May 2, 2026 at 4am EDT?",
+                 }),
+             ), \
+             mock.patch.object(kalshi, "_apply_candlestick_signals", return_value=None), \
+             mock.patch.object(kalshi, "_fetch_event", return_value={"event": {}}):
+            response = kalshi.search_kalshi("Kalshi markets right now", "2026-04-30", "2026-05-01", depth="quick")
+
+        self.assertEqual(response["markets"][0]["ticker"], "KXBTC-26MAY0117-B77250")
+        self.assertNotEqual(response["markets"][0]["ticker"], "KXFEDDECISION-26JUN-H0")
+
+    def test_series_markets_for_topic_snapshot_prefers_nearer_events_within_series(self):
+        events_by_series = {
+            "KXFEDDECISION": [
+                {
+                    "event_ticker": "KXFEDDECISION-27DEC",
+                    "title": "Fed decision in Dec 2027?",
+                    "available_on_brokers": True,
+                    "strike_date": "2027-12-08T19:00:00Z",
+                    "last_updated_ts": "2026-05-01T00:00:00Z",
+                },
+                {
+                    "event_ticker": "KXFEDDECISION-26JUN",
+                    "title": "Fed decision in Jun 2026?",
+                    "available_on_brokers": True,
+                    "strike_date": "2026-06-17T18:00:00Z",
+                    "last_updated_ts": "2026-05-01T00:00:00Z",
+                },
+            ],
+            "KXBTC": [
+                {
+                    "event_ticker": "KXBTC-26MAY0117",
+                    "title": "Bitcoin price range on May 1, 2026 at 5pm EDT?",
+                    "available_on_brokers": True,
+                    "strike_date": "2026-05-01T21:00:00Z",
+                    "last_updated_ts": "2026-05-01T00:00:00Z",
+                }
+            ],
+        }
+        markets_by_event = {
+            "KXFEDDECISION-27DEC": [{"ticker": "KXFEDDECISION-27DEC-C25"}],
+            "KXFEDDECISION-26JUN": [{"ticker": "KXFEDDECISION-26JUN-C25"}],
+            "KXBTC-26MAY0117": [{"ticker": "KXBTC-26MAY0117-B77250"}],
+        }
+
+        with mock.patch.object(kalshi, "_series_for_topic", return_value=["KXFEDDECISION", "KXBTC"]), \
+             mock.patch.object(kalshi, "_fetch_events_for_series", side_effect=lambda series_ticker, limit=8: events_by_series.get(series_ticker, [])), \
+             mock.patch.object(kalshi, "_fetch_markets_for_event", side_effect=lambda event_ticker: markets_by_event[event_ticker]):
+            markets, titles = kalshi._series_markets_for_topic("Kalshi markets right now", "quick")
+
+        tickers = {market["ticker"] for market in markets}
+        self.assertIn("KXFEDDECISION-26JUN-C25", tickers)
+        self.assertNotIn("KXFEDDECISION-27DEC-C25", tickers)
+        self.assertIn("KXBTC-26MAY0117-B77250", tickers)
+        self.assertEqual(titles["KXFEDDECISION-26JUN"], "Fed decision in Jun 2026?")
 
     def test_search_kalshi_filters_nba_games_to_topic_day(self):
         events = [
