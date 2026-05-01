@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.89] - 2026-05-01
+
+### Added
+- `tests/test_schema_query.py` and `tests/test_kalshi.py`: Added regressions for curated Polymarket snapshot query expansion and Kalshi same-series nearest-event selection in broad snapshot mode.
+
+### Fixed
+- `scripts/lib/polymarket.py`: Added curated broad-board search seeds plus snapshot-specific ranking so `Polymarket board now` prefers active crypto, AI, sports, and macro board rows instead of venue-meta or stale oddities from generic text search.
+- `scripts/lib/polymarket.py`: Dropped expired-but-still-flagged-active events from snapshot parsing so stale weather and election rows do not leak into the live board.
+- `scripts/lib/kalshi.py`: Reworked broad live-board event selection to prefer nearer-term events within each series, keeping same-day NBA and other current rows ahead of far-future placeholder contracts.
+- `scripts/lib/market_watchlist.py`: Kept snapshot suppression fail-closed for weak rows while avoiding over-aggressive collapse on very small candidate pools.
+
+### Tests
+- `tests/test_schema_query.py`, `tests/test_closing_soon.py`, `tests/test_kalshi.py`, and `tests/test_forecast_watchlist.py`: Re-ran the targeted watchlist / closing-soon / Kalshi suites for the snapshot quality update.
+
 ## [1.0.88] - 2026-05-01
 
 ### Added

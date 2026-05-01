@@ -1,4 +1,4 @@
-# /last24hours v1.0.88.
+# /last24hours v1.0.89.
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today`, `macro markets to watch around Fed cuts`, or `Kalshi markets right now`.
 
@@ -9,6 +9,8 @@ Forecasts are now market-anchored by default. When Polymarket and Kalshi both ex
 When no clean market or official source can anchor a forecast, the output now marks the run as degraded so model-implied probabilities are not mistaken for market-backed edges.
 
 Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
+
+Broad venue-board prompts such as `Kalshi markets right now` and `Polymarket board now` now use an actionability-first snapshot path. The board prefers nearer-term, tighter, actively trading markets and suppresses expired, stale, or weak novelty rows before the final shortlist is rendered.
 
 For mixed NBA watchlist prompts such as `NBA markets to watch today`, the board can now intentionally include both direct same-day game markets and playoff series markets. Direct games still anchor the board when they are clean and relevant, while series rows stay labeled separately as broader series-state monitoring instead of blending into the game board silently.
 
