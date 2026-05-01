@@ -2006,6 +2006,64 @@ def resolution_learning_summary(
     }
 
 
+def probability_bucket_health_summary(
+    picks: List[Dict[str, Any]],
+    *,
+    bucket: str = "65-80",
+    min_count: int = 3,
+    row_limit: int = 8,
+) -> Dict[str, Any]:
+    rows = [
+        pick for pick in picks
+        if pick.get("status") == "resolved"
+        and pick.get("resolution_value") is not None
+        and not _is_legacy_noisy_rationale(pick)
+        and _probability_bucket(_prob(pick.get("model_probability")) or 0.0) == bucket
+    ]
+    rows.sort(key=lambda pick: float(pick.get("brier_score") or 0), reverse=True)
+    if not rows:
+        return {
+            "bucket": bucket,
+            "count": 0,
+            "avg_probability": None,
+            "observed_rate": None,
+            "avg_brier": None,
+            "calibration_gap": None,
+            "direction": "",
+            "flagged": False,
+            "worst_rows": [],
+            "empty_reason": f"No resolved paper rows in probability_bucket:{bucket} for the selected report window.",
+        }
+    probabilities = [_prob(pick.get("model_probability")) or 0.0 for pick in rows]
+    outcomes = [_prob(pick.get("resolution_value")) or 0.0 for pick in rows]
+    briers = [float(pick.get("brier_score") or 0.0) for pick in rows]
+    avg_probability = sum(probabilities) / len(probabilities)
+    observed_rate = sum(outcomes) / len(outcomes)
+    avg_brier = sum(briers) / len(briers)
+    gap = avg_probability - observed_rate
+    flagged = len(rows) >= min_count and (abs(gap) >= 0.12 or avg_brier >= 0.20)
+    direction = "overconfident" if gap > 0 else "underconfident" if gap < 0 else "aligned"
+    operator_note = ""
+    if flagged:
+        operator_note = (
+            f"probability_bucket:{bucket} is {direction} by {abs(gap) * 100:.0f} points across "
+            f"{len(rows)} resolved rows; treat this as a report-only watch item until the sample grows."
+        )
+    return {
+        "bucket": bucket,
+        "count": len(rows),
+        "avg_probability": avg_probability,
+        "observed_rate": observed_rate,
+        "avg_brier": avg_brier,
+        "calibration_gap": gap,
+        "direction": direction,
+        "flagged": flagged,
+        "operator_note": operator_note,
+        "worst_rows": [_resolution_row(pick) for pick in rows[:row_limit]],
+        "empty_reason": "",
+    }
+
+
 def _is_degraded_report(report: Dict[str, Any]) -> bool:
     forecasts = report.get("forecasts") or []
     if any(bool(item.get("model_implied")) for item in forecasts):
@@ -2167,6 +2225,23 @@ def _esports_watchlist_failure_counters(topic: str, report: Dict[str, Any]) -> D
     return {key: value for key, value in counters.items() if value}
 
 
+def _esports_watchlist_failure_summary(counters: Dict[str, int]) -> str:
+    if not counters:
+        return ""
+    parts: List[str] = []
+    if counters.get("esports_watchlist_no_same_day_direct_rows"):
+        parts.append("no same-day direct match rows")
+    if counters.get("esports_watchlist_filtered_later_date_rows"):
+        parts.append(f"{counters['esports_watchlist_filtered_later_date_rows']} later-date row(s) filtered")
+    if counters.get("esports_watchlist_wrong_subdomain_type_rows"):
+        parts.append(f"{counters['esports_watchlist_wrong_subdomain_type_rows']} wrong subdomain/type row(s)")
+    if counters.get("esports_watchlist_low_market_quality_rows"):
+        parts.append(f"{counters['esports_watchlist_low_market_quality_rows']} low-quality row(s)")
+    if counters.get("esports_watchlist_evidence_only_degraded"):
+        parts.append("evidence-only degradation")
+    return "; ".join(parts)
+
+
 def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "topic": entry["topic"],
@@ -2253,6 +2328,10 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         result["status"] = "ready"
     if debug_counters:
         result["debug_counters"] = debug_counters
+        summary = _esports_watchlist_failure_summary(debug_counters)
+        if summary:
+            result["diagnostic_summary"] = summary
+            result["warnings"].append(f"{entry['topic']}: eSports watchlist no-board diagnostics: {summary}.")
     result["elapsed_seconds"] = round(time.time() - started, 2)
     return result
 
@@ -2830,6 +2909,7 @@ def cmd_report(args) -> None:
         "kalshi_live_board_sample": kalshi_live_board_summary(recent),
         "recent_resolution_summary": recent_resolution_summary(recent),
         "resolution_learning_summary": resolution_learning_summary(recent),
+        "probability_bucket_65_80_health": probability_bucket_health_summary(recent, bucket="65-80"),
         "open_portfolio": open_pick_diagnostics(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.90] - 2026-05-01
+
+### Added
+- `tests/test_reliability_batch.py`: Extended release-surface guard coverage so adapter docstrings and current version surfaces fail when they keep the immediately previous release version.
+- `scripts/paper.py`: Added a `probability_bucket_65_80_health` report slice with count, average probability, observed rate, average Brier, calibration gap, and worst-row examples for report-only calibration monitoring.
+- `scripts/paper.py`: Added concise eSports watchlist no-board dry-run diagnostics that summarize later-date, wrong subdomain/type, low-quality, and no same-day direct-row counters.
+
+### Fixed
+- `scripts/lib/bird_x.py` and `scripts/lib/youtube_yt.py`: Bumped stale adapter docstrings from the old version line so release consistency tests are green again.
+- `scripts/lib/kalshi.py`: Normalized Kalshi snapshot titles/questions so exchange board rows no longer render with double spaces in market text.
+
+### Tests
+- `tests/test_kalshi.py`, `tests/test_paper_ledger.py`, and `tests/test_reliability_batch.py`: Added regressions for Kalshi snapshot title normalization, 65-80% probability bucket diagnostics, eSports no-board dry-run summaries, and release-surface version drift.
+
 ## [1.0.89] - 2026-05-01
 
 ### Added

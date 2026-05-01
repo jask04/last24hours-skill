@@ -113,6 +113,37 @@ class KalshiTests(unittest.TestCase):
 
         self.assertEqual([row["ticker"] for row in parsed], ["KXBTC-26MAY0117-B77250"])
 
+    def test_kalshi_snapshot_normalizes_double_space_titles(self):
+        series_markets = [
+            {
+                "ticker": "KXBTC-26MAY0217-B77250",
+                "event_ticker": "KXBTC-26MAY0217",
+                "title": "Bitcoin price range  on May 2, 2026?",
+                "subtitle": "Bitcoin price range  on May 2, 2026?",
+                "last_price_dollars": "0.48",
+                "previous_price_dollars": "0.44",
+                "yes_bid_dollars": "0.47",
+                "yes_ask_dollars": "0.48",
+                "open_interest_fp": "210000.00",
+                "volume_24h_fp": "425000.00",
+                "volume_fp": "600000.00",
+                "liquidity_dollars": "120000.00",
+                "updated_time": "2026-05-01T06:00:00Z",
+                "expiration_time": "2026-05-02T21:00:00Z",
+                "status": "active",
+            },
+        ]
+
+        with mock.patch.object(kalshi, "_fetch_markets_page", side_effect=AssertionError("generic first-page fetch should be skipped")), \
+             mock.patch.object(kalshi, "_series_markets_for_topic", return_value=(series_markets, {"KXBTC-26MAY0217": "Bitcoin price range  on May 2, 2026?"})), \
+             mock.patch.object(kalshi, "_apply_candlestick_signals", return_value=None), \
+             mock.patch.object(kalshi, "_fetch_event", return_value={"event": {"title": "Bitcoin price range  on May 2, 2026?"}}):
+            response = kalshi.search_kalshi("Kalshi markets right now", "2026-04-30", "2026-05-01", depth="quick")
+            parsed = kalshi.parse_kalshi_response(response, "Kalshi markets right now")
+
+        self.assertEqual(parsed[0]["title"], "Bitcoin price range on May 2, 2026?")
+        self.assertEqual(parsed[0]["question"], "Bitcoin price range on May 2, 2026?")
+
     def test_search_kalshi_snapshot_prefers_nearer_term_active_rows_over_long_dated_macro(self):
         series_markets = [
             {

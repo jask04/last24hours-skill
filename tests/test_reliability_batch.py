@@ -287,6 +287,26 @@ class VersionConsistencyTests(unittest.TestCase):
             self.assertIsNotNone(match, relative)
             self.assertEqual(match.group(1), version)
 
+    def test_current_version_surfaces_do_not_keep_previous_version(self):
+        version = self._skill_version()
+        major, minor, patch = [int(part) for part in version.split(".")]
+        if patch <= 1:
+            self.skipTest("No previous patch exists in the active release lane")
+        previous = f"{major}.{minor}.{patch - 1}"
+
+        for relative in (
+            "SKILL.md",
+            "README.md",
+            ".claude-plugin/plugin.json",
+            "gemini-extension.json",
+            "scripts/lib/ui.py",
+            "scripts/lib/bird_x.py",
+            "scripts/lib/youtube_yt.py",
+        ):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn(previous, text, relative)
+            self.assertNotIn(f"v{previous}", text, relative)
+
 
 if __name__ == "__main__":
     unittest.main()

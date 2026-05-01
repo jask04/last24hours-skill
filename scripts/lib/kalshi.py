@@ -30,6 +30,16 @@ RESULT_CAP = {
     "default": 15,
     "deep": 25,
 }
+
+
+def _clean_market_text(value: Any) -> str:
+    """Normalize exchange-provided display text without changing semantics."""
+    text = str(value or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+\?", "?", text)
+    return text
+
+
 _LEAGUE_TOKENS = {
     "nba": ("nba", "basketball"),
     "nfl": ("nfl", "football"),
@@ -988,7 +998,9 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
         event_ticker = market.get("event_ticker", "")
         series_ticker = market.get("series_ticker", "")
         raw_event = event_data.get(event_ticker, {})
-        event_title = event_titles.get(event_ticker, market.get("subtitle", "")) or market.get("title", "")
+        event_title = _clean_market_text(
+            event_titles.get(event_ticker, market.get("subtitle", "")) or market.get("title", "")
+        )
         if _is_combo_market(market, event_title):
             continue
         if not _market_matches_matchup(topic, market, event_title):
@@ -1016,7 +1028,7 @@ def parse_kalshi_response(response: Dict[str, Any], topic: str = "") -> List[Dic
                 and not (text_tokens & {"hike", "hikes", "increase", "raise"})
             ):
                 continue
-        question = market.get("title", "")
+        question = _clean_market_text(market.get("title", ""))
         current_probability = _pick_current_probability(market)
         previous_probability = _safe_float(market.get("previous_price_dollars"))
         movement_pct = _safe_optional_float(market.get("movement_24h"))

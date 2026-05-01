@@ -995,6 +995,39 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertTrue(any(alert["axis"] == "domain" and alert["value"] == "esports" for alert in summary["group_alerts"]))
         self.assertTrue(any("high-confidence miss" in item for item in summary["action_items"]))
 
+    def test_probability_bucket_health_summary_flags_65_80_calibration_gap(self):
+        picks = [
+            {
+                "id": idx,
+                "topic": "Calibration row",
+                "title": f"Calibration row {idx}",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "market_type": "game_outcome",
+                "model_probability": probability,
+                "resolution_value": outcome,
+                "brier_score": (probability - outcome) ** 2,
+                "status": "resolved",
+            }
+            for idx, probability, outcome in (
+                (301, 0.72, 0.0),
+                (302, 0.74, 0.0),
+                (303, 0.68, 1.0),
+                (304, 0.77, 0.0),
+                (305, 0.66, 0.0),
+            )
+        ]
+
+        summary = paper.probability_bucket_health_summary(picks, bucket="65-80", min_count=3)
+
+        self.assertEqual(summary["bucket"], "65-80")
+        self.assertEqual(summary["count"], 5)
+        self.assertTrue(summary["flagged"])
+        self.assertEqual(summary["direction"], "overconfident")
+        self.assertIn("probability_bucket:65-80", summary["operator_note"])
+        self.assertEqual(summary["worst_rows"][0]["id"], 304)
+
     def test_cmd_daily_dry_run_reports_wrong_subdomain_reason_class(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([
@@ -1058,6 +1091,8 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(entry["status"], "no_compatible_pick")
         self.assertEqual(entry["debug_counters"]["esports_watchlist_filtered_later_date_rows"], 1)
         self.assertEqual(entry["debug_counters"]["esports_watchlist_no_same_day_direct_rows"], 1)
+        self.assertIn("later-date", entry["diagnostic_summary"])
+        self.assertIn("no same-day direct", entry["diagnostic_summary"])
 
     def test_cmd_daily_dry_run_reports_named_prop_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
