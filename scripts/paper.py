@@ -2242,6 +2242,44 @@ def _esports_watchlist_failure_summary(counters: Dict[str, int]) -> str:
     return "; ".join(parts)
 
 
+def _kalshi_closing_failure_counters(topic: str, report: Dict[str, Any]) -> Dict[str, int]:
+    if not _is_closing_soon_paper_topic(topic):
+        return {}
+    if closing_soon.preferred_venue(topic) != "kalshi":
+        return {}
+    raw = _closing_note_value(report, "closing-ka-raw:")
+    candidates = _closing_note_value(report, "closing-ka-candidates:")
+    debug = (((report.get("evidence_fusion_stats") or {}).get("debug_counters")) or {})
+    actionability = int(debug.get("suppressed_kalshi_closing_actionability_candidates", 0) or 0)
+    counters = {
+        "kalshi_closing_no_near_expiry_rows": 0,
+        "kalshi_closing_scanner_positive_board_empty": 0,
+        "kalshi_closing_actionability_rejects": actionability,
+    }
+    if raw <= 0:
+        counters["kalshi_closing_no_near_expiry_rows"] = 1
+    elif candidates > 0:
+        counters["kalshi_closing_scanner_positive_board_empty"] = candidates
+    return {key: value for key, value in counters.items() if value}
+
+
+def _kalshi_closing_failure_summary(counters: Dict[str, int]) -> str:
+    if not counters:
+        return ""
+    parts: List[str] = []
+    if counters.get("kalshi_closing_no_near_expiry_rows"):
+        parts.append("no near-expiry Kalshi rows discovered")
+    if counters.get("kalshi_closing_scanner_positive_board_empty"):
+        parts.append(
+            f"{counters['kalshi_closing_scanner_positive_board_empty']} scanner-compatible Kalshi row(s) failed final board selection"
+        )
+    if counters.get("kalshi_closing_actionability_rejects"):
+        parts.append(
+            f"{counters['kalshi_closing_actionability_rejects']} Kalshi row(s) failed resolver/actionability checks"
+        )
+    return "; ".join(parts)
+
+
 def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "topic": entry["topic"],
@@ -2317,6 +2355,7 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         result["reason_class"] = "degraded_evidence_only"
         result["warnings"].append(f"{entry['topic']}: no usable paper pick found because the run degraded or only degraded evidence-level output remained.")
         debug_counters.update(_esports_watchlist_failure_counters(str(entry.get("topic") or ""), report))
+        debug_counters.update(_kalshi_closing_failure_counters(str(entry.get("topic") or ""), report))
     elif not picks:
         result["reason_class"] = _dry_run_reason_class(entry, report, picks)
         result["status"] = "no_compatible_pick"
@@ -2324,6 +2363,7 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
             f"{entry['topic']}: no usable paper pick found after policy and compatibility filters (reason_class={result['reason_class']})."
         )
         debug_counters.update(_esports_watchlist_failure_counters(str(entry.get("topic") or ""), report))
+        debug_counters.update(_kalshi_closing_failure_counters(str(entry.get("topic") or ""), report))
     else:
         result["status"] = "ready"
     if debug_counters:
@@ -2332,6 +2372,11 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         if summary:
             result["diagnostic_summary"] = summary
             result["warnings"].append(f"{entry['topic']}: eSports watchlist no-board diagnostics: {summary}.")
+        kalshi_summary = _kalshi_closing_failure_summary(debug_counters)
+        if kalshi_summary:
+            existing = result.get("diagnostic_summary")
+            result["diagnostic_summary"] = f"{existing}; {kalshi_summary}" if existing else kalshi_summary
+            result["warnings"].append(f"{entry['topic']}: Kalshi closing-soon diagnostics: {kalshi_summary}.")
     result["elapsed_seconds"] = round(time.time() - started, 2)
     return result
 

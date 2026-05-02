@@ -178,11 +178,16 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
     if domain_label and stat:
         queries.append(f"{player} {domain_label} {stat}")
         queries.append(f"{player} {domain_label} {stat} over")
+        queries.append(f"{player} {domain_label} {stat} under")
         queries.append(f"{player} {domain_label} {stat} map 1")
         queries.append(f"{player} {domain_label} {stat} game 1")
+        queries.append(f"{player} {domain_label} {stat} more than")
+        queries.append(f"{player} {domain_label} {stat} less than")
+        queries.append(f"{player} {domain_label} {stat} kill line")
     if stat:
         queries.append(f"{player} {stat}")
         queries.append(f"{player} {stat} o/u")
+        queries.append(f"{player} total {stat}")
     if domain_label and stat:
         queries.append(f"{domain_label} {stat}")
 
@@ -194,7 +199,7 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         if cleaned and key not in seen:
             seen.add(key)
             unique.append(cleaned)
-    return unique[:6]
+    return unique[:8]
 
 
 def _snapshot_board_queries(topic: str) -> List[str]:

@@ -1094,6 +1094,39 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertIn("later-date", entry["diagnostic_summary"])
         self.assertIn("no same-day direct", entry["diagnostic_summary"])
 
+    def test_cmd_daily_dry_run_adds_kalshi_closing_soon_failure_counters(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Kalshi markets closing soon", "enabled": True, "pick_policy": "watchlist_only"},
+        ]), encoding="utf-8")
+        report = {
+            "topic": "Kalshi markets closing soon",
+            "query_type": "market_watchlist",
+            "forecasts": [],
+            "market_watchlist": [],
+            "planning_notes": [
+                "closing_soon",
+                "closing-ka-raw:5",
+                "closing-ka-candidates:2",
+            ],
+            "evidence_fusion_stats": {
+                "debug_counters": {"suppressed_kalshi_closing_actionability_candidates": 2},
+                "source_health": {"source_status": {"kalshi": {"status": "used"}}},
+            },
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        entry = payload["results"][0]
+        self.assertEqual(entry["status"], "no_compatible_pick")
+        self.assertEqual(entry["debug_counters"]["kalshi_closing_scanner_positive_board_empty"], 2)
+        self.assertEqual(entry["debug_counters"]["kalshi_closing_actionability_rejects"], 2)
+        self.assertIn("failed final board selection", entry["diagnostic_summary"])
+        self.assertIn("2 Kalshi row(s) failed resolver/actionability checks", entry["diagnostic_summary"])
+
     def test_cmd_daily_dry_run_reports_named_prop_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
         portfolio_path.write_text(json.dumps([

@@ -596,6 +596,9 @@ class KalshiItem:
     date_confidence: str = "high"
     engagement: Optional[Engagement] = None  # volume + liquidity + open interest
     end_date: Optional[str] = None
+    end_datetime: Optional[str] = None
+    minutes_to_close: Optional[float] = None
+    closing_soon_reason: str = ""
     live_game_context: str = ""
     live_game_league: str = ""
     live_match_confidence: Optional[float] = None
@@ -635,6 +638,9 @@ class KalshiItem:
             'date_confidence': self.date_confidence,
             'engagement': self.engagement.to_dict() if self.engagement else None,
             'end_date': self.end_date,
+            'end_datetime': self.end_datetime,
+            'minutes_to_close': self.minutes_to_close,
+            'closing_soon_reason': self.closing_soon_reason,
             'live_game_context': self.live_game_context,
             'live_game_league': self.live_game_league,
             'live_match_confidence': self.live_match_confidence,
@@ -1297,6 +1303,9 @@ class Report:
                 date_confidence=k.get('date_confidence', 'high'),
                 engagement=eng,
                 end_date=k.get('end_date'),
+                end_datetime=k.get('end_datetime'),
+                minutes_to_close=k.get('minutes_to_close'),
+                closing_soon_reason=k.get('closing_soon_reason', ''),
                 live_game_context=k.get('live_game_context', ''),
                 live_game_league=k.get('live_game_league', ''),
                 live_match_confidence=k.get('live_match_confidence'),

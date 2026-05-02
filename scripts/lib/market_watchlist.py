@@ -1291,61 +1291,109 @@ def _social_signal_for_market(report: schema.Report, market_text: str) -> tuple[
     """Check if top handles or subreddits are discussing this market."""
     trending = False
     sentiment = ""
-    
+
     entities = getattr(report, "trending_entities", {})
     handles = entities.get("x_handles", [])
     subs = entities.get("reddit_subreddits", [])
-    
+
     if not handles and not subs:
         return trending, sentiment
 
     text_lower = market_text.lower()
-    
-    # Simple token-based matching for cross-ref
-    market_tokens = set(re.sub(r"[^\w\s]", " ", text_lower).split())
-    
-    # Check if Key Voices are talking about it
-    # We look at X posts and Reddit threads that survived filtering
+    market_tokens = {token for token in re.sub(r"[^\w\s]", " ", text_lower).split() if len(token) > 3}
+    market_entities = eq.esports_entity_tokens(market_text) if eq.is_esports_query(market_text) else set()
     mention_count = 0
     positive_count = 0
     negative_count = 0
+    high_signal_mentions = 0
     positive_terms = {"buy", "long", "yes", "bullish", "entering", "backing", "support"}
     negative_terms = {"sell", "short", "no", "bearish", "out", "avoid", "fade"}
 
     def sentiment_hits(post_text: str) -> tuple[bool, bool]:
         words = set(re.findall(r"\b[a-z][a-z0-9_+-]*\b", post_text.lower()))
         return bool(words & positive_terms), bool(words & negative_terms)
-    
+
+    def mention_matches(post_text: str) -> bool:
+        if market_entities:
+            return bool(eq.esports_entity_tokens(post_text) & market_entities)
+        return any(token in post_text for token in market_tokens)
+
+    def strong_esports_signal(post_text: str) -> bool:
+        if not eq.is_esports_query(market_text):
+            return False
+        return eq.is_esports_rationale_evidence(post_text, topic=market_text)
+
     for x_item in report.x:
         post_text = getattr(x_item, "text", "").lower()
-        if any(token in post_text for token in market_tokens if len(token) > 3):
+        if mention_matches(post_text):
             mention_count += 1
             positive, negative = sentiment_hits(post_text)
             if positive:
                 positive_count += 1
             if negative:
                 negative_count += 1
-                
+            if strong_esports_signal(post_text):
+                high_signal_mentions += 1
+
     for r_item in report.reddit:
         post_text = f"{getattr(r_item, 'title', '')} {getattr(r_item, 'text', '')}".lower()
-        if any(token in post_text for token in market_tokens if len(token) > 3):
+        if mention_matches(post_text):
             mention_count += 1
             positive, negative = sentiment_hits(post_text)
             if positive:
                 positive_count += 1
             if negative:
                 negative_count += 1
+            if strong_esports_signal(post_text):
+                high_signal_mentions += 1
 
     if mention_count >= 2:
         trending = True
-        if positive_count > negative_count:
+        if high_signal_mentions <= 0:
+            sentiment = "market attention context"
+        elif positive_count > negative_count:
             sentiment = "bullish chatter"
         elif negative_count > positive_count:
             sentiment = "bearish chatter"
         else:
             sentiment = "high discussion volume"
-            
+
     return trending, sentiment
+
+
+def _has_snapshot_depth_competitor(report: schema.Report, venue: str, candidate) -> bool:
+    if not _is_snapshot_mode(report) or venue.lower() != "kalshi":
+        return False
+    peers = report.kalshi if venue.lower() == "kalshi" else report.polymarket
+    candidate_end = getattr(candidate, "end_date", None)
+    for peer in peers:
+        if peer is candidate:
+            continue
+        peer_liquidity = _depth_values(peer)[1] or 0.0
+        if peer_liquidity <= 0:
+            continue
+        if candidate_end and getattr(peer, "end_date", None) and str(peer.end_date)[:10] != str(candidate_end)[:10]:
+            continue
+        return True
+    return False
+
+
+def _kalshi_closing_actionable(
+    quality: float,
+    spread_quality: float,
+    volume: Optional[float],
+    liquidity: Optional[float],
+    resolvability: str,
+) -> bool:
+    if "manual rule check required" in (resolvability or "").lower():
+        return False
+    if (volume or 0.0) <= 0 and (liquidity or 0.0) <= 0:
+        return False
+    if quality < 0.30:
+        return False
+    if spread_quality < 0.20:
+        return False
+    return True
 
 
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
@@ -1423,6 +1471,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         reference_date=base_date,
     )
     weighted_relevance = _snapshot_relevance_weight(report, relevance, snapshot_domain) if snapshot_mode else relevance
+    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0 and _has_snapshot_depth_competitor(report, venue, item):
+        weighted_relevance = max(0.0, weighted_relevance - 0.04)
     if domain == "esports":
         explicit_props = _is_explicit_esports_prop_prompt(report.topic)
         explicit_title = _is_explicit_esports_title_prompt(report.topic)
@@ -1494,6 +1544,15 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         volume,
         liquidity,
     )))
+    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0 and _has_snapshot_depth_competitor(report, venue, item):
+        rank_score = max(0, rank_score - 10)
+
+    if closing_mode and venue.lower() == "kalshi" and closing_reason == "closing_soon":
+        if not _kalshi_closing_actionable(quality, spread_quality, volume, liquidity, resolvability):
+            _bump_debug_counter(report, "suppressed_kalshi_closing_actionability_candidates")
+            return None
+        if rank_score < 24:
+            rank_score = max(rank_score, 26)
 
     if domain == "esports" and market_type == "esports_prop":
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)
@@ -1615,6 +1674,18 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
 
     snapshot_bucket = snapshot_domain if snapshot_mode else ""
 
+    risk_line = _risk_line(
+        evidence_score,
+        movement_pct,
+        quality,
+        cross_note,
+        spread,
+        probability,
+        getattr(item, "signal_missing_reason", ""),
+    )
+    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0 and ((volume or 0.0) > 0 or (open_interest or 0.0) > 0):
+        risk_line = f"{risk_line[:-1]}; quoted liquidity is unavailable, so this row is being carried by recent volume/open interest rather than live depth."
+
     watch_item = schema.MarketWatchItem(
         id=f"MW{idx}",
         title=(getattr(item, "question", "") if market_type in {"player_prop", "team_prop", "threshold"} else getattr(item, "title", "")) or getattr(item, "question", ""),
@@ -1654,15 +1725,7 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             quality,
             getattr(item, "signal_missing_reason", ""),
         ),
-        risk=_risk_line(
-            evidence_score,
-            movement_pct,
-            quality,
-            cross_note,
-            spread,
-            probability,
-            getattr(item, "signal_missing_reason", ""),
-        ),
+        risk=risk_line,
         why_ranks=", ".join(why_bits),
         source_item_id=getattr(item, "id", ""),
         evidence_refs=evidence_refs,

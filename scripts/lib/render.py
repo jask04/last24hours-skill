@@ -445,10 +445,14 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 seeds = _planning_note_int(report, "closing-ka-seeds:")
                 raw = _planning_note_int(report, "closing-ka-raw:")
                 candidates = _planning_note_int(report, "closing-ka-candidates:")
+                debug = ((report.evidence_fusion_stats or {}).get("debug_counters") or {})
+                kalshi_actionability = debug.get("suppressed_kalshi_closing_actionability_candidates", 0)
                 if candidates == 0 and raw:
                     lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived expiry, liquidity, settled-price, and close-window filters.")
                 elif raw == 0:
                     lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s), but no Kalshi near-expiry rows were discovered.")
+                elif kalshi_actionability and candidates is not None and kalshi_actionability >= candidates:
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but all failed final resolver/actionability checks.")
                 elif raw is not None and candidates is not None:
                     lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but none cleared final watchlist ranking.")
                 else:
@@ -503,7 +507,10 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             lines.append(f"Settlement terms: {rules}")
         if item.trending_on_social:
             sentiment = f" ({item.social_sentiment})" if item.social_sentiment else ""
-            lines.append(f"Social signal: Trending on X/Reddit{sentiment}")
+            if item.social_sentiment in {"bullish chatter", "bearish chatter"}:
+                lines.append(f"Social signal: Trending on X/Reddit{sentiment}")
+            else:
+                lines.append(f"Market attention: Mentioned on X/Reddit{sentiment}")
         lines.append(f"Why it ranks: {item.why_ranks} (rank score {item.rank_score}/100).")
         lines.append(f"Market signal: {item.market_signal}")
         catalyst = item.catalyst_summary

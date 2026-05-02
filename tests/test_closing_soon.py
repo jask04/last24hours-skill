@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from scripts.lib import closing_soon, market_watchlist, query_type, render, schema, sports_schedule
+from scripts.lib import closing_soon, market_watchlist, normalize, query_type, render, schema, sports_schedule
 
 
 def _market_event(
@@ -175,6 +175,31 @@ class ClosingSoonTests(unittest.TestCase):
 
         self.assertEqual(items[0].source_item_id, "PM1")
         self.assertIn("closing soon", items[0].why_ranks)
+
+    def test_normalize_kalshi_items_preserves_closing_soon_metadata(self):
+        normalized = normalize.normalize_kalshi_items([
+            {
+                "title": "Bitcoin price range on May 2, 2026 at 5am EDT?",
+                "question": "Bitcoin price range on May 2, 2026?",
+                "url": "https://kalshi.com/markets/KXBTC-26MAY0205-B78350",
+                "ticker": "KXBTC-26MAY0205-B78350",
+                "end_date": "2026-05-02",
+                "end_datetime": "2026-05-02T09:00:00Z",
+                "minutes_to_close": 13.1,
+                "closing_soon_reason": "closing_soon",
+                "volume": 911.62,
+                "liquidity": 0.0,
+                "best_bid": 0.69,
+                "best_ask": 0.76,
+                "spread": 0.07,
+                "relevance": 0.81,
+            }
+        ], "2026-05-01", "2026-05-02")
+
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0].end_datetime, "2026-05-02T09:00:00Z")
+        self.assertEqual(normalized[0].minutes_to_close, 13.1)
+        self.assertEqual(normalized[0].closing_soon_reason, "closing_soon")
 
     def test_broad_closing_soon_prefers_cross_domain_top_rows(self):
         report = schema.Report(

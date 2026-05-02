@@ -917,7 +917,7 @@ def sort_items(items: List[Union[schema.RedditItem, schema.XItem, schema.WebSear
     return sorted(items, key=sort_key)
 
 
-def relevance_filter(items, source_name: str, threshold: float = 0.3):
+def relevance_filter(items, source_name: str, threshold: float = 0.3, *, preserve_top_n: int = 0):
     """Filter items below relevance threshold with minimum-result guarantee.
 
     Items with no relevance attribute are treated as 0.0 (fail the filter).
@@ -930,6 +930,13 @@ def relevance_filter(items, source_name: str, threshold: float = 0.3):
     passed = [i for i in items if getattr(i, 'relevance', 0.0) >= threshold]
     if not passed:
         if source_name in {"POLYMARKET", "KALSHI"}:
+            if preserve_top_n > 0:
+                print(
+                    f"[{source_name} WARNING] All results below relevance {threshold}, preserving top {preserve_top_n} for compatibility scoring",
+                    file=sys.stderr,
+                )
+                by_rel = sorted(items, key=lambda x: getattr(x, 'relevance', 0.0), reverse=True)
+                return by_rel[:preserve_top_n]
             print(f"[{source_name} WARNING] All results below relevance {threshold}, dropping market results", file=sys.stderr)
             return []
         print(f"[{source_name} WARNING] All results below relevance {threshold}, keeping top 3", file=sys.stderr)

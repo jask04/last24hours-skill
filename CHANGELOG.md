@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.91] - 2026-05-02
+
+### Added
+- `scripts/paper.py`: Added Kalshi closing-soon dry-run diagnostics that distinguish scanner-positive but board-empty cases from no-near-expiry supply, and summarize actionability rejections in paper-only operator output.
+- `tests/test_forecast_watchlist.py`, `tests/test_esports_player_props.py`, and `tests/test_paper_ledger.py`: Added regressions for Kalshi closing-soon actionability recovery, zero-liquidity snapshot demotion, neutral eSports social-attention wording, expanded named-prop query shaping, bounded low-relevance prop preservation, and paper dry-run diagnostics.
+
+### Fixed
+- `scripts/lib/market_watchlist.py` and `scripts/lib/render.py`: Reworked Kalshi closing-soon board admission so scanner-compatible near-expiry rows can survive thin-catalyst paths when their market quality is acceptable, while keeping explicit empty-state diagnostics when final actionability filters still reject every row.
+- `scripts/lib/market_watchlist.py`: Demoted `$0 liquidity` Kalshi snapshot rows when comparable quoted-depth rows exist and labeled zero-depth rows more honestly when they still make the board on volume/open-interest alone.
+- `scripts/lib/market_watchlist.py`: Tightened eSports social-signal wording so broad discussion volume without catalyst-grade overlap renders as neutral market attention context instead of overstated trending signal.
+- `scripts/lib/polymarket.py`, `scripts/lib/score.py`, and `scripts/last24hours.py`: Expanded named eSports prop query shaping and preserved a bounded low-relevance market set for prop-specific compatibility scoring so compatible named props can outrank unnecessary model-implied fallback.
+
 ## [1.0.90] - 2026-05-01
 
 ### Added

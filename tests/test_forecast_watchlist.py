@@ -828,7 +828,56 @@ class ForecastWatchlistTests(unittest.TestCase):
         trending, sentiment = market_watchlist._social_signal_for_market(report, "Vitality vs FUT Esports")
 
         self.assertTrue(trending)
-        self.assertEqual(sentiment, "high discussion volume")
+        self.assertEqual(sentiment, "market attention context")
+
+    def test_esports_social_signal_uses_neutral_attention_label_without_high_signal_overlap(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.trending_entities = {"x_handles": ["counterstrike"], "reddit_subreddits": []}
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Counter-Strike community is still talking about Vitality vs FUT before the stream starts.",
+                url="https://x.com/a/status/1",
+                author_handle="counterstrike",
+            ),
+            schema.XItem(
+                id="X2",
+                text="Vitality vs FUT has plenty of discussion today and market attention remains elevated.",
+                url="https://x.com/a/status/2",
+                author_handle="counterstrike",
+            ),
+        ]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_SOCIAL",
+                title="Counter-Strike: Vitality vs FUT Esports (BO3)",
+                question="Counter-Strike: Vitality vs FUT Esports (BO3)",
+                url="https://polymarket.com/event/cs2-vitality-fut-2026-04-21",
+                outcome_prices=[("Vitality", 0.61), ("FUT Esports", 0.39)],
+                engagement=_engagement(volume=42_000, liquidity=120_000),
+                market_signal_quality=0.74,
+                volume_24h=42_000,
+                best_bid=0.60,
+                best_ask=0.61,
+                spread=0.01,
+                relevance=0.92,
+                score=71,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+                end_datetime="2026-04-21T21:00:00Z",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0].trending_on_social)
+        self.assertEqual(items[0].social_sentiment, "market attention context")
+
+        report.market_watchlist = items
+        compact = render.render_compact(report)
+        self.assertIn("Market attention: Mentioned on X/Reddit (market attention context)", compact)
+        self.assertNotIn("Social signal: Trending on X/Reddit", compact)
 
     def test_cs2_matches_today_handles_short_team_tags(self):
         report = _report("Counter-Strike 2 matches today")
@@ -1328,6 +1377,60 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(report.forecasts, [])
         self.assertEqual(len(report.market_watchlist), 1)
         self.assertEqual(report.market_watchlist[0].venue, "Kalshi")
+
+    def test_kalshi_snapshot_demotes_zero_liquidity_row_when_depth_exists(self):
+        report = _report("Kalshi markets right now")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA_ZERO",
+                title="Fed decision in Jun 2026?",
+                question="Will the Federal Reserve hold rates steady in June 2026?",
+                url="https://kalshi.com/markets/KXFEDDECISION-26JUN-H0",
+                ticker="KXFEDDECISION-26JUN-H0",
+                event_ticker="KXFEDDECISION-26JUN",
+                series_ticker="KXFEDDECISION",
+                current_probability=0.63,
+                implied_probability=0.63,
+                best_bid=0.62,
+                best_ask=0.64,
+                spread=0.02,
+                movement_24h=7.0,
+                volume_24h=240_000,
+                market_signal_quality=0.72,
+                market_type="macro_binary",
+                engagement=_engagement(volume=240_000, liquidity=0, open_interest=500_000),
+                end_date="2026-06-17",
+                relevance=0.22,
+                score=68,
+            ),
+            schema.KalshiItem(
+                id="KA_DEPTH",
+                title="Bitcoin price today at 5pm EDT?",
+                question="Will Bitcoin be above $77,250?",
+                url="https://kalshi.com/markets/KXBTC-26MAY0117-B77250",
+                ticker="KXBTC-26MAY0117-B77250",
+                event_ticker="KXBTC-26MAY0117",
+                series_ticker="KXBTC",
+                current_probability=0.49,
+                implied_probability=0.49,
+                best_bid=0.48,
+                best_ask=0.49,
+                spread=0.01,
+                movement_24h=6.0,
+                volume_24h=220_000,
+                market_signal_quality=0.71,
+                market_type="threshold",
+                engagement=_engagement(volume=220_000, liquidity=75_000, open_interest=180_000),
+                end_date="2026-05-01",
+                relevance=0.21,
+                score=67,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=2)
+
+        self.assertEqual([item.source_item_id for item in items], ["KA_DEPTH", "KA_ZERO"])
+        self.assertIn("quoted liquidity is unavailable", items[1].risk)
 
     def test_empty_kalshi_snapshot_render_explains_board_scan_failure_not_forecast_degradation(self):
         report = _report("Kalshi markets right now")
@@ -1877,6 +1980,50 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(items[0].venue, "Kalshi")
         self.assertEqual(items[0].source_item_id, "KA1")
         self.assertEqual(report.evidence_fusion_stats["debug_counters"]["suppressed_wrong_venue_closing_watchlist_candidates"], 1)
+
+    def test_kalshi_closing_soon_actionable_candidate_survives_thin_catalyst_path(self):
+        report = _report("Kalshi markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        kalshi_item = schema.KalshiItem(
+            id="KA_CLOSE",
+            title="Bitcoin price today at 5am EDT?",
+            question="Will Bitcoin be $77,500 or above?",
+            url="https://api.elections.kalshi.com/trade-api/v2/markets/KXBTC-26APR2317-B77500",
+            ticker="KXBTC-26APR2317-B77500",
+            event_ticker="KXBTC-26APR2317",
+            current_probability=0.55,
+            implied_probability=0.55,
+            best_bid=0.54,
+            best_ask=0.56,
+            spread=0.02,
+            volume_24h=58_000,
+            market_signal_quality=0.63,
+            engagement=_engagement(volume=58_000, liquidity=12_000, open_interest=48_000),
+            market_type="threshold",
+            end_date="2026-04-23",
+            resolvability="Kalshi market; verify contract rules before treating it as resolved",
+            relevance=0.56,
+        )
+        kalshi_item.minutes_to_close = 93.0
+        kalshi_item.closing_soon_reason = "closing_soon"
+        report.kalshi = [kalshi_item]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_item_id, "KA_CLOSE")
+        self.assertIn("closing soon", items[0].why_ranks)
+
+    def test_kalshi_closing_soon_empty_state_distinguishes_actionability_filter(self):
+        report = _report("Kalshi markets closing soon")
+        report.planning_notes = ["closing_soon", "closing-ka-raw:5", "closing-ka-candidates:2"]
+        report.evidence_fusion_stats = {
+            "debug_counters": {"suppressed_kalshi_closing_actionability_candidates": 2}
+        }
+
+        compact = render.render_compact(report)
+
+        self.assertIn("all failed final resolver/actionability checks", compact)
 
     def test_nba_watchlist_rejects_ticket_available_as_catalyst(self):
         report = _report("NBA markets to watch today")

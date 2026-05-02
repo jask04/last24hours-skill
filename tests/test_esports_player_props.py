@@ -13,7 +13,7 @@ yet — that lands in v1.0.56. These tests assert:
 import unittest
 
 from scripts.lib import evidence_quality as eq
-from scripts.lib import forecast, market_types, polymarket
+from scripts.lib import forecast, market_types, polymarket, score
 
 
 class CS2PlayerRosterTests(unittest.TestCase):
@@ -87,23 +87,27 @@ class PlayerPropQueryClassifierTests(unittest.TestCase):
 class PolymarketEsportsQueryExpansionTests(unittest.TestCase):
     def test_named_valorant_prop_uses_domain_aware_queries(self):
         queries = polymarket._expand_queries("TenZ total kills tonight")
-        self.assertEqual(queries[:4], [
+        self.assertEqual(queries[:5], [
             "tenz valorant kills",
             "tenz valorant kills over",
+            "tenz valorant kills under",
             "tenz valorant kills map 1",
             "tenz valorant kills game 1",
         ])
-        self.assertIn("tenz kills o/u", queries)
+        self.assertIn("tenz valorant kills kill line", queries)
+        self.assertIn("tenz valorant kills more than", queries)
 
     def test_named_lol_prop_uses_domain_aware_queries(self):
         queries = polymarket._expand_queries("Faker solo kills tonight")
-        self.assertEqual(queries[:4], [
+        self.assertEqual(queries[:5], [
             "faker league of legends solo kills",
             "faker league of legends solo kills over",
+            "faker league of legends solo kills under",
             "faker league of legends solo kills map 1",
             "faker league of legends solo kills game 1",
         ])
-        self.assertIn("faker solo kills o/u", queries)
+        self.assertIn("faker league of legends solo kills less than", queries)
+        self.assertIn("faker league of legends solo kills kill line", queries)
 
     def test_generic_esports_prop_watchlist_keeps_broader_query_fanout(self):
         queries = polymarket._expand_queries("Counter-Strike 2 player props today")
@@ -422,6 +426,46 @@ class ValorantAndLoLSurfacingTests(unittest.TestCase):
         self.assertEqual(len(forecasts), 1)
         self.assertEqual(forecasts[0].anchor_source, "polymarket")
         self.assertIn("tenz", forecasts[0].title.lower())
+
+    def test_low_relevance_prop_candidates_can_be_preserved_for_compatibility_scoring(self):
+        from scripts.lib import schema
+
+        kept = score.relevance_filter([
+            schema.PolymarketItem(
+                id="PM_LOW_1",
+                title="TenZ kill line - Map 1",
+                question="Will TenZ record more than 17.5 kills on Map 1 tonight?",
+                url="https://polymarket.com/event/val-tenz-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.18,
+            ),
+            schema.PolymarketItem(
+                id="PM_LOW_2",
+                title="yay kill line - Map 1",
+                question="Will yay record more than 17.5 kills on Map 1 tonight?",
+                url="https://polymarket.com/event/val-yay-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.14,
+            ),
+            schema.PolymarketItem(
+                id="PM_LOW_3",
+                title="Faker kill line - Game 1",
+                question="Will Faker record more than 4.5 kills in Game 1 tonight?",
+                url="https://polymarket.com/event/lol-faker-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.09,
+            ),
+            schema.PolymarketItem(
+                id="PM_LOW_4",
+                title="aspas kill line - Map 1",
+                question="Will aspas record more than 16.5 kills on Map 1 tonight?",
+                url="https://polymarket.com/event/val-aspas-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.04,
+            ),
+        ], "POLYMARKET", preserve_top_n=2)
+
+        self.assertEqual([item.id for item in kept], ["PM_LOW_1", "PM_LOW_2"])
 
     def test_forecast_matches_lol_game1_prop_phrasing(self):
         from scripts.lib import schema, forecast
