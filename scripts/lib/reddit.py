@@ -70,7 +70,15 @@ def _extract_subreddit_name(sub) -> str:
 
 def _log(msg: str):
     """Log to stderr."""
-    sys.stderr.write(f"[Reddit] {msg}\n")
+    text = f"[Reddit] {msg}\n"
+    try:
+        sys.stderr.write(text)
+    except UnicodeEncodeError:
+        stream = getattr(sys.stderr, "buffer", None)
+        if stream is not None:
+            stream.write(text.encode("utf-8", errors="replace"))
+        else:
+            sys.stderr.write(text.encode("ascii", errors="replace").decode("ascii"))
     sys.stderr.flush()
 
 

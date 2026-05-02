@@ -1129,7 +1129,7 @@ def _esports_same_day_match_exists(other_items: list, report: schema.Report) -> 
             continue
         if not eq.is_esports_query(_market_text(other)):
             continue
-        if _watchlist_end_day_compatible(other, target_date, slack_days=1):
+        if _watchlist_end_day_compatible(other, target_date, slack_days=0):
             return True
     return False
 
@@ -1315,7 +1315,9 @@ def _social_signal_for_market(report: schema.Report, market_text: str) -> tuple[
 
     def mention_matches(post_text: str) -> bool:
         if market_entities:
-            return bool(eq.esports_entity_tokens(post_text) & market_entities)
+            post_entities = eq.esports_entity_tokens(post_text)
+            overlap = len(post_entities & market_entities)
+            return overlap >= 1
         return any(token in post_text for token in market_tokens)
 
     def strong_esports_signal(post_text: str) -> bool:
@@ -1378,6 +1380,27 @@ def _has_snapshot_depth_competitor(report: schema.Report, venue: str, candidate)
     return False
 
 
+def _has_nearer_snapshot_depth_peer(report: schema.Report, venue: str, candidate) -> bool:
+    if not _is_snapshot_mode(report) or venue.lower() != "kalshi":
+        return False
+    candidate_days = _days_to_end(getattr(candidate, "end_date", None), reference_date=_report_base_date(report))
+    if candidate_days is None:
+        return False
+    peers = report.kalshi if venue.lower() == "kalshi" else report.polymarket
+    for peer in peers:
+        if peer is candidate:
+            continue
+        peer_volume, peer_liquidity, _ = _depth_values(peer)
+        if (peer_liquidity or 0.0) <= 0:
+            continue
+        peer_days = _days_to_end(getattr(peer, "end_date", None), reference_date=_report_base_date(report))
+        if peer_days is None:
+            continue
+        if peer_days < candidate_days and ((peer_volume or 0.0) > 0 or (peer_liquidity or 0.0) > 0):
+            return True
+    return False
+
+
 def _kalshi_closing_actionable(
     quality: float,
     spread_quality: float,
@@ -1429,8 +1452,17 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     snapshot_mode = _is_snapshot_mode(report)
     relevance = _topic_relevance(report.topic, item)
     relevance += _esports_player_name_match_bonus(report.topic, item)
+    esports_same_day_direct = (
+        domain == "esports"
+        and market_type == "game_outcome"
+        and target_date is not None
+        and _watchlist_end_day_compatible(item, target_date, slack_days=0)
+    )
     if _domain(report.topic) != "broad" and relevance < 0.25:
-        return None
+        if esports_same_day_direct and relevance >= 0.18:
+            pass
+        else:
+            return None
 
     outcome_label, probability = _market_probability(item)
     volume, liquidity, open_interest = _depth_values(item)
@@ -1546,6 +1578,14 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     )))
     if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0 and _has_snapshot_depth_competitor(report, venue, item):
         rank_score = max(0, rank_score - 10)
+    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0:
+        zero_depth_days = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
+        if zero_depth_days is not None and zero_depth_days > 7:
+            rank_score = max(0, rank_score - 4)
+        if zero_depth_days is not None and zero_depth_days > 14:
+            rank_score = max(0, rank_score - 4)
+        if _has_nearer_snapshot_depth_peer(report, venue, item):
+            rank_score = max(0, rank_score - 8)
 
     if closing_mode and venue.lower() == "kalshi" and closing_reason == "closing_soon":
         if not _kalshi_closing_actionable(quality, spread_quality, volume, liquidity, resolvability):
@@ -1558,10 +1598,22 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)
         if _is_explicit_esports_prop_prompt(report.topic) and relevance >= 0.30:
             rank_score = max(rank_score, 24)
+    if domain == "esports" and market_type == "game_outcome" and esports_same_day_direct and quality >= 0.45 and relevance >= 0.18:
+        rank_score = max(rank_score, 24)
+    if (
+        snapshot_mode
+        and venue.lower() == "kalshi"
+        and (liquidity or 0.0) <= 0
+        and ((volume or 0.0) > 0 or (open_interest or 0.0) > 0)
+        and relevance >= 0.20
+    ):
+        rank_score = max(rank_score, 22)
 
     if closing_mode and not closing_signal:
         return None
     if rank_score < 24 and _domain(report.topic) != "broad":
+        if domain == "esports" and market_type == "game_outcome":
+            _bump_debug_counter(report, "suppressed_low_quality_esports_watchlist_candidates")
         return None
     if snapshot_mode and rank_score < 18:
         return None
@@ -2002,7 +2054,10 @@ def _should_delay_duplicate_snapshot_bucket_candidate(
     if bucket not in existing:
         return False
     return any(
-        (other_bucket := _snapshot_bucket(other)) and other_bucket not in existing and other_bucket != "novelty"
+        (other_bucket := _snapshot_bucket(other))
+        and other_bucket not in existing
+        and other_bucket != "novelty"
+        and other.rank_score >= max(22, candidate.rank_score - 12)
         for other in remaining
     )
 

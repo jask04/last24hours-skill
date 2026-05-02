@@ -1,11 +1,24 @@
 import unittest
 from unittest import mock
+import io
 
 from scripts import last24hours
 from scripts.lib import bluesky, http, openai_reddit, render
 
 
 class RedditBlueskyDebugTests(unittest.TestCase):
+    def test_openai_reddit_logging_handles_non_ascii_stderr(self):
+        buffer = io.BytesIO()
+        stderr = io.TextIOWrapper(buffer, encoding="ascii", errors="strict")
+
+        with mock.patch.object(openai_reddit.sys, "stderr", stderr):
+            openai_reddit._log_info("r/게임이야기 thread matched Faker")
+            stderr.flush()
+
+        output = buffer.getvalue().decode("utf-8", errors="replace")
+        self.assertIn("[REDDIT]", output)
+        self.assertIn("Faker", output)
+
     def test_disabled_scrapecreators_never_calls_reddit_paid_path(self):
         config = {
             "SCRAPECREATORS_API_KEY": "stored-but-disabled",

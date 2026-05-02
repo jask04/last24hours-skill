@@ -491,6 +491,45 @@ class ValorantAndLoLSurfacingTests(unittest.TestCase):
         self.assertEqual(forecasts[0].anchor_source, "polymarket")
         self.assertIn("faker", forecasts[0].title.lower())
 
+    def test_named_valorant_prop_prefers_team_compatible_market_when_topic_names_team(self):
+        from scripts.lib import schema, forecast
+        self.report.topic = "TenZ kills vs Sentinels tonight"
+        self.report.generated_at = "2026-04-22T18:00:00+00:00"
+        self.report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_TEAM_OK",
+                title="TenZ kill line - Map 1",
+                question="Will TenZ record more than 17.5 kills for Sentinels tonight?",
+                url="https://polymarket.com/event/val-tenz-sentinels-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.26,
+                outcome_prices=[("Over", 0.53), ("Under", 0.47)],
+                spread=0.01,
+                movement_24h=0.02,
+                end_date="2026-04-22",
+            ),
+            schema.PolymarketItem(
+                id="PM_TEAM_BAD",
+                title="TenZ kill line - Map 1",
+                question="Will TenZ record more than 17.5 kills for another Valorant team tonight?",
+                url="https://polymarket.com/event/val-tenz-other-team-kill-line-2026-04-22",
+                market_type="esports_prop",
+                relevance=0.34,
+                outcome_prices=[("Over", 0.55), ("Under", 0.45)],
+                spread=0.01,
+                movement_24h=0.03,
+                end_date="2026-04-22",
+            ),
+        ]
+        for item in self.report.polymarket:
+            item.score = 100.0
+
+        forecasts = forecast.synthesize_forecasts(self.report)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].anchor_source, "polymarket")
+        self.assertEqual(forecasts[0].polymarket_market_id, "PM_TEAM_OK")
+
     def test_forecast_keeps_solo_kills_distinct_from_generic_kills(self):
         from scripts.lib import schema, forecast
         self.report.topic = "Faker solo kills tonight"

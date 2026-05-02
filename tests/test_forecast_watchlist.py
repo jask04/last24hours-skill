@@ -309,6 +309,35 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(items[0].market_type, "game_outcome")
         self.assertIn("Wingman vs Nebula", items[0].title)
 
+    def test_cs2_watchlist_keeps_thin_same_day_direct_row_when_it_is_the_only_clean_board(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_THIN",
+                title="Counter-Strike: Falcons vs Complexity (BO3) - Group Stage",
+                question="Counter-Strike: Falcons vs Complexity (BO3) - Group Stage",
+                url="https://polymarket.com/event/cs2-fal-cons-2026-04-21",
+                outcome_prices=[("Falcons", 0.56), ("Complexity", 0.44)],
+                engagement=_engagement(volume=28_000, liquidity=12_000),
+                market_signal_quality=0.52,
+                volume_24h=28_000,
+                best_bid=0.55,
+                best_ask=0.57,
+                spread=0.02,
+                movement_24h=2.5,
+                relevance=0.19,
+                score=46,
+                market_type="game_outcome",
+                end_date="2026-04-21",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_item_id, "PM_THIN")
+        self.assertEqual(items[0].market_type, "game_outcome")
+
     def test_cs2_watchlist_suppresses_map_props_for_generic_prompt(self):
         report = _report("Counter-Strike 2 markets to watch today")
         report.polymarket = [
@@ -1186,6 +1215,52 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(counters["empty_esports_watchlist_boards"], 1)
         self.assertIn("eSports filter: no same-day direct board survived", rendered)
 
+    def test_esports_watchlist_generic_overlap_does_not_claim_trending_signal(self):
+        report = _report("Counter-Strike 2 markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                question="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                url="https://polymarket.com/event/cs2-team1-team2-2026-04-21",
+                outcome_prices=[("Team One", 0.44), ("Team Two", 0.56)],
+                engagement=_engagement(volume=220_000, liquidity=80_000),
+                market_signal_quality=0.74,
+                volume_24h=220_000,
+                best_bid=0.55,
+                best_ask=0.57,
+                spread=0.02,
+                movement_24h=3.0,
+                relevance=0.90,
+                score=86,
+                end_date="2026-04-21",
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Counter-Strike update thread with no roster, veto, bracket, or match-specific signal.",
+                url="https://x.com/example/status/1",
+                author_handle="noisehub",
+                score=80,
+            ),
+            schema.XItem(
+                id="X2",
+                text="Counter-Strike community chatter is active today, but this post is not about Team One or Team Two.",
+                url="https://x.com/example/status/2",
+                author_handle="noisehub2",
+                score=78,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        report.market_watchlist = items
+        compact = render.render_compact(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertFalse(items[0].trending_on_social)
+        self.assertNotIn("Social signal: Trending on X/Reddit", compact)
+
     def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
         report = _report("esports markets to watch today")
         report.polymarket = [
@@ -1431,6 +1506,59 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual([item.source_item_id for item in items], ["KA_DEPTH", "KA_ZERO"])
         self.assertIn("quoted liquidity is unavailable", items[1].risk)
+
+    def test_kalshi_snapshot_demotes_long_dated_zero_liquidity_row_below_nearer_depth_peer(self):
+        report = _report("Kalshi markets right now")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA_LONG_ZERO",
+                title="Game 1: Minnesota at San Antonio",
+                question="Will Minnesota win Game 1 at San Antonio?",
+                url="https://kalshi.com/markets/KXNBA-26MAY18-MINSAS-G1",
+                ticker="KXNBA-26MAY18-MINSAS-G1",
+                event_ticker="KXNBA-26MAY18-MINSAS",
+                series_ticker="KXNBA",
+                current_probability=0.61,
+                implied_probability=0.61,
+                best_bid=0.60,
+                best_ask=0.62,
+                spread=0.02,
+                movement_24h=5.0,
+                volume_24h=340_000,
+                market_signal_quality=0.72,
+                market_type="game_outcome",
+                engagement=_engagement(volume=340_000, liquidity=0, open_interest=410_000),
+                end_date="2026-05-18",
+                relevance=0.26,
+                score=71,
+            ),
+            schema.KalshiItem(
+                id="KA_NEAR_DEPTH",
+                title="Ethereum price at May 2, 2026 at 4am EDT?",
+                question="Will Ethereum be above $2,260?",
+                url="https://kalshi.com/markets/KXETH-26MAY0204-B2260",
+                ticker="KXETH-26MAY0204-B2260",
+                event_ticker="KXETH-26MAY0204",
+                series_ticker="KXETH",
+                current_probability=0.36,
+                implied_probability=0.36,
+                best_bid=0.35,
+                best_ask=0.36,
+                spread=0.01,
+                movement_24h=8.0,
+                volume_24h=120_000,
+                market_signal_quality=0.69,
+                market_type="threshold",
+                engagement=_engagement(volume=120_000, liquidity=60_000, open_interest=95_000),
+                end_date="2026-05-02",
+                relevance=0.20,
+                score=58,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=2)
+
+        self.assertEqual([item.source_item_id for item in items], ["KA_NEAR_DEPTH", "KA_LONG_ZERO"])
 
     def test_empty_kalshi_snapshot_render_explains_board_scan_failure_not_forecast_degradation(self):
         report = _report("Kalshi markets right now")

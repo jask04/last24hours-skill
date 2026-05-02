@@ -2886,18 +2886,32 @@ def main():
     deduped_ts = score.relevance_filter(deduped_ts, "TRUTHSOCIAL")
     preserve_low_relevance_market_rows = (
         query_type != "market_watchlist"
-        and eq.is_esports_player_prop_query(args.topic)
+        and (
+            eq.is_esports_player_prop_query(args.topic)
+            or (
+                forecast._is_esports_match_query(args.topic)
+                and any(term in (args.topic or "").lower() for term in ("matches", "games"))
+            )
+        )
     )
     if query_type == "market_watchlist":
         deduped_pm = deduped_pm or []
         deduped_ka = deduped_ka or []
     else:
         deduped_pm = (
-            score.relevance_filter(deduped_pm, "POLYMARKET", preserve_top_n=8 if preserve_low_relevance_market_rows else 0)
+            score.relevance_filter(
+                deduped_pm,
+                "POLYMARKET",
+                preserve_top_n=8 if eq.is_esports_player_prop_query(args.topic) else 6 if preserve_low_relevance_market_rows else 0,
+            )
             if deduped_pm else []
         )
         deduped_ka = (
-            score.relevance_filter(deduped_ka, "KALSHI", preserve_top_n=4 if preserve_low_relevance_market_rows else 0)
+            score.relevance_filter(
+                deduped_ka,
+                "KALSHI",
+                preserve_top_n=4 if eq.is_esports_player_prop_query(args.topic) else 3 if preserve_low_relevance_market_rows else 0,
+            )
             if deduped_ka else []
         )
     for idx, item in enumerate(deduped_pm, start=1):

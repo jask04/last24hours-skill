@@ -1498,6 +1498,11 @@ def _esports_prop_market_compatible(
     if topic_players and not (topic_players & item_players):
         return False
 
+    topic_entities = eq.esports_entity_tokens(topic) - topic_players
+    item_entities = eq.esports_entity_tokens(item_text) - item_players
+    if topic_entities and item_entities and not (topic_entities & item_entities):
+        return False
+
     topic_stats = _esports_prop_stat_tokens(topic)
     item_stats = _esports_prop_stat_tokens(item_text)
     if "solo_kills" in topic_stats or "solo_kills" in item_stats:
@@ -1522,7 +1527,7 @@ def _esports_prop_match_score(
     topic_entities = eq.esports_entity_tokens(topic)
     item_entities = eq.esports_entity_tokens(item_text)
 
-    player_match = int(bool(topic_players and (topic_players & item_players)))
+    player_match = len(topic_players & item_players)
     stat_match = int(bool(topic_stats and item_stats and (topic_stats & item_stats)))
     subdomain_match = int(bool(topic_subdomain and item_subdomain and topic_subdomain == item_subdomain))
     entity_overlap = len(topic_entities & item_entities)

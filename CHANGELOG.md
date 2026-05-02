@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.92] - 2026-05-02
+
+### Added
+- `tests/test_reddit_bluesky_debug.py`, `tests/test_esports_player_props.py`, and `tests/test_forecast_watchlist.py`: Added regressions for UTF-8-safe Reddit logging, team-aware named eSports prop matching, thin same-day eSports board recovery, and stronger Kalshi snapshot ordering for long-dated zero-depth rows.
+
+### Fixed
+- `scripts/lib/openai_reddit.py`, `scripts/lib/reddit.py`, and `scripts/lib/ui.py`: Hardened Reddit enrichment and operator error output against non-ASCII stderr environments so mixed-language Reddit rows degrade per item instead of destabilizing the whole run.
+- `scripts/lib/polymarket.py`, `scripts/lib/forecast.py`, and `scripts/last24hours.py`: Expanded named eSports prop query shaping, added team-aware prop compatibility, and preserved a bounded low-relevance market set for eSports match slates and named props before model-implied fallback.
+- `scripts/lib/market_watchlist.py` and `scripts/lib/render.py`: Recovered thin same-day eSports boards without reopening wrong-domain leakage, kept later-date rejection strict, and surfaced clearer low-quality board diagnostics.
+- `scripts/lib/market_watchlist.py`: Tightened `Kalshi markets right now` ordering so long-dated `$0 liquidity` rows are demoted behind nearer depth-backed rows while still remaining visible when the board would otherwise be too thin.
+
 ## [1.0.91] - 2026-05-02
 
 ### Added

@@ -34,6 +34,18 @@ BANNER = f"""{Colors.PURPLE}{Colors.BOLD}
 
 MINI_BANNER = f"""{Colors.PURPLE}{Colors.BOLD}/last24hours{Colors.RESET} {Colors.DIM}· forecasting...{Colors.RESET}"""
 
+
+def _stderr_write(text: str) -> None:
+    try:
+        sys.stderr.write(text)
+    except UnicodeEncodeError:
+        stream = getattr(sys.stderr, "buffer", None)
+        if stream is not None:
+            stream.write(text.encode("utf-8", errors="replace"))
+        else:
+            sys.stderr.write(text.encode("ascii", errors="replace").decode("ascii"))
+    sys.stderr.flush()
+
 # Fun status messages for each phase
 REDDIT_MESSAGES = [
     "Diving into Reddit threads...",
@@ -391,8 +403,7 @@ class ProgressDisplay:
         sys.stderr.flush()
 
     def show_error(self, message: str):
-        sys.stderr.write(f"{Colors.RED}✗ Error:{Colors.RESET} {message}\n")
-        sys.stderr.flush()
+        _stderr_write(f"{Colors.RED}✗ Error:{Colors.RESET} {message}\n")
 
     def start_web_only(self):
         """Show web-only mode indicator."""
@@ -462,7 +473,7 @@ def show_diagnostic_banner(diag: dict):
 
     if IS_TTY:
         lines.append(f"{Colors.DIM}┌─────────────────────────────────────────────────────┐{Colors.RESET}")
-        lines.append(f"{Colors.DIM}│{Colors.RESET} {Colors.BOLD}/last24hours v1.0.91 — Source Status{Colors.RESET}                    {Colors.DIM}│{Colors.RESET}")
+        lines.append(f"{Colors.DIM}│{Colors.RESET} {Colors.BOLD}/last24hours v1.0.92 — Source Status{Colors.RESET}                    {Colors.DIM}│{Colors.RESET}")
         lines.append(f"{Colors.DIM}│{Colors.RESET}                                                     {Colors.DIM}│{Colors.RESET}")
 
         # Reddit
@@ -513,7 +524,7 @@ def show_diagnostic_banner(diag: dict):
     else:
         # Plain text for non-TTY (Claude Code / Codex)
         lines.append("┌─────────────────────────────────────────────────────┐")
-        lines.append("│ /last24hours v1.0.91 — Source Status                    │")
+        lines.append("│ /last24hours v1.0.92 — Source Status                    │")
         lines.append("│                                                     │")
 
         if has_openai:

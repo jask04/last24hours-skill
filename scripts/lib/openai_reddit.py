@@ -14,16 +14,27 @@ from .relevance import token_overlap_relevance
 MODEL_FALLBACK_ORDER = ["gpt-5-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-4o"]
 
 
+def _write_stderr(prefix: str, msg: str) -> None:
+    text = f"{prefix} {msg}\n"
+    try:
+        sys.stderr.write(text)
+    except UnicodeEncodeError:
+        stream = getattr(sys.stderr, "buffer", None)
+        if stream is not None:
+            stream.write(text.encode("utf-8", errors="replace"))
+        else:
+            sys.stderr.write(text.encode("ascii", errors="replace").decode("ascii"))
+    sys.stderr.flush()
+
+
 def _log_error(msg: str):
     """Log error to stderr."""
-    sys.stderr.write(f"[REDDIT ERROR] {msg}\n")
-    sys.stderr.flush()
+    _write_stderr("[REDDIT ERROR]", msg)
 
 
 def _log_info(msg: str):
     """Log info to stderr."""
-    sys.stderr.write(f"[REDDIT] {msg}\n")
-    sys.stderr.flush()
+    _write_stderr("[REDDIT]", msg)
 
 
 def _is_model_access_error(error: http.HTTPError) -> bool:

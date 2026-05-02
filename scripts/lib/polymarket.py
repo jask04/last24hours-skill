@@ -173,6 +173,7 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
     player = players[0]
     domain_label = _ESPORTS_SEARCH_LABELS.get(subdomain, "")
     stat = _primary_esports_prop_stat(topic)
+    entity_tokens = sorted(token for token in eq.esports_entity_tokens(topic) if token not in players)
 
     queries = []
     if domain_label and stat:
@@ -188,8 +189,16 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         queries.append(f"{player} {stat}")
         queries.append(f"{player} {stat} o/u")
         queries.append(f"{player} total {stat}")
+        queries.append(f"{player} {stat} tonight")
     if domain_label and stat:
         queries.append(f"{domain_label} {stat}")
+    if entity_tokens and stat:
+        entity_phrase = " ".join(entity_tokens[:3])
+        queries.append(f"{player} {entity_phrase} {stat}")
+        if domain_label:
+            queries.append(f"{player} {entity_phrase} {domain_label} {stat}")
+        queries.append(f"{player} {entity_phrase} {stat} over")
+        queries.append(f"{player} {entity_phrase} {stat} map 1")
 
     seen = set()
     unique = []
@@ -199,7 +208,7 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         if cleaned and key not in seen:
             seen.add(key)
             unique.append(cleaned)
-    return unique[:8]
+    return unique[:12]
 
 
 def _snapshot_board_queries(topic: str) -> List[str]:

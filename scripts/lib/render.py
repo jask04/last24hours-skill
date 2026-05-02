@@ -472,6 +472,7 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
             later = debug.get("suppressed_esports_later_date_watchlist_candidates", 0)
             invalid = debug.get("suppressed_invalid_esports_watchlist_candidates", 0)
             stale = debug.get("suppressed_stale_esports_watchlist_candidates", 0)
+            low_quality = debug.get("suppressed_low_quality_esports_watchlist_candidates", 0)
             bits = []
             if later:
                 bits.append(f"{later} later-date row(s)")
@@ -479,6 +480,8 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 bits.append(f"{invalid} wrong subdomain/type row(s)")
             if stale:
                 bits.append(f"{stale} stale near-certain row(s)")
+            if low_quality:
+                bits.append(f"{low_quality} low-quality same-day row(s)")
             if bits:
                 lines.append(f"eSports filter: no same-day direct board survived; filtered {', '.join(bits)}.")
             else:
