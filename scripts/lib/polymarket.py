@@ -182,6 +182,8 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         queries.append(f"{player} {domain_label} {stat} under")
         queries.append(f"{player} {domain_label} {stat} map 1")
         queries.append(f"{player} {domain_label} {stat} game 1")
+        queries.append(f"{player} {domain_label} map 1 {stat}")
+        queries.append(f"{player} {domain_label} game 1 {stat}")
         queries.append(f"{player} {domain_label} {stat} more than")
         queries.append(f"{player} {domain_label} {stat} less than")
         queries.append(f"{player} {domain_label} {stat} kill line")
@@ -190,6 +192,8 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         queries.append(f"{player} {stat} o/u")
         queries.append(f"{player} total {stat}")
         queries.append(f"{player} {stat} tonight")
+        queries.append(f"{player} over {stat}")
+        queries.append(f"{player} under {stat}")
     if domain_label and stat:
         queries.append(f"{domain_label} {stat}")
     if entity_tokens and stat:
@@ -199,6 +203,7 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
             queries.append(f"{player} {entity_phrase} {domain_label} {stat}")
         queries.append(f"{player} {entity_phrase} {stat} over")
         queries.append(f"{player} {entity_phrase} {stat} map 1")
+        queries.append(f"{player} {entity_phrase} {stat} game 1")
 
     seen = set()
     unique = []
@@ -208,7 +213,7 @@ def _named_esports_prop_queries(topic: str) -> List[str]:
         if cleaned and key not in seen:
             seen.add(key)
             unique.append(cleaned)
-    return unique[:12]
+    return unique[:16]
 
 
 def _snapshot_board_queries(topic: str) -> List[str]:

@@ -25,6 +25,13 @@ class ForecastWatchlistTests(unittest.TestCase):
     def test_cs2_watchlist_search_topics_include_counter_strike_alias(self):
         topics = market_watchlist.search_topics("Counter-Strike 2 markets to watch today")
         self.assertIn("counter strike", topics)
+        self.assertIn("Counter-Strike 2 matches today", topics)
+
+    def test_broad_esports_watchlist_search_topics_bias_to_same_day_match_seeds(self):
+        topics = market_watchlist.search_topics("esports markets to watch today")
+        self.assertIn("Counter-Strike 2 matches today", topics)
+        self.assertIn("Valorant matches today", topics)
+        self.assertIn("League of Legends matches today", topics)
 
     def test_kalshi_live_board_search_topics_preserve_venue_intent(self):
         self.assertEqual(market_watchlist.search_topics("Kalshi live markets"), ["Kalshi live markets"])
@@ -1260,6 +1267,51 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertFalse(items[0].trending_on_social)
         self.assertNotIn("Social signal: Trending on X/Reddit", compact)
+
+    def test_esports_key_voices_suppresses_irrelevant_handles_and_subreddits(self):
+        report = _report("Counter-Strike 2 matches today")
+        report.trending_entities = {
+            "x_handles": ["noisehub", "anothernoise"],
+            "reddit_subreddits": ["StopGaming", "playtesters"],
+        }
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="General Counter-Strike chatter about patch notes and content creators only.",
+                url="https://x.com/example/status/1",
+                author_handle="noisehub",
+                score=80,
+            )
+        ]
+        report.reddit = [
+            schema.RedditItem(
+                id="R1",
+                title="Generic Counter-Strike discussion",
+                url="https://reddit.com/r/StopGaming/comments/1",
+                subreddit="StopGaming",
+                comment_insights=["Only generic patch chatter with no match-specific teams."],
+                score=60,
+            )
+        ]
+        report.forecasts = [
+            schema.ForecastItem(
+                title="Counter-Strike: UNO MILLE vs Isurus (BO3) - CCT South America Series #1 Group Stage",
+                forecast_probability=0.96,
+                forecast_range_low=0.96,
+                forecast_range_high=0.99,
+                favorite_label="UNO MILLE",
+                anchor_source="polymarket",
+                market_view="Polymarket 100%",
+                why_line="Mostly market-driven right now.",
+                confidence_level="moderate-low",
+                uncertainty="Supporting non-market evidence is thin.",
+            )
+        ]
+
+        compact = render.render_compact(report)
+
+        self.assertNotIn("Top X Handles", compact)
+        self.assertNotIn("Top Subreddits", compact)
 
     def test_broad_esports_watchlist_rejects_unrelated_org_catalyst(self):
         report = _report("esports markets to watch today")
@@ -2988,6 +3040,69 @@ class EffectivelySettledWatchlistTests(unittest.TestCase):
         items = market_watchlist.synthesize_market_watchlist(report)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].source_item_id, "PM_MOVING")
+
+    def test_broad_esports_watchlist_keeps_same_day_direct_rows_and_rejects_wrong_domain(self):
+        report = _report("esports markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_CS2",
+                title="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                question="Counter-Strike: Team One vs Team Two (BO3) - Qualifier",
+                url="https://polymarket.com/event/cs2-team1-team2-2026-04-21",
+                outcome_prices=[("Team One", 0.54), ("Team Two", 0.46)],
+                engagement=_engagement(volume=180_000, liquidity=90_000),
+                market_type="game_outcome",
+                market_signal_quality=0.66,
+                volume_24h=180_000,
+                best_bid=0.53,
+                best_ask=0.55,
+                spread=0.02,
+                movement_24h=9.0,
+                relevance=0.24,
+                score=81,
+                end_date="2026-04-21",
+            ),
+            schema.PolymarketItem(
+                id="PM_VAL",
+                title="Valorant: Sentinels vs G2 Esports (BO3) - VCT Americas",
+                question="Valorant: Sentinels vs G2 Esports (BO3) - VCT Americas",
+                url="https://polymarket.com/event/val-sen-g2-2026-04-21",
+                outcome_prices=[("Sentinels", 0.58), ("G2 Esports", 0.42)],
+                engagement=_engagement(volume=165_000, liquidity=88_000),
+                market_type="game_outcome",
+                market_signal_quality=0.64,
+                volume_24h=165_000,
+                best_bid=0.57,
+                best_ask=0.59,
+                spread=0.02,
+                movement_24h=7.0,
+                relevance=0.23,
+                score=79,
+                end_date="2026-04-21",
+            ),
+            schema.PolymarketItem(
+                id="PM_NBA",
+                title="Lakers vs. Warriors",
+                question="Lakers vs. Warriors",
+                url="https://polymarket.com/event/nba-lal-gsw-2026-04-21",
+                outcome_prices=[("Lakers", 0.48), ("Warriors", 0.52)],
+                engagement=_engagement(volume=300_000, liquidity=120_000),
+                market_type="game_outcome",
+                market_signal_quality=0.78,
+                volume_24h=300_000,
+                best_bid=0.51,
+                best_ask=0.53,
+                spread=0.02,
+                movement_24h=11.0,
+                relevance=0.28,
+                score=90,
+                end_date="2026-04-21",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual({item.source_item_id for item in items}, {"PM_CS2", "PM_VAL"})
 
 
 if __name__ == "__main__":

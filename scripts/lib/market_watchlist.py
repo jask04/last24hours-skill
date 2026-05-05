@@ -120,6 +120,12 @@ _ESPORTS_SUBDOMAINS = {
     "lol": {"lol", "league", "legends", "lec", "lcs"},
     "dota": {"dota"},
 }
+_ESPORTS_MATCH_WATCHLIST_SEEDS = {
+    "cs2": ["Counter-Strike 2 matches today", "Counter-Strike 2 today", "counter strike"],
+    "valorant": ["Valorant matches today", "Valorant today"],
+    "lol": ["League of Legends matches today", "League of Legends today", "lol matches today"],
+    "dota": ["Dota matches today", "Dota today"],
+}
 
 _META_MARKET_TERMS = {
     "law banning", "ban sports prediction", "sports prediction markets enacted",
@@ -181,8 +187,23 @@ def search_topics(topic: str) -> list[str]:
     seeds = list(_DOMAIN_SEEDS.get(domain, []))
     cleaned = _WATCHLIST_PHRASES.sub(" ", topic or "")
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -:")
-    if cleaned and cleaned.lower() not in {seed.lower() for seed in seeds}:
+    append_cleaned = False
+    if domain == "esports" and not _is_explicit_esports_prop_prompt(topic) and not _is_explicit_esports_title_prompt(topic):
+        subdomain = _topic_esports_subdomain(topic)
+        if subdomain:
+            seeds = list(_ESPORTS_MATCH_WATCHLIST_SEEDS.get(subdomain, []))
+        else:
+            seeds = [
+                "Counter-Strike 2 matches today",
+                "Valorant matches today",
+                "League of Legends matches today",
+                "esports today",
+            ]
+        append_cleaned = bool(re.search(r"\b(match|matches|game|games)\b|(?:\bvs\.?\b|\bat\b)", cleaned.lower()))
+    if cleaned and cleaned.lower() not in {seed.lower() for seed in seeds} and not append_cleaned:
         seeds.insert(0, cleaned)
+    elif cleaned and cleaned.lower() not in {seed.lower() for seed in seeds} and append_cleaned:
+        seeds.append(cleaned)
     if not seeds:
         seeds = ["Fed rates", "NBA", "Bitcoin", "inflation", "election"]
     # Keep the quick path bounded.
@@ -1598,6 +1619,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)
         if _is_explicit_esports_prop_prompt(report.topic) and relevance >= 0.30:
             rank_score = max(rank_score, 24)
+        if quality >= 0.40 and relevance >= 0.22:
+            rank_score = max(rank_score, 24)
     if domain == "esports" and market_type == "game_outcome" and esports_same_day_direct and quality >= 0.45 and relevance >= 0.18:
         rank_score = max(rank_score, 24)
     if (
@@ -1608,7 +1631,6 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         and relevance >= 0.20
     ):
         rank_score = max(rank_score, 22)
-
     if closing_mode and not closing_signal:
         return None
     if rank_score < 24 and _domain(report.topic) != "broad":
@@ -1643,6 +1665,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             if days_to_end is not None and days_to_end <= 1:
                 rank_score += 12
             rank_score += 6
+            if evidence_score < 0.20 and quality >= 0.55 and relevance >= 0.22:
+                rank_score += 4
             if probability is not None and probability >= 0.98 and evidence_score < 0.20:
                 rank_score = max(0, rank_score - 12)
                 if same_day_match_exists and quality < 0.95:

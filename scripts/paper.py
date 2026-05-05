@@ -2291,27 +2291,30 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
     }
     debug_counters: Dict[str, int] = {}
     started = time.time()
+    topic = str(entry.get("topic") or "")
+    timeout_seconds = DRY_RUN_TOPIC_TIMEOUT_SECONDS
+    if _is_closing_soon_paper_topic(topic) and closing_soon.preferred_venue(topic) == "kalshi":
+        timeout_seconds = max(timeout_seconds, 60)
     try:
         report = _run_last24hours(
             entry["topic"],
             quick=quick,
             extra_args=entry.get("last24hours_args", []),
-            timeout_seconds=DRY_RUN_TOPIC_TIMEOUT_SECONDS,
+            timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        topic = str(entry.get("topic") or "")
         if _is_closing_soon_paper_topic(topic) and closing_soon.preferred_venue(topic) == "kalshi":
             result["status"] = "degraded_run"
             result["reason_class"] = "kalshi_closing_soon_timeout"
             result["elapsed_seconds"] = round(time.time() - started, 2)
             result["warnings"].append(
-                f"{entry['topic']}: Kalshi closing-soon dry-run timed out after {DRY_RUN_TOPIC_TIMEOUT_SECONDS}s before structured market output; treating this as a bounded degraded scan, not a paper pick."
+                f"{entry['topic']}: Kalshi closing-soon dry-run timed out after {timeout_seconds}s before structured market output; treating this as a bounded degraded scan, not a paper pick."
             )
             return result
         result["status"] = "error"
         result["elapsed_seconds"] = round(time.time() - started, 2)
         result["warnings"].append(
-            f"{entry['topic']}: dry-run timed out after {DRY_RUN_TOPIC_TIMEOUT_SECONDS}s before a usable paper result was produced."
+            f"{entry['topic']}: dry-run timed out after {timeout_seconds}s before a usable paper result was produced."
         )
         return result
     except Exception as exc:

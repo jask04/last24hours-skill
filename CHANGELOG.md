@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.93] - 2026-05-05
+
+### Added
+- `tests/test_forecast_watchlist.py`: Added regressions for eSports same-day watchlist seed bias, irrelevant eSports key-voice suppression, and broad eSports board admission that keeps valid direct rows while rejecting wrong-domain noise.
+
+### Fixed
+- `scripts/last24hours.py`: Repaired the Kalshi closing-soon quick path by skipping duplicate generic Kalshi discovery before the dedicated near-expiry scanner, reducing the standard quick dry-run cost instead of extending timeouts.
+- `scripts/lib/market_watchlist.py`: Tightened eSports watchlist query shaping toward same-day match seeds, kept prop/title gates intact, and added conservative same-day scoring recovery without widening the admitted domain.
+- `scripts/lib/render.py`: Suppressed irrelevant eSports `Top X Handles` and `Top Subreddits` when no entity-grounded voices survive, so thin runs stop presenting generic social noise as meaningful context.
+- `scripts/lib/polymarket.py` and `scripts/lib/forecast.py`: Expanded named eSports prop search phrasing and tightened prop ranking precedence around player, subdomain, stat family, date, and event overlap before model-implied fallback.
+- `scripts/lib/market_watchlist.py`: Kept `Kalshi markets right now` conservative on zero-depth rows while preserving visibility when the board is genuinely thin.
+
 ## [1.0.92] - 2026-05-02
 
 ### Added

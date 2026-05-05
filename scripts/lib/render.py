@@ -86,6 +86,63 @@ def _write_json(path: Path, payload) -> None:
             json.dump(payload, f, indent=2)
 
 
+def _key_voices(report: schema.Report) -> tuple[list[str], list[str]]:
+    entities = getattr(report, "trending_entities", {}) or {}
+    handles = list(entities.get("x_handles", []) or [])
+    subs = list(entities.get("reddit_subreddits", []) or [])
+    if _prediction_domain(report.topic) != "esports":
+        return handles, subs
+
+    relevant_entities = set()
+    candidate_texts = []
+    candidate_texts.extend(
+        f"{item.title} {item.question}"
+        for item in list(getattr(report, "market_watchlist", []) or [])[:5]
+    )
+    candidate_texts.extend(
+        f"{item.title} {getattr(item, 'market_view', '')}"
+        for item in list(getattr(report, "forecasts", []) or [])[:5]
+    )
+    for text in candidate_texts:
+        if eq.is_esports_query(text):
+            relevant_entities |= eq.esports_entity_tokens(text)
+    if not candidate_texts:
+        return [], []
+    if not relevant_entities:
+        relevant_entities = eq.esports_entity_tokens(report.topic)
+    if not relevant_entities:
+        return [], []
+
+    filtered_handles: list[str] = []
+    for handle in handles:
+        handle_lower = str(handle or "").strip().lstrip("@").lower()
+        if not handle_lower:
+            continue
+        for item in getattr(report, "x", []) or []:
+            author = str(getattr(item, "author_handle", "") or "").strip().lstrip("@").lower()
+            if author != handle_lower:
+                continue
+            if eq.esports_entity_tokens(getattr(item, "text", "")) & relevant_entities:
+                filtered_handles.append(handle)
+                break
+
+    filtered_subs: list[str] = []
+    for subreddit in subs:
+        sub_lower = str(subreddit or "").strip().lstrip("r/").lower()
+        if not sub_lower:
+            continue
+        for item in getattr(report, "reddit", []) or []:
+            item_sub = str(getattr(item, "subreddit", "") or "").strip().lstrip("r/").lower()
+            if item_sub != sub_lower:
+                continue
+            text = f"{getattr(item, 'title', '')} {getattr(item, 'text', '')}"
+            if eq.esports_entity_tokens(text) & relevant_entities:
+                filtered_subs.append(subreddit)
+                break
+
+    return filtered_handles, filtered_subs
+
+
 def _assess_data_freshness(report: schema.Report) -> dict:
     """Assess how much data is actually from the last 24 hours."""
     reddit_recent = sum(1 for r in report.reddit if r.date and r.date >= report.range_from)
@@ -1034,9 +1091,7 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
 
     # Trending Entities / Key Voices
     if report.trending_entities:
-        entities = report.trending_entities
-        handles = entities.get("x_handles", [])
-        subs = entities.get("reddit_subreddits", [])
+        handles, subs = _key_voices(report)
         if handles or subs:
             lines.append("### Key Voices / Trending Entities")
             lines.append("")
@@ -1874,9 +1929,7 @@ def render_full_report(report: schema.Report) -> str:
 
     # Trending Entities / Key Voices
     if report.trending_entities:
-        entities = report.trending_entities
-        handles = entities.get("x_handles", [])
-        subs = entities.get("reddit_subreddits", [])
+        handles, subs = _key_voices(report)
         if handles or subs:
             lines.append("## Key Voices / Trending Entities")
             lines.append("")
@@ -2217,6 +2270,8 @@ def write_outputs(
     raw_openai: Optional[dict] = None,
     raw_xai: Optional[dict] = None,
     raw_reddit_enriched: Optional[list] = None,
+    *,
+    minimal: bool = False,
 ):
     """Write all output files.
 
@@ -2230,6 +2285,15 @@ def write_outputs(
 
     # report.json
     _write_json(OUTPUT_DIR / "report.json", report.to_dict())
+
+    if minimal:
+        if raw_openai:
+            _write_json(OUTPUT_DIR / "raw_openai.json", raw_openai)
+        if raw_xai:
+            _write_json(OUTPUT_DIR / "raw_xai.json", raw_xai)
+        if raw_reddit_enriched:
+            _write_json(OUTPUT_DIR / "raw_reddit_threads_enriched.json", raw_reddit_enriched)
+        return
 
     # report.md
     _write_text(OUTPUT_DIR / "report.md", render_full_report(report))

@@ -40,7 +40,7 @@ _child_pids: set = set()
 _child_pids_lock = threading.Lock()
 
 TIMEOUT_PROFILES = {
-    "quick":   {"global": 60,  "future": 20, "reddit_future": 40,  "youtube_future": 40,  "tiktok_future": 60,   "instagram_future": 60,   "hackernews_future": 20,  "bluesky_future": 20,  "truthsocial_future": 20,  "polymarket_future": 18,  "kalshi_future": 22, "http": 10, "enrich_per": 5,  "enrich_total": 20, "enrich_max_items": 10},
+    "quick":   {"global": 60,  "future": 20, "reddit_future": 40,  "youtube_future": 40,  "tiktok_future": 60,   "instagram_future": 60,   "hackernews_future": 20,  "bluesky_future": 20,  "truthsocial_future": 20,  "polymarket_future": 18,  "kalshi_future": 30, "http": 10, "enrich_per": 5,  "enrich_total": 20, "enrich_max_items": 10},
     "default": {"global": 120, "future": 40, "reddit_future": 75,  "youtube_future": 60,  "tiktok_future": 80,   "instagram_future": 80,   "hackernews_future": 40,  "bluesky_future": 40,  "truthsocial_future": 40,  "polymarket_future": 25,  "kalshi_future": 25, "http": 20, "enrich_per": 10, "enrich_total": 30, "enrich_max_items": 15},
     "deep":    {"global": 200, "future": 60, "reddit_future": 90,  "youtube_future": 80,  "tiktok_future": 100,  "instagram_future": 100,  "hackernews_future": 60,  "bluesky_future": 60,  "truthsocial_future": 60,  "polymarket_future": 35,  "kalshi_future": 35, "http": 20, "enrich_per": 10, "enrich_total": 40, "enrich_max_items": 25},
 }
@@ -2637,7 +2637,10 @@ def main():
         search_do_bluesky = False
         search_do_truthsocial = False
         search_do_polymarket = False
-        search_do_kalshi = True
+        # The dedicated Kalshi closing-soon scanner below is the source of truth
+        # for this bounded path. Skipping the generic Kalshi discovery avoids
+        # paying for two expensive Kalshi passes before the same watchlist stage.
+        search_do_kalshi = False
         search_do_weather = False
         search_run_youtube = False
         search_run_tiktok = False
@@ -2854,11 +2857,11 @@ def main():
                     to_date,
                     window_hours=max(1, args.closing_window_hours),
                     diagnostics=kalshi_closing_diagnostics,
-                    max_seeds=4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12,
-                    max_candidates=5 if kalshi_fast_scan else 16 if args.paper_fast_watchlist else 25,
-                    raw_cap_per_seed=12 if kalshi_fast_scan else 24 if args.paper_fast_watchlist else 40,
+                    max_seeds=3 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12,
+                    max_candidates=3 if kalshi_fast_scan else 16 if args.paper_fast_watchlist else 25,
+                    raw_cap_per_seed=8 if kalshi_fast_scan else 24 if args.paper_fast_watchlist else 40,
                     search_depth="quick" if (args.paper_fast_watchlist or kalshi_fast_scan) else "default",
-                    stop_after_compatible=5 if kalshi_fast_scan else None,
+                    stop_after_compatible=2 if kalshi_fast_scan else None,
                 )
                 plan.notes.append(f"closing-ka-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
                 plan.notes.append(f"closing-ka-raw:{kalshi_closing_diagnostics.get('kalshi_raw_seen', 0)}")
@@ -2987,7 +2990,13 @@ def main():
     report.context_snippet_md = render.render_context_snippet(report)
 
     # Write outputs
-    render.write_outputs(report, raw_openai, raw_xai, raw_reddit_enriched)
+    render.write_outputs(
+        report,
+        raw_openai,
+        raw_xai,
+        raw_reddit_enriched,
+        minimal=bool(args.paper_fast_watchlist and args.emit == "json"),
+    )
 
     # Show completion
     if sources == "web":

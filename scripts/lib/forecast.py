@@ -1532,7 +1532,7 @@ def _esports_prop_match_score(
     subdomain_match = int(bool(topic_subdomain and item_subdomain and topic_subdomain == item_subdomain))
     entity_overlap = len(topic_entities & item_entities)
     date_match = int(_sports_market_date_compatible(item, sports_target_date))
-    return player_match, stat_match, subdomain_match, date_match, entity_overlap, getattr(item, "relevance", 0.0)
+    return player_match, subdomain_match, stat_match, date_match, entity_overlap, getattr(item, "relevance", 0.0)
 
 
 def _best_polymarket(topic: str, items: list[schema.PolymarketItem], sports_target_date: Optional[str] = None, allow_esports_prop: bool = False) -> Optional[schema.PolymarketItem]:
