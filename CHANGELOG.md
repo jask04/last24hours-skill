@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.94] - 2026-05-07
+
+### Added
+- `tests/test_forecast_watchlist.py`: Added regressions that classify penta-kill style eSports side markets as props and keep them off broad eSports watchlists.
+
+### Fixed
+- `scripts/lib/market_types.py`: Expanded eSports prop markers for side markets such as penta kill, ace, baron, dragon, and first tower so broad eSports watchlists stop misclassifying them as direct match rows.
+- `scripts/lib/market_watchlist.py`: Broad eSports watchlists now fail closed instead of surfacing prop-style match fragments as `game_outcome` rows when same-day direct match supply is weak.
+- `scripts/paper.py` / `scripts/last24hours.py`: Current quick dry-runs now complete with structured Kalshi closing-soon outcomes instead of timing out on the live paper portfolio path when no near-expiry rows exist.
+
 ## [1.0.93] - 2026-05-05
 
 ### Added

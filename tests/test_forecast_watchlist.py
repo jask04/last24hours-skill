@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from scripts.lib import evidence_fusion, forecast, market_watchlist, render, schema, sports_schedule
+from scripts.lib import evidence_fusion, forecast, market_types, market_watchlist, render, schema, sports_schedule
 
 
 def _report(topic: str) -> schema.Report:
@@ -32,6 +32,16 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertIn("Counter-Strike 2 matches today", topics)
         self.assertIn("Valorant matches today", topics)
         self.assertIn("League of Legends matches today", topics)
+
+    def test_esports_penta_kill_market_classifies_as_prop(self):
+        self.assertEqual(
+            market_types.classify_market(
+                "LoL: Fukuoka SoftBank Hawks Gaming vs CTBC Flying Oyster (BO3) - Esports World Cup Asia-Pacific Qualifier Playoffs",
+                "Game 2: Any Player Penta Kill?",
+                "https://polymarket.com/event/lol-shg-cfo-2026-05-07",
+            ),
+            "esports_prop",
+        )
 
     def test_kalshi_live_board_search_topics_preserve_venue_intent(self):
         self.assertEqual(market_watchlist.search_topics("Kalshi live markets"), ["Kalshi live markets"])
@@ -3103,6 +3113,33 @@ class EffectivelySettledWatchlistTests(unittest.TestCase):
         items = market_watchlist.synthesize_market_watchlist(report)
 
         self.assertEqual({item.source_item_id for item in items}, {"PM_CS2", "PM_VAL"})
+
+    def test_broad_esports_watchlist_rejects_prop_side_markets(self):
+        report = _report("esports markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_PROP",
+                title="LoL: Fukuoka SoftBank Hawks Gaming vs CTBC Flying Oyster (BO3) - Esports World Cup Asia-Pacific Qualifier Playoffs",
+                question="Game 2: Any Player Penta Kill?",
+                url="https://polymarket.com/event/lol-shg-cfo-2026-05-07",
+                outcome_prices=[("Yes", 0.28), ("No", 0.72)],
+                engagement=_engagement(volume=58_000, liquidity=11_000),
+                market_type="esports_prop",
+                market_signal_quality=0.39,
+                volume_24h=58_000,
+                best_bid=0.44,
+                best_ask=1.00,
+                spread=0.56,
+                movement_24h=9.0,
+                relevance=0.29,
+                score=55,
+                end_date="2026-04-21",
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+
+        self.assertEqual(items, [])
 
 
 if __name__ == "__main__":

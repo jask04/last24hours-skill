@@ -113,6 +113,9 @@ _ESPORTS_PROP_MARKERS = {
     "headshot", "headshots", "adr", "first kill", "first blood",
     "1v1", "clutch", "entry kill", "mvp", "bomb plant", "pistol round",
     "assists", "deaths", "kd", "k/d", "rating",
+    # Match-level esports side markets that should never be treated as direct winner rows.
+    "penta kill", "penta kills", "player penta kill", "ace", "baron", "dragon",
+    "rift herald", "first tower",
 }
 _ESPORTS_TITLE_MARKERS = {"map pool", "major winner", "tournament winner", "cache", "add cache", "champion"}
 
