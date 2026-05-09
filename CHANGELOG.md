@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.95] - 2026-05-09
+
+### Added
+- `tests/test_paper_ledger.py`: Added regressions for non-eSports forecast rows keeping empty subdomain labels and for eSports watchlist prop rows being rejected at paper admission time.
+
+### Fixed
+- `scripts/paper.py`: `_subdomain()` now returns eSports subdomains only for true eSports topics, preventing cross-domain paper metadata contamination such as weather rows inheriting `cs2`.
+- `scripts/paper.py`: Tightened paper admission for eSports watchlist rows so only direct `game_outcome` eSports markets with compatible domain/subdomain metadata can enter the ledger; prop-style side markets are now rejected before storage.
+- Paper dry-runs now complete with structured `Kalshi markets closing soon` outcomes on the current portfolio path, so the paper layer is no longer masking no-supply conditions as timeout-driven degradation.
+
 ## [1.0.94] - 2026-05-07
 
 ### Added

@@ -482,6 +482,29 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(notes["domain"], "esports")
         self.assertEqual(notes["subdomain"], "cs2")
 
+    def test_weather_forecast_pick_does_not_store_esports_subdomain(self):
+        report = {
+            "topic": "NYC rain tomorrow",
+            "query_type": "prediction",
+            "forecasts": [
+                {
+                    "title": "NYC rain tomorrow",
+                    "forecast_probability": 0.34,
+                    "favorite_label": "Yes",
+                    "anchor_source": "weather_api",
+                    "confidence_level": "moderate-low",
+                }
+            ],
+            "generated_at": "2026-05-08T00:00:00+00:00",
+        }
+
+        picks = paper.extract_paper_picks(report)
+
+        self.assertEqual(len(picks), 1)
+        notes = json.loads(picks[0]["notes_json"])
+        self.assertEqual(notes["domain"], "weather")
+        self.assertEqual(notes["subdomain"], "")
+
     def test_broad_esports_watchlist_pick_infers_market_subdomain(self):
         report = {
             "topic": "esports markets to watch today",
@@ -524,6 +547,25 @@ class PaperExtractionTests(unittest.TestCase):
         }
 
         self.assertEqual(paper.extract_paper_picks(report), [])
+
+    def test_admission_filtered_picks_rejects_esports_watchlist_prop_row(self):
+        entry = {"topic": "esports markets to watch today"}
+        picks = [
+            {
+                "topic": "esports markets to watch today",
+                "pick_type": "watchlist",
+                "market_type": "esports_prop",
+                "title": "LoL: Fukuoka SoftBank Hawks Gaming vs CTBC Flying Oyster (BO3) - Esports World Cup Asia-Pacific Qualifier Playoffs",
+                "question": "Game 2: Any Player Penta Kill?",
+                "market_url": "https://polymarket.com/event/lol-shg-cfo-2026-05-07",
+            }
+        ]
+        warnings = []
+
+        filtered = paper._admission_filtered_picks(entry, {"topic": entry["topic"]}, picks, warnings)
+
+        self.assertEqual(filtered, [])
+        self.assertTrue(any("wrong_market_type" in warning for warning in warnings))
 
     def test_filter_picks_by_policy(self):
         picks = [

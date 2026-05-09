@@ -129,6 +129,8 @@ def _domain(topic: str) -> str:
 
 
 def _subdomain(topic: str) -> str:
+    if _domain(topic) != "esports":
+        return ""
     lowered = (topic or "").lower()
     return eq.inferred_esports_subdomain(lowered)
 
@@ -1083,23 +1085,35 @@ def _admission_filtered_picks(
     warnings: List[str],
 ) -> List[Dict[str, Any]]:
     topic = str(entry.get("topic") or "")
-    if not eq.is_esports_player_prop_query(topic):
-        return picks
-    if bool(entry.get("allow_model_implied_esports_props")):
-        return picks
     kept = []
-    reason = _named_esports_prop_reason_class_for_report(topic, report) or "degraded_model_implied_only"
     for pick in picks:
-        model_implied_pick = (
-            str(pick.get("venue") or "") == "model_implied"
-            or str(pick.get("anchor_source") or "") == "model_implied"
-            or str(pick.get("market_type") or "") == "model_implied"
-        )
-        if model_implied_pick:
-            warnings.append(
-                f"{topic}: skipped model-implied eSports prop paper row; no compatible market anchor survived ({reason})."
-            )
-            continue
+        if eq.is_esports_player_prop_query(topic):
+            if not bool(entry.get("allow_model_implied_esports_props")):
+                reason = _named_esports_prop_reason_class_for_report(topic, report) or "degraded_model_implied_only"
+                model_implied_pick = (
+                    str(pick.get("venue") or "") == "model_implied"
+                    or str(pick.get("anchor_source") or "") == "model_implied"
+                    or str(pick.get("market_type") or "") == "model_implied"
+                )
+                if model_implied_pick:
+                    warnings.append(
+                        f"{topic}: skipped model-implied eSports prop paper row; no compatible market anchor survived ({reason})."
+                    )
+                    continue
+        elif _domain(topic) == "esports" and pick.get("pick_type") == "watchlist":
+            market_text = _esports_market_text(pick)
+            market_type = str(pick.get("market_type") or "").strip().lower()
+            topic_subdomain = _subdomain(topic)
+            market_subdomain = eq.inferred_esports_subdomain(market_text)
+            if not eq.is_esports_query(market_text):
+                warnings.append(f"{topic}: skipped eSports watchlist paper row because the selected market is not actually an eSports contract (wrong_domain_market).")
+                continue
+            if market_type != "game_outcome":
+                warnings.append(f"{topic}: skipped eSports watchlist paper row because the selected market is not a direct match market ({market_type or 'unknown'} -> wrong_market_type).")
+                continue
+            if topic_subdomain and market_subdomain and topic_subdomain != market_subdomain:
+                warnings.append(f"{topic}: skipped eSports watchlist paper row because the selected market subdomain does not match the topic ({topic_subdomain} vs {market_subdomain}).")
+                continue
         kept.append(pick)
     return kept
 
