@@ -3,7 +3,10 @@
 import re
 from typing import Literal
 
+from . import evidence_quality as eq
+
 QueryType = Literal["product", "concept", "opinion", "how_to", "comparison", "breaking_news", "prediction", "market_watchlist"]
+RuntimeLane = Literal["core", "kalshi_specialist", "experimental"]
 
 # Pattern-based classification (no LLM, no external deps)
 _PRODUCT_PATTERNS = re.compile(
@@ -74,6 +77,22 @@ _OUTCOME_PHRASE_PATTERNS = re.compile(
     r")\b",
     re.I,
 )
+_ESPORTS_TOPIC_PATTERNS = re.compile(
+    r"\b(esports|counter-strike|counter strike|cs2|csgo|valorant|league of legends|lol|dota)\b",
+    re.I,
+)
+_ESPORTS_PROP_PATTERNS = re.compile(
+    r"\b(player props?|props?|kills?|solo kills?|headshots?|adr|rating|assists?|deaths?)\b",
+    re.I,
+)
+_MACRO_TOPIC_PATTERNS = re.compile(
+    r"\b(fed|fomc|powell|rates?|rate cut|rate hike|inflation|cpi|jobs?|payrolls|gdp|recession|unemployment|yield|treasury)\b",
+    re.I,
+)
+_WEATHER_TOPIC_PATTERNS = re.compile(
+    r"\b(weather|rain|snow|storm|temperature|hurricane|tornado|landfall|precipitation|showers?)\b",
+    re.I,
+)
 
 
 def _looks_like_sports_matchup(topic: str) -> bool:
@@ -96,6 +115,36 @@ def is_exchange_snapshot_query(topic: str, venue: str = "") -> bool:
     if venue:
         return venue.lower() in text.lower()
     return True
+
+
+def is_esports_topic(topic: str) -> bool:
+    return bool(_ESPORTS_TOPIC_PATTERNS.search(topic or ""))
+
+
+def is_esports_prop_topic(topic: str) -> bool:
+    text = topic or ""
+    return is_esports_topic(text) and bool(_ESPORTS_PROP_PATTERNS.search(text))
+
+
+def is_macro_topic(topic: str) -> bool:
+    return bool(_MACRO_TOPIC_PATTERNS.search(topic or ""))
+
+
+def is_weather_topic(topic: str) -> bool:
+    return bool(_WEATHER_TOPIC_PATTERNS.search(topic or ""))
+
+
+def runtime_lane(topic: str, query_type: QueryType) -> RuntimeLane:
+    text = topic or ""
+    lowered = text.lower()
+    if query_type in {"prediction", "market_watchlist"}:
+        if "kalshi" in lowered or is_macro_topic(text) or is_weather_topic(text):
+            return "kalshi_specialist"
+        if query_type == "market_watchlist" and is_esports_topic(text):
+            return "experimental"
+        if query_type == "prediction" and (is_esports_prop_topic(text) or eq.is_esports_player_prop_query(text)):
+            return "experimental"
+    return "core"
 
 
 def detect_query_type(topic: str) -> QueryType:
@@ -143,8 +192,8 @@ SOURCE_TIERS = {
     "how_to":        {"tier1": {"reddit", "hn", "web"},        "tier2": {"x", "youtube"}},
     "comparison":    {"tier1": {"reddit", "x", "hn"},          "tier2": {"web", "youtube"}},
     "breaking_news": {"tier1": {"x", "reddit", "web", "hn"},   "tier2": {"bluesky", "truthsocial", "youtube"}},
-    "prediction":    {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"},   "tier2": {"hn", "bluesky", "sportsbook"}},
-    "market_watchlist": {"tier1": {"polymarket", "kalshi", "x", "reddit", "web"}, "tier2": {"hn", "sportsbook"}},
+    "prediction":    {"tier1": {"polymarket"},   "tier2": {"kalshi"}},
+    "market_watchlist": {"tier1": {"polymarket"}, "tier2": {"kalshi"}},
 }
 
 # WebSearch penalty adjustment by query type.
@@ -157,8 +206,8 @@ WEBSEARCH_PENALTY_BY_TYPE = {
     "how_to": 5,          # tutorials on web are valuable
     "comparison": 10,     # mix of social and web
     "breaking_news": 10,  # news sites are valuable
-    "prediction": 8,      # web still matters as explanatory evidence
-    "market_watchlist": 6, # web can supply catalyst context for market ranking
+    "prediction": 12,
+    "market_watchlist": 12,
 }
 
 # Tiebreaker priority overrides by query type.
@@ -170,12 +219,12 @@ TIEBREAKER_BY_TYPE = {
     "how_to":        {"reddit": 0, "hn": 1, "web": 2, "x": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "comparison":    {"reddit": 0, "x": 1, "hn": 2, "web": 3, "youtube": 4, "tiktok": 5, "instagram": 6, "polymarket": 7},
     "breaking_news": {"x": 0, "reddit": 1, "web": 2, "hn": 3, "bluesky": 4, "tiktok": 5, "youtube": 6, "polymarket": 7},
-    "prediction":    {"kalshi": 0, "polymarket": 1, "x": 2, "reddit": 3, "web": 4, "hn": 5, "sportsbook": 6, "bluesky": 7, "youtube": 8, "tiktok": 9, "instagram": 10},
-    "market_watchlist": {"kalshi": 0, "polymarket": 1, "web": 2, "x": 3, "reddit": 4, "hn": 5, "sportsbook": 6, "bluesky": 7, "youtube": 8, "tiktok": 9, "instagram": 10},
+    "prediction":    {"polymarket": 0, "kalshi": 1, "web": 2, "x": 3, "reddit": 4, "hn": 5, "sportsbook": 6, "bluesky": 7, "youtube": 8, "tiktok": 9, "instagram": 10},
+    "market_watchlist": {"polymarket": 0, "kalshi": 1, "web": 2, "x": 3, "reddit": 4, "hn": 5, "sportsbook": 6, "bluesky": 7, "youtube": 8, "tiktok": 9, "instagram": 10},
 }
 
 
-def is_source_enabled(source: str, query_type: QueryType, explicitly_requested: bool = False) -> bool:
+def is_source_enabled(source: str, query_type: QueryType, explicitly_requested: bool = False, topic: str = "") -> bool:
     """Check if a source should run for a given query type.
 
     Tier 1 and Tier 2 sources are enabled. Tier 3 (unlisted) sources only run
@@ -186,6 +235,16 @@ def is_source_enabled(source: str, query_type: QueryType, explicitly_requested: 
 
     if explicitly_requested:
         return True
+
+    if query_type in {"prediction", "market_watchlist"}:
+        lane = runtime_lane(topic, query_type)
+        if source in {"x", "reddit", "web", "hn", "bluesky", "youtube", "tiktok", "instagram", "truthsocial", "sportsbook"}:
+            return False
+        if source == "kalshi":
+            return lane == "kalshi_specialist"
+        if source == "polymarket":
+            return lane != "kalshi_specialist"
+        return False
 
     tiers = SOURCE_TIERS.get(query_type, SOURCE_TIERS["breaking_news"])
     return source in tiers["tier1"] or source in tiers["tier2"]

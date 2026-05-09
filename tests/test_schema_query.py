@@ -1,5 +1,7 @@
 import unittest
 from unittest import mock
+import json
+from pathlib import Path
 
 from scripts.lib import env, polymarket, query_type, schema, youtube_yt
 
@@ -14,11 +16,38 @@ class SchemaQueryTests(unittest.TestCase):
         self.assertEqual(query_type.detect_query_type("Polymarket markets right now"), "market_watchlist")
         self.assertEqual(query_type.detect_query_type("Polymarket board now"), "market_watchlist")
 
+    def test_runtime_lane_classification_regressions(self):
+        self.assertEqual(query_type.runtime_lane("Fed rate cut by June", "prediction"), "kalshi_specialist")
+        self.assertEqual(query_type.runtime_lane("Kalshi live markets", "market_watchlist"), "kalshi_specialist")
+        self.assertEqual(query_type.runtime_lane("Counter-Strike 2 matches today", "prediction"), "core")
+        self.assertEqual(query_type.runtime_lane("Counter-Strike 2 markets to watch today", "market_watchlist"), "experimental")
+        self.assertEqual(query_type.runtime_lane("TenZ total kills tonight", "prediction"), "experimental")
+
+    def test_prediction_and_watchlist_defaults_are_market_only(self):
+        self.assertTrue(query_type.is_source_enabled("polymarket", "prediction", topic="Bitcoin above 100k this week"))
+        self.assertFalse(query_type.is_source_enabled("kalshi", "prediction", topic="Bitcoin above 100k this week"))
+        self.assertTrue(query_type.is_source_enabled("kalshi", "prediction", topic="Fed rate cut by June"))
+        self.assertFalse(query_type.is_source_enabled("polymarket", "prediction", topic="Fed rate cut by June"))
+        self.assertFalse(query_type.is_source_enabled("reddit", "market_watchlist", topic="NBA markets to watch today"))
+        self.assertFalse(query_type.is_source_enabled("web", "prediction", topic="Counter-Strike 2 matches today"))
+
     def test_polymarket_snapshot_queries_use_curated_board_seeds(self):
         self.assertEqual(
             polymarket._expand_queries("Polymarket board now"),
             ["bitcoin", "ethereum", "fed", "nba", "ai", "election"],
         )
+
+    def test_default_paper_portfolio_prunes_experimental_esports_topics(self):
+        path = Path(__file__).resolve().parents[1] / "fixtures" / "paper_portfolio.json"
+        topics = {entry["topic"] for entry in json.loads(path.read_text(encoding="utf-8"))}
+
+        self.assertIn("Counter-Strike 2 matches today", topics)
+        self.assertIn("Valorant matches today", topics)
+        self.assertIn("League of Legends matches today", topics)
+        self.assertNotIn("Counter-Strike 2 markets to watch today", topics)
+        self.assertNotIn("esports markets to watch today", topics)
+        self.assertNotIn("TenZ total kills tonight", topics)
+        self.assertNotIn("Faker total kills tonight", topics)
 
     def test_report_round_trips_bluesky_and_market_signal_fields(self):
         report = schema.Report(

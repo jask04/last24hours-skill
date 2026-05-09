@@ -22,8 +22,8 @@ class PlannerFusionTests(unittest.TestCase):
             web_backend="openrouter",
         )
 
-        self.assertGreater(plan.source_weights["kalshi"], plan.source_weights["x"])
-        self.assertGreater(plan.source_weights["polymarket"], plan.source_weights["reddit"])
+        self.assertEqual(plan.runtime_lane, "kalshi_specialist")
+        self.assertGreater(plan.source_weights["kalshi"], plan.source_weights["polymarket"])
         self.assertIn("quick-no-entity-resolution", plan.notes)
         self.assertLessEqual(len(plan.subqueries), 3)
 
@@ -44,7 +44,8 @@ class PlannerFusionTests(unittest.TestCase):
         )
 
         self.assertEqual(plan.search_topics[0], "NBA")
-        self.assertGreater(plan.source_weights["kalshi"], plan.source_weights["web"])
+        self.assertEqual(plan.runtime_lane, "core")
+        self.assertGreater(plan.source_weights["polymarket"], plan.source_weights["kalshi"])
 
     def test_slate_plan_preserves_matchup_names(self):
         plan = forecast_plan.build_plan(

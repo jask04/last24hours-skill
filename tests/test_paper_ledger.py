@@ -1830,6 +1830,62 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(duplicate_slice["duplicate_open_row_count"], 10)
         self.assertTrue(all(group["count"] > 1 for group in duplicate_slice["groups"]))
 
+    def test_runtime_lane_report_summaries_split_core_and_experimental_rows(self):
+        picks = [
+            {
+                "id": 1,
+                "status": "resolved",
+                "topic": "Fed rate cut by June",
+                "query_type": "prediction",
+                "pick_type": "forecast",
+                "venue": "kalshi",
+                "anchor_source": "kalshi",
+                "market_type": "macro_binary",
+                "model_probability": 0.42,
+                "resolution_value": 1.0,
+                "brier_score": 0.3364,
+            },
+            {
+                "id": 2,
+                "status": "resolved",
+                "topic": "Counter-Strike 2 matches today",
+                "query_type": "prediction",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "market_type": "game_outcome",
+                "model_probability": 0.63,
+                "resolution_value": 1.0,
+                "brier_score": 0.1369,
+                "notes_json": json.dumps({"subdomain": "cs2"}),
+            },
+            {
+                "id": 3,
+                "status": "resolved",
+                "topic": "TenZ total kills tonight",
+                "query_type": "prediction",
+                "pick_type": "forecast",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "market_type": "esports_prop",
+                "model_probability": 0.58,
+                "resolution_value": 0.0,
+                "brier_score": 0.3364,
+                "notes_json": json.dumps({"subdomain": "valorant"}),
+            },
+        ]
+
+        core = paper.runtime_lane_summary(picks, "core")
+        kalshi_specialist = paper.runtime_lane_summary(picks, "kalshi_specialist")
+        experimental = paper.runtime_lane_summary(picks, "experimental")
+
+        self.assertEqual(core["count"], 1)
+        self.assertIn("Counter-Strike 2 matches today", core["topic_visibility"])
+        self.assertEqual(kalshi_specialist["count"], 1)
+        self.assertEqual(kalshi_specialist["topic_visibility"], ["Fed rate cut by June"])
+        self.assertEqual(experimental["count"], 1)
+        self.assertEqual(experimental["topic_visibility"], ["TenZ total kills tonight"])
+
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([
             {

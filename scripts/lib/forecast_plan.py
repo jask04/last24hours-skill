@@ -28,6 +28,7 @@ class ForecastPlan:
     source_weights: Dict[str, float] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
     entity_resolution_used: bool = False
+    runtime_lane: qt.RuntimeLane = "core"
 
     @property
     def search_topics(self) -> List[str]:
@@ -45,6 +46,7 @@ class ForecastPlan:
             "planned_query_count": len(self.subqueries),
             "planned_queries": [q.search_query for q in self.subqueries],
             "planner_notes": "; ".join(self.notes),
+            "runtime_lane": self.runtime_lane,
         }
 
 
@@ -68,28 +70,16 @@ _MONTH_TOKEN_RE = re.compile(
 )
 
 
-def _source_weights(query_type: qt.QueryType) -> Dict[str, float]:
+def _source_weights(topic: str, query_type: qt.QueryType) -> Dict[str, float]:
+    lane = qt.runtime_lane(topic, query_type)
     if query_type == "market_watchlist":
-        return {
-            "kalshi": 1.00,
-            "polymarket": 0.98,
-            "web": 0.62,
-            "x": 0.52,
-            "reddit": 0.44,
-            "hn": 0.32,
-        }
+        if lane == "kalshi_specialist":
+            return {"kalshi": 1.00, "polymarket": 0.18}
+        return {"polymarket": 1.00, "kalshi": 0.18}
     if query_type == "prediction":
-        return {
-            "kalshi": 1.00,
-            "polymarket": 0.98,
-            "weather": 0.92,
-            "x": 0.50,
-            "reddit": 0.42,
-            "web": 0.46,
-            "hn": 0.30,
-            "bluesky": 0.22,
-            "truthsocial": 0.18,
-        }
+        if lane == "kalshi_specialist":
+            return {"kalshi": 1.00, "weather": 0.92, "polymarket": 0.18}
+        return {"polymarket": 1.00, "weather": 0.92, "kalshi": 0.18}
     return {"web": 0.55, "reddit": 0.50, "x": 0.48, "hn": 0.36}
 
 
@@ -155,12 +145,15 @@ def build_plan(
         if len(topics) >= max_queries:
             break
 
-    weights = _source_weights(query_type)
-    market_first_sources = ["kalshi", "polymarket", "x", "reddit", "web", "hn"]
+    lane = qt.runtime_lane(topic, query_type)
+    weights = _source_weights(topic, query_type)
+    market_first_sources = ["polymarket"]
     if query_type != "prediction":
         market_first_sources = ["web", "reddit", "x", "hn"]
     if query_type == "market_watchlist":
-        market_first_sources = ["kalshi", "polymarket", "web", "x", "reddit", "hn"]
+        market_first_sources = ["polymarket"]
+    if lane == "kalshi_specialist" and query_type in {"prediction", "market_watchlist"}:
+        market_first_sources = ["kalshi"]
 
     subqueries = [
         PlannedQuery(
@@ -172,7 +165,7 @@ def build_plan(
         for idx, query in enumerate(topics or [topic], start=1)
     ]
 
-    notes = ["deterministic-plan"]
+    notes = ["deterministic-plan", f"runtime-lane:{lane}"]
     entity_resolution_used = False
     if depth == "quick":
         notes.append("quick-no-entity-resolution")
@@ -191,4 +184,5 @@ def build_plan(
         source_weights=weights,
         notes=notes,
         entity_resolution_used=entity_resolution_used,
+        runtime_lane=lane,
     )

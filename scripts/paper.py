@@ -36,6 +36,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import store
 from lib import closing_soon, evidence_quality as eq
 from lib import http
+from lib import query_type as qt
 from lib import sports_schedule, weather
 
 
@@ -133,6 +134,18 @@ def _subdomain(topic: str) -> str:
         return ""
     lowered = (topic or "").lower()
     return eq.inferred_esports_subdomain(lowered)
+
+
+def _topic_query_type(topic: str, pick: Optional[Dict[str, Any]] = None) -> str:
+    if pick:
+        query_type = str(pick.get("query_type") or "").strip()
+        if query_type:
+            return query_type
+    return qt.detect_query_type(topic)
+
+
+def _runtime_lane(topic: str, pick: Optional[Dict[str, Any]] = None) -> str:
+    return qt.runtime_lane(topic, _topic_query_type(topic, pick))  # type: ignore[arg-type]
 
 
 def _watchlist_item_reason_class(topic: str, item: Dict[str, Any]) -> str:
@@ -1701,6 +1714,25 @@ def current_skill_comparable_summary(
     return summary
 
 
+def runtime_lane_summary(picks: List[Dict[str, Any]], lane: str) -> Dict[str, Any]:
+    filtered = []
+    for pick in picks:
+        if pick.get("status") != "resolved" or pick.get("resolution_value") is None:
+            continue
+        if _is_legacy_noisy_rationale(pick):
+            continue
+        topic = str(pick.get("topic") or "")
+        if _runtime_lane(topic, pick) != lane:
+            continue
+        filtered.append(pick)
+    summary = calibration_summary(filtered)
+    summary["runtime_lane"] = lane
+    summary["topic_visibility"] = sorted({str(pick.get("topic") or "") for pick in filtered if pick.get("topic")})
+    if not filtered:
+        summary["empty_reason"] = f"No resolved {lane} paper rows in the selected report window."
+    return summary
+
+
 def post_1_0_30_nba_watchlist_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     minimum = _parse_skill_version_value("1.0.30")
     filtered = []
@@ -2965,6 +2997,9 @@ def cmd_report(args) -> None:
         "days": args.days,
         "summary": summary,
         "current_skill_comparable_sample": comparable,
+        "core_sample": runtime_lane_summary(recent, "core"),
+        "kalshi_specialist_sample": runtime_lane_summary(recent, "kalshi_specialist"),
+        "experimental_sample": runtime_lane_summary(recent, "experimental"),
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
         "closing_soon_health": closing_soon_health_summary(recent),

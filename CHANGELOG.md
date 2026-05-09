@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.96] - 2026-05-09
+
+### Added
+- `scripts/paper.py`: Added report slices that split resolved calibration into `core_sample`, `kalshi_specialist_sample`, and `experimental_sample` using runtime/topic classification instead of schema changes.
+- `tests/test_schema_query.py`, `tests/test_planner_fusion.py`, and `tests/test_paper_ledger.py`: Added regressions for narrowed source defaults, runtime-lane classification, pruned default portfolio topics, and core-versus-experimental reporting.
+
+### Changed
+- `fixtures/paper_portfolio.json`: Pruned broad eSports watchlists and named eSports prop topics from the default daily portfolio, while keeping NBA, macro/Kalshi, weather, closing-soon, and direct eSports match forecast samples.
+
+### Fixed
+- `scripts/lib/query_type.py`, `scripts/lib/forecast_plan.py`, and `scripts/last24hours.py`: Narrowed default prediction/watchlist routing so core prompts are venue-first and structure-first, with X/Reddit/web demoted to opt-in support sources instead of parallel default discovery inputs.
+- `scripts/lib/query_type.py` and `scripts/last24hours.py`: Restricted default Kalshi usage to explicit Kalshi, macro, and weather lanes instead of broad generic market discovery.
+- `scripts/lib/render.py`: Added runtime-lane source footer labeling so compact outputs now show whether a prompt ran in the core, explicit Kalshi, or experimental lane.
+
 ## [1.0.95] - 2026-05-09
 
 ### Added

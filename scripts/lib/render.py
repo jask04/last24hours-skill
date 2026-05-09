@@ -1648,6 +1648,14 @@ def render_source_status(report: schema.Report, source_info: dict = None) -> str
     lines = []
     lines.append("---")
     lines.append("**Sources:**")
+    runtime_lane = str(source_info.get("runtime_lane") or "").strip()
+    if runtime_lane:
+        lane_label = {
+            "core": "core lane",
+            "kalshi_specialist": "explicit Kalshi lane",
+            "experimental": "experimental lane",
+        }.get(runtime_lane, runtime_lane)
+        lines.append(f"  LANE {lane_label}")
     status_map = source_info.get("source_status", {})
 
     # Reddit

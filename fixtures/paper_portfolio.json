@@ -91,15 +91,6 @@
     "notes": "Kalshi live-board calibration sample; should store a clean Kalshi watchlist row without treating the live-board prompt as closing-soon."
   },
   {
-    "topic": "Counter-Strike 2 markets to watch today",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["watchlist"],
-    "pick_policy": "watchlist_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "CS2 watchlist calibration sample; should prefer same-day direct Counter-Strike match markets."
-  },
-  {
     "topic": "Counter-Strike 2 matches today",
     "query_type": "prediction",
     "enabled": true,
@@ -109,24 +100,6 @@
     "notes": "CS2 direct-match forecast sample; should anchor on same-day Counter-Strike match winner markets."
   },
   {
-    "topic": "esports markets to watch today",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["watchlist"],
-    "pick_policy": "watchlist_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "Broad eSports watchlist sample; should store a clean mixed-title same-day market instead of a wrong-domain fallback."
-  },
-  {
-    "topic": "Valorant markets to watch today",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["watchlist"],
-    "pick_policy": "watchlist_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "Valorant watchlist calibration sample; should prefer same-day direct Valorant/VCT match markets."
-  },
-  {
     "topic": "Valorant matches today",
     "query_type": "prediction",
     "enabled": true,
@@ -134,15 +107,6 @@
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Valorant direct-match forecast sample; should anchor on same-day Valorant match winner markets and reject CS2/LoL rows."
-  },
-  {
-    "topic": "League of Legends markets to watch today",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["watchlist"],
-    "pick_policy": "watchlist_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "LoL watchlist calibration sample; should prefer same-day direct LoL/LEC/LCS/LCK match markets."
   },
   {
     "topic": "League of Legends matches today",
@@ -182,41 +146,5 @@
     "dedupe_policy": "skip_if_open_duplicate",
     "last24hours_args": ["--closing-window-hours", "6"],
     "notes": "Crypto closing-soon sample; should widen paper coverage without creating a second command path."
-  },
-  {
-    "topic": "donk total kills tonight",
-    "query_type": "prediction",
-    "enabled": true,
-    "expected_pick_types": ["forecast"],
-    "pick_policy": "forecast_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "CS2 player-prop forecast sample."
-  },
-  {
-    "topic": "Counter-Strike 2 player props today",
-    "query_type": "prediction",
-    "enabled": true,
-    "expected_pick_types": ["forecast"],
-    "pick_policy": "forecast_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "CS2 player-prop forecast sample; broader player-prop phrasing currently anchors more reliably than the dead watchlist slot it replaces."
-  },
-  {
-    "topic": "TenZ total kills tonight",
-    "query_type": "prediction",
-    "enabled": true,
-    "expected_pick_types": ["forecast"],
-    "pick_policy": "forecast_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "Valorant player-prop forecast sample."
-  },
-  {
-    "topic": "Faker total kills tonight",
-    "query_type": "prediction",
-    "enabled": true,
-    "expected_pick_types": ["forecast"],
-    "pick_policy": "forecast_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "LoL player-prop forecast sample."
   }
 ]

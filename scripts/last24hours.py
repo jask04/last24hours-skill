@@ -2540,6 +2540,10 @@ def main():
 
     # Detect query type for source tiering and scoring adjustments
     query_type = initial_query_type
+    runtime_lane = qt.runtime_lane(args.topic, query_type)
+    if query_type in {"prediction", "market_watchlist"} and args.sources == "auto" and not args.search:
+        sources = "none"
+        mode = mode_label_for_sources(sources)
     preferred_closing_venue = closing_soon.preferred_venue(args.topic) if closing_soon_mode else ""
     kalshi_closing_fast_path = (
         closing_soon_mode
@@ -2599,17 +2603,17 @@ def main():
     # Apply --search flag: restrict sources to the specified subset
     # Source defaults are query-type-aware (Truth Social always opt-in,
     # Bluesky only for query types where it adds signal)
-    search_do_hackernews = qt.is_source_enabled("hn", query_type) if not args.search else True
-    search_do_bluesky = has_bluesky and depth != "quick" and qt.is_source_enabled("bluesky", query_type)
+    search_do_hackernews = qt.is_source_enabled("hn", query_type, topic=args.topic) if not args.search else True
+    search_do_bluesky = has_bluesky and depth != "quick" and qt.is_source_enabled("bluesky", query_type, topic=args.topic)
     search_do_truthsocial = False  # Always opt-in (requires --search truthsocial)
-    search_do_polymarket = qt.is_source_enabled("polymarket", query_type)
-    search_do_kalshi = qt.is_source_enabled("kalshi", query_type)
+    search_do_polymarket = qt.is_source_enabled("polymarket", query_type, topic=args.topic)
+    search_do_kalshi = qt.is_source_enabled("kalshi", query_type, topic=args.topic)
     search_do_weather = query_type in {"prediction", "market_watchlist"} and weather.is_weather_query(args.topic)
-    search_run_youtube = has_ytdlp and qt.is_source_enabled("youtube", query_type)
-    search_run_tiktok = has_tiktok and qt.is_source_enabled("tiktok", query_type)
-    search_run_instagram = has_instagram and qt.is_source_enabled("instagram", query_type)
-    search_run_xiaohongshu = has_xiaohongshu or (
-        bool(env.get_web_search_source(config)) and qt.is_source_enabled("web", query_type)
+    search_run_youtube = has_ytdlp and qt.is_source_enabled("youtube", query_type, topic=args.topic)
+    search_run_tiktok = has_tiktok and qt.is_source_enabled("tiktok", query_type, topic=args.topic)
+    search_run_instagram = has_instagram and qt.is_source_enabled("instagram", query_type, topic=args.topic)
+    search_run_xiaohongshu = qt.is_source_enabled("web", query_type, topic=args.topic) and (
+        has_xiaohongshu or bool(env.get_web_search_source(config))
     )
     if args.search:
         search_sources = parse_search_flag(args.search)
@@ -3011,6 +3015,7 @@ def main():
         source_info["planned_query_count"] = len(report.planned_queries)
     if report.evidence_fusion_stats:
         source_info["evidence_fusion_stats"] = report.evidence_fusion_stats
+    source_info["runtime_lane"] = runtime_lane
     if isinstance(raw_openai, dict):
         reddit_source = raw_openai.get("source")
         if reddit_source:
@@ -3026,7 +3031,11 @@ def main():
     source_health = report.evidence_fusion_stats.get("source_health", {})
     if source_health.get("source_status"):
         source_info["source_status"] = source_health.get("source_status")
-    if not x_source:
+    if query_type in {"prediction", "market_watchlist"} and sources == "none" and not args.search:
+        source_info["reddit_skip_reason"] = "support-only in the default lane; use --search reddit to opt in"
+        source_info["x_skip_reason"] = "support-only in the default lane; use --search x to opt in"
+        source_info["web_skip_reason"] = "support-only in the default lane; use --search web to opt in"
+    if not x_source and "x_skip_reason" not in source_info:
         if x_source_status["bird_installed"]:
             source_info["x_skip_reason"] = "Bird installed but not authenticated - log into x.com in browser"
         else:
@@ -3050,7 +3059,7 @@ def main():
             f"Xiaohongshu API unavailable or not logged in - start xiaohongshu-mcp and login "
             f"(base: {env.get_xiaohongshu_api_base(config)})"
         )
-    if not web_source:
+    if not web_source and "web_skip_reason" not in source_info:
         source_info["web_skip_reason"] = "assistant will use WebSearch (add BRAVE_API_KEY for native search)"
 
     # Output result
