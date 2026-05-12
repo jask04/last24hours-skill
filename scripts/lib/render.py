@@ -1,5 +1,6 @@
 """Output rendering for last24hours skill."""
 
+from datetime import datetime, timedelta
 import json
 import os
 import re
@@ -194,6 +195,79 @@ def _is_direct_nba_market_item(item) -> bool:
         getattr(item, "question", ""),
         getattr(item, "url", ""),
     )
+
+
+def _date_refs(text: str, default_year: Optional[int] = None) -> set[str]:
+    refs: set[str] = set()
+    if not text:
+        return refs
+    for match in re.finditer(r"\b(20\d{2})-(\d{2})-(\d{2})\b", text):
+        refs.add(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+        refs.add(f"{match.group(2)}-{match.group(3)}")
+    for match in re.finditer(r"\b(\d{2})(\d{2})(\d{2})\b", text):
+        mm = match.group(2)
+        dd = match.group(3)
+        refs.add(f"{mm}-{dd}")
+        if default_year:
+            refs.add(f"{default_year}-{mm}-{dd}")
+    return refs
+
+
+def _report_base_date(report: schema.Report) -> Optional[datetime.date]:
+    for candidate in (report.range_to, report.generated_at):
+        if not candidate:
+            continue
+        text = str(candidate).strip()
+        try:
+            if "T" in text:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+            return datetime.fromisoformat(text).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _sports_target_date(report: schema.Report) -> Optional[str]:
+    for note in report.planning_notes:
+        match = re.search(r"\bnba-slate-date:(20\d{2}-\d{2}-\d{2})\b", str(note))
+        if match:
+            return match.group(1)
+    base = _report_base_date(report)
+    topic_lower = report.topic.lower()
+    if base and ("tomorrow" in topic_lower or "tomorrows" in topic_lower):
+        return (base + timedelta(days=1)).isoformat()
+    if base and ("today" in topic_lower or "tonight" in topic_lower):
+        return base.isoformat()
+    refs = sorted(_date_refs(report.topic, default_year=base.year if base else None))
+    full_refs = [ref for ref in refs if re.match(r"^20\d{2}-\d{2}-\d{2}$", ref)]
+    return full_refs[0] if full_refs else None
+
+
+def _sports_market_date_compatible(item, target_date: Optional[str]) -> bool:
+    if not target_date:
+        return True
+    market_text = " ".join(
+        str(part)
+        for part in (
+            getattr(item, "title", ""),
+            getattr(item, "question", ""),
+            getattr(item, "url", ""),
+            getattr(item, "ticker", ""),
+            getattr(item, "event_ticker", ""),
+            getattr(item, "end_date", ""),
+            getattr(item, "end_datetime", ""),
+        )
+        if part
+    )
+    refs = _date_refs(market_text)
+    if not refs:
+        return True
+    try:
+        target = datetime.fromisoformat(target_date).date()
+        allowed = {target.isoformat(), (target + timedelta(days=1)).isoformat(), target.strftime("%m-%d")}
+    except ValueError:
+        allowed = {target_date, target_date[5:]}
+    return bool(refs & allowed)
 
 
 def _matchup_side_tokens(text: str) -> list[set[str]]:
@@ -784,6 +858,12 @@ def _render_prediction_summary(report: schema.Report) -> list[str]:
                 "",
             ]
         return []
+    if _is_nba_slate_topic(report.topic):
+        lines = ["### Slate Forecast Board", ""]
+        for forecast in report.forecasts:
+            lines.extend(_render_forecast_item(forecast))
+            lines.append("")
+        return lines
     if len(report.forecasts) > 1:
         lines = ["### Slate Forecast Board", ""]
         for forecast in report.forecasts:
@@ -1475,7 +1555,12 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         elif query_kind == "market_watchlist" or suppress_unused_poly:
             market_items = []
         if _is_nba_slate_topic(report.topic):
-            market_items = [item for item in market_items if _is_direct_nba_market_item(item)]
+            target_date = _sports_target_date(report)
+            market_items = [
+                item
+                for item in market_items
+                if _is_direct_nba_market_item(item) and _sports_market_date_compatible(item, target_date)
+            ]
         if not market_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Polymarket markets found after league filtering.*")
             lines.append("")
@@ -1549,7 +1634,12 @@ def render_compact(report: schema.Report, limit: int = 15, missing_keys: str = "
         elif query_kind == "market_watchlist" or suppress_unused_kalshi:
             kalshi_items = []
         if _is_nba_slate_topic(report.topic):
-            kalshi_items = [item for item in kalshi_items if _is_direct_nba_market_item(item)]
+            target_date = _sports_target_date(report)
+            kalshi_items = [
+                item
+                for item in kalshi_items
+                if _is_direct_nba_market_item(item) and _sports_market_date_compatible(item, target_date)
+            ]
         if not kalshi_items and _is_nba_slate_topic(report.topic):
             lines.append("*No direct NBA game Kalshi markets found after league filtering.*")
             lines.append("")

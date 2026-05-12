@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.97] - 2026-05-12
+
+### Added
+- `tests/test_forecast_watchlist.py`: Added regressions for single-matchup NBA slate rendering and for hiding wrong-date NBA pricing rows when a slate correctly fails closed.
+
+### Fixed
+- `scripts/lib/render.py`: NBA slate forecasts now stay in slate-board format even when only one direct matchup survives, instead of falling back to the generic single-forecast presentation.
+- `scripts/lib/render.py`: NBA slate pricing sections now apply date compatibility filtering before rendering direct game rows, preventing wrong-date markets from appearing under `tomorrows nba games` when no compatible slate row exists.
+
 ## [1.0.96] - 2026-05-09
 
 ### Added

@@ -133,6 +133,65 @@ class ForecastWatchlistTests(unittest.TestCase):
         self.assertNotIn("Spread: Rockets (-4.5)", output)
         self.assertNotIn("Who Will Win Series", output)
 
+    def test_single_nba_slate_matchup_still_renders_slate_board(self):
+        report = _report("tomorrows nba games")
+        report.forecasts = [
+            schema.ForecastItem(
+                title="Cavaliers vs. Pistons",
+                forecast_probability=0.62,
+                forecast_range_low=0.58,
+                forecast_range_high=0.66,
+                favorite_label="Pistons",
+                polymarket_market_id="PM3",
+                anchor_source="polymarket",
+                market_view="Polymarket 62%",
+                why_line="Mostly market-driven right now.",
+                confidence_level="moderate-low",
+                uncertainty="Confidence is moderate-low.",
+            )
+        ]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM3",
+                title="Cavaliers vs. Pistons",
+                question="Cavaliers vs. Pistons",
+                url="https://polymarket.com/event/nba-cle-det-2026-05-13",
+                outcome_prices=[("Cavaliers", 0.38), ("Pistons", 0.62)],
+                engagement=_engagement(),
+                market_type="game_outcome",
+                relevance=0.9,
+                score=82,
+            )
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("### Slate Forecast Board", output)
+        self.assertIn("**Cavaliers vs. Pistons**", output)
+        self.assertNotIn("Forecast: No direct slate forecast available", output)
+
+    def test_nba_slate_pricing_hides_wrong_date_markets_when_no_matchup_survives(self):
+        report = _report("tomorrows nba games")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Timberwolves vs. Spurs",
+                question="Timberwolves vs. Spurs",
+                url="https://polymarket.com/event/nba-min-sas-2026-05-12",
+                outcome_prices=[("Timberwolves", 0.22), ("Spurs", 0.78)],
+                engagement=_engagement(),
+                market_type="game_outcome",
+                relevance=0.95,
+                score=90,
+            )
+        ]
+
+        output = render.render_compact(report)
+
+        self.assertIn("Forecast: No direct slate forecast available", output)
+        self.assertIn("*No direct NBA game Polymarket markets found after league filtering.*", output)
+        self.assertNotIn("Timberwolves vs. Spurs", output)
+
     def test_nba_slate_x_section_filters_how_to_watch_and_ats_copy(self):
         report = _report("NBA matchups April 21 through April 23")
         report.forecasts = [
