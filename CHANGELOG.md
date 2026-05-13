@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.98] - 2026-05-13
+
+### Added
+- `scripts/paper.py`: Added closing-soon dry-run candidate diagnostics, default-portfolio open-row summaries, closing-soon topic health summaries, and dry-run latency outlier reporting so the narrowed automation can report candidate starvation and slow prompts more directly.
+- `tests/test_forecast_watchlist.py` and `tests/test_paper_ledger.py`: Added regressions for closing-soon survivor recovery, dry-run candidate diagnostics, Kalshi paper timeout forwarding, and paper quick-mode source narrowing for weather and LoL direct-match prompts.
+
+### Fixed
+- `scripts/lib/closing_soon.py`, `scripts/lib/market_watchlist.py`, and `scripts/last24hours.py`: Broadened closing-soon seed diversity and added a resolver-compatible recovery floor so near-expiry Polymarket and crypto rows survive thin-evidence ranking without reopening expired, settled, low-liquidity, or wrong-domain rows.
+- `scripts/paper.py`: Tightened paper quick-mode routing so `NYC rain tomorrow` goes weather-first, `League of Legends matches today` goes direct-market-first, and Kalshi closing-soon dry-runs forward a larger internal timeout instead of degrading before structured JSON output is produced.
+
 ## [1.0.97] - 2026-05-12
 
 ### Added

@@ -100,6 +100,9 @@ class ClosingSoonTests(unittest.TestCase):
         self.assertTrue(any("ethereum up or down" in seed for seed in lowered))
         self.assertTrue(any("solana" in seed for seed in lowered))
 
+    def test_crypto_closing_soon_prefers_polymarket_lane(self):
+        self.assertEqual(closing_soon.preferred_venue("crypto markets closing soon tonight"), "polymarket")
+
     def test_scanner_keeps_end_datetime_and_minutes_to_close(self):
         now = datetime(2026, 4, 20, 4, 0, tzinfo=timezone.utc)
         event = _market_event("btc-daily", "Bitcoin Up or Down on April 19?", "2026-04-20T06:00:00Z")

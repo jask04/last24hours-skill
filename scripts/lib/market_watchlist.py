@@ -1440,6 +1440,27 @@ def _kalshi_closing_actionable(
     return True
 
 
+def _closing_supported_candidate(
+    market_type: str,
+    resolvability: str,
+    quality: float,
+    spread_quality: float,
+    volume: Optional[float],
+    liquidity: Optional[float],
+) -> bool:
+    if market_type not in {"crypto_daily", "threshold", "weather_binary", "game_outcome"}:
+        return False
+    if "manual rule check required" in (resolvability or "").lower():
+        return False
+    if (volume or 0.0) <= 0 and (liquidity or 0.0) <= 0:
+        return False
+    if quality < 0.18:
+        return False
+    if spread_quality < 0.10:
+        return False
+    return True
+
+
 def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, other_items: list) -> Optional[schema.MarketWatchItem]:
     base_date = _report_base_date(report)
     if _is_bad_candidate(report.topic, item, base_date=base_date):
@@ -1614,6 +1635,19 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
             return None
         if rank_score < 24:
             rank_score = max(rank_score, 26)
+    if (
+        closing_mode
+        and closing_reason in {"closing_soon", "starting_soon", "live_sports"}
+        and _closing_supported_candidate(market_type, resolvability, quality, spread_quality, volume, liquidity)
+    ):
+        recovery_floor = 24
+        if closing_signal >= 0.60:
+            recovery_floor = 28
+        elif closing_signal >= 0.40:
+            recovery_floor = 26
+        if venue.lower() == "kalshi":
+            recovery_floor = max(recovery_floor, 26)
+        rank_score = max(rank_score, recovery_floor)
 
     if domain == "esports" and market_type == "esports_prop":
         rank_score = _esports_prop_rank_adjust(rank_score, evidence_score, movement, quality)

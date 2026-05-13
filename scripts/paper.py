@@ -56,10 +56,33 @@ def _paper_watchlist_fast_args(topic: str, extra_args: Optional[List[str]] = Non
     if "--paper-fast-watchlist" not in args:
         args.append("--paper-fast-watchlist")
     if "--search" in args or any(str(arg).startswith("--search=") for arg in args):
+        if "kalshi" in lowered and "--timeout" not in args and not any(str(arg).startswith("--timeout=") for arg in args):
+            args.extend(["--timeout", "90"])
         return args
     if "kalshi" in lowered:
         args.extend(["--search", "kalshi"])
+        if "--timeout" not in args and not any(str(arg).startswith("--timeout=") for arg in args):
+            args.extend(["--timeout", "90"])
     else:
+        args.extend(["--search", "polymarket"])
+    return args
+
+
+def _paper_prediction_fast_args(topic: str, extra_args: Optional[List[str]] = None, *, quick: bool = False) -> List[str]:
+    args = list(extra_args or [])
+    if not quick:
+        return args
+    if "--search" in args or any(str(arg).startswith("--search=") for arg in args):
+        return args
+    lowered = (topic or "").lower()
+    if weather.is_weather_query(topic):
+        args.extend(["--search", "weather"])
+        return args
+    if (
+        eq.is_esports_query(lowered)
+        and not eq.is_esports_player_prop_query(lowered)
+        and any(term in lowered for term in ("matches today", "matches tonight", "matches now"))
+    ):
         args.extend(["--search", "polymarket"])
     return args
 
@@ -1050,7 +1073,11 @@ def _run_last24hours(
     *,
     timeout_seconds: int = 180,
 ) -> Dict[str, Any]:
-    forwarded_args = _paper_watchlist_fast_args(topic, extra_args)
+    query_type = qt.detect_query_type(topic)
+    if query_type == "market_watchlist":
+        forwarded_args = _paper_watchlist_fast_args(topic, extra_args)
+    else:
+        forwarded_args = _paper_prediction_fast_args(topic, extra_args, quick=quick)
     cmd = [sys.executable, str(SCRIPT_DIR / "last24hours.py"), topic, "--emit=json", "--no-native-web"]
     if quick:
         cmd.append("--quick")
@@ -2137,6 +2164,18 @@ def _closing_soon_raw_candidates(report: Dict[str, Any]) -> List[Dict[str, Any]]
     return candidates
 
 
+def _closing_soon_candidate_diagnostics(topic: str, report: Dict[str, Any]) -> Dict[str, Any]:
+    raw_candidates = _closing_soon_raw_candidates(report)
+    compatible_candidates = [item for item in raw_candidates if not _closing_soon_item_reason_class(topic, item)]
+    board_survivors = list(report.get("market_watchlist") or [])
+    return {
+        "raw_candidates": len(raw_candidates),
+        "compatible_candidates": len(compatible_candidates),
+        "final_board_survivors": len(board_survivors),
+        "dominant_reason_class": _closing_soon_reason_class_for_report(topic, report) or "",
+    }
+
+
 def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) -> str:
     raw_candidates = _closing_soon_raw_candidates(report)
     if not raw_candidates:
@@ -2152,6 +2191,75 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
         if preferred in reasons:
             return preferred
     return "all_candidates_low_quality"
+
+
+def _default_portfolio_topics() -> List[str]:
+    try:
+        return [str(entry.get("topic") or "") for entry in _load_portfolio(DEFAULT_PORTFOLIO) if entry.get("topic")]
+    except Exception:
+        return []
+
+
+def open_default_portfolio_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = set(_default_portfolio_topics())
+    relevant = [
+        pick for pick in picks
+        if pick.get("status") in {"open", "unknown"} and str(pick.get("topic") or "") in topics
+    ]
+    by_topic: Dict[str, int] = {}
+    by_runtime_lane: Dict[str, int] = {}
+    rows: List[Dict[str, Any]] = []
+    for pick in relevant:
+        topic = str(pick.get("topic") or "")
+        lane = _runtime_lane(topic, pick)
+        by_topic[topic] = by_topic.get(topic, 0) + 1
+        by_runtime_lane[lane] = by_runtime_lane.get(lane, 0) + 1
+        if len(rows) < 12:
+            rows.append({
+                "id": pick.get("id"),
+                "topic": topic,
+                "runtime_lane": lane,
+                "title": pick.get("title") or pick.get("question") or "",
+                "status": pick.get("status") or "",
+                "venue": pick.get("venue") or "",
+                "market_type": pick.get("market_type") or "",
+                "skill_version": pick.get("skill_version") or "",
+            })
+    return {
+        "count": len(relevant),
+        "by_topic": dict(sorted(by_topic.items())),
+        "by_runtime_lane": dict(sorted(by_runtime_lane.items())),
+        "rows": rows,
+        "empty_reason": "" if relevant else "No open default-portfolio rows right now.",
+    }
+
+
+def closing_soon_topic_health_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = [
+        "Polymarket markets closing soon",
+        "Kalshi markets closing soon",
+        "crypto markets closing soon tonight",
+    ]
+    relevant = [
+        pick for pick in picks
+        if str(pick.get("topic") or "") in topics
+    ]
+    by_topic: Dict[str, Dict[str, Any]] = {}
+    for topic in topics:
+        rows = [pick for pick in relevant if str(pick.get("topic") or "") == topic]
+        by_topic[topic] = {
+            "count": len(rows),
+            "open_count": sum(1 for pick in rows if pick.get("status") in {"open", "unknown"}),
+            "resolved_count": sum(1 for pick in rows if pick.get("status") == "resolved"),
+            "by_market_type": dict(sorted({
+                market_type: sum(1 for pick in rows if str(pick.get("market_type") or "") == market_type)
+                for market_type in {str(pick.get("market_type") or "") for pick in rows if pick.get("market_type")}
+            }.items())),
+        }
+    return {
+        "topics": by_topic,
+        "empty_reason": "" if relevant else "No closing-soon portfolio rows in the selected report window.",
+    }
 
 
 def _bundle_reason_class_for_report(report: Dict[str, Any]) -> str:
@@ -2340,7 +2448,7 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
     topic = str(entry.get("topic") or "")
     timeout_seconds = DRY_RUN_TOPIC_TIMEOUT_SECONDS
     if _is_closing_soon_paper_topic(topic) and closing_soon.preferred_venue(topic) == "kalshi":
-        timeout_seconds = max(timeout_seconds, 60)
+        timeout_seconds = max(timeout_seconds, 100)
     try:
         report = _run_last24hours(
             entry["topic"],
@@ -2368,6 +2476,8 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         result["elapsed_seconds"] = round(time.time() - started, 2)
         result["warnings"].append(f"{entry['topic']}: dry-run failed with {type(exc).__name__}: {exc}")
         return result
+    if _is_closing_soon_paper_topic(topic):
+        result["diagnostic_counts"] = _closing_soon_candidate_diagnostics(topic, report)
     picks = extract_paper_picks(report)
     result["extracted_pick_count"] = len(picks)
     picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
@@ -2940,10 +3050,20 @@ def cmd_daily(args) -> None:
                 results.append(_daily_dry_run_entry(entry, quick=args.quick))
             except Exception as exc:
                 errors.append(f"{entry['topic']}: {type(exc).__name__}: {exc}")
+        latency_outliers = [
+            {
+                "topic": entry.get("topic") or "",
+                "elapsed_seconds": entry.get("elapsed_seconds", 0),
+                "status": entry.get("status") or "",
+            }
+            for entry in sorted(results, key=lambda item: float(item.get("elapsed_seconds") or 0), reverse=True)
+            if float(entry.get("elapsed_seconds") or 0) >= 20.0
+        ][:5]
         print(json.dumps({
             "dry_run": True,
             "topics": [entry["topic"] for entry in entries],
             "results": results,
+            "latency_outliers": latency_outliers,
             "errors": errors,
         }, indent=2))
         return
@@ -3003,11 +3123,13 @@ def cmd_report(args) -> None:
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
         "closing_soon_health": closing_soon_health_summary(recent),
+        "closing_soon_topic_health": closing_soon_topic_health_summary(recent),
         "kalshi_live_board_sample": kalshi_live_board_summary(recent),
         "recent_resolution_summary": recent_resolution_summary(recent),
         "resolution_learning_summary": resolution_learning_summary(recent),
         "probability_bucket_65_80_health": probability_bucket_health_summary(recent, bucket="65-80"),
         "open_portfolio": open_pick_diagnostics(recent),
+        "open_default_portfolio": open_default_portfolio_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))
 

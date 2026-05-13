@@ -640,7 +640,7 @@ class PaperExtractionTests(unittest.TestCase):
         )
         self.assertEqual(
             paper._paper_watchlist_fast_args("Kalshi markets closing soon", []),
-            ["--paper-fast-watchlist", "--search", "kalshi"],
+            ["--paper-fast-watchlist", "--search", "kalshi", "--timeout", "90"],
         )
         self.assertEqual(
             paper._paper_watchlist_fast_args("AI coding tools markets to watch today", []),
@@ -732,6 +732,10 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(by_topic["Polymarket markets closing soon"]["status"], "no_compatible_pick")
         self.assertEqual(by_topic["Polymarket markets closing soon"]["reason_class"], "all_candidates_effectively_settled")
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["reason_class"], "domain_mismatch")
+        self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["raw_candidates"], 0)
+        self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["final_board_survivors"], 0)
+        self.assertEqual(by_topic["crypto markets closing soon tonight"]["diagnostic_counts"]["raw_candidates"], 1)
+        self.assertEqual(by_topic["crypto markets closing soon tonight"]["diagnostic_counts"]["compatible_candidates"], 0)
 
     def test_cmd_daily_dry_run_reports_bundle_specific_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
@@ -760,6 +764,37 @@ class PaperExtractionTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["results"][0]["status"], "no_compatible_pick")
         self.assertEqual(payload["results"][0]["reason_class"], "no_future_games_in_window")
+
+    def test_run_last24hours_uses_weather_only_search_for_weather_quick_prediction(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            paper._run_last24hours("NYC rain tomorrow", quick=True)
+
+        cmd = run.call_args.kwargs["args"] if "args" in run.call_args.kwargs else run.call_args.args[0]
+        self.assertIn("--search", cmd)
+        self.assertIn("weather", cmd)
+
+    def test_run_last24hours_uses_kalshi_timeout_for_closing_soon_watchlists(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            paper._run_last24hours("Kalshi markets closing soon", quick=True, timeout_seconds=100)
+
+        cmd = run.call_args.kwargs["args"] if "args" in run.call_args.kwargs else run.call_args.args[0]
+        self.assertIn("--paper-fast-watchlist", cmd)
+        self.assertIn("--search", cmd)
+        self.assertIn("kalshi", cmd)
+        self.assertIn("--timeout", cmd)
+        timeout_index = cmd.index("--timeout")
+        self.assertEqual(cmd[timeout_index + 1], "90")
+
+    def test_run_last24hours_uses_polymarket_only_search_for_quick_esports_match_predictions(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            paper._run_last24hours("League of Legends matches today", quick=True)
+
+        cmd = run.call_args.kwargs["args"] if "args" in run.call_args.kwargs else run.call_args.args[0]
+        self.assertIn("--search", cmd)
+        self.assertIn("polymarket", cmd)
 
     def test_extract_paper_picks_rejects_non_crypto_closing_soon_watchlist_row(self):
         report = {
@@ -1885,6 +1920,37 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(kalshi_specialist["topic_visibility"], ["Fed rate cut by June"])
         self.assertEqual(experimental["count"], 1)
         self.assertEqual(experimental["topic_visibility"], ["TenZ total kills tonight"])
+
+    def test_open_default_portfolio_and_closing_soon_topic_health_summaries(self):
+        picks = [
+            {
+                "id": 1,
+                "status": "open",
+                "topic": "Polymarket markets closing soon",
+                "query_type": "market_watchlist",
+                "pick_type": "watchlist",
+                "market_type": "crypto_daily",
+                "venue": "polymarket",
+            },
+            {
+                "id": 2,
+                "status": "unknown",
+                "topic": "Fed rate cut by June",
+                "query_type": "prediction",
+                "pick_type": "forecast",
+                "market_type": "macro_binary",
+                "venue": "kalshi",
+            },
+        ]
+
+        open_default = paper.open_default_portfolio_summary(picks)
+        closing_health = paper.closing_soon_topic_health_summary(picks)
+
+        self.assertEqual(open_default["count"], 2)
+        self.assertEqual(open_default["by_runtime_lane"]["core"], 1)
+        self.assertEqual(open_default["by_runtime_lane"]["kalshi_specialist"], 1)
+        self.assertEqual(closing_health["topics"]["Polymarket markets closing soon"]["count"], 1)
+        self.assertEqual(closing_health["topics"]["Kalshi markets closing soon"]["count"], 0)
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

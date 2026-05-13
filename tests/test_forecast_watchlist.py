@@ -2274,6 +2274,36 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertIn("all failed final resolver/actionability checks", compact)
 
+    def test_polymarket_closing_soon_supported_candidate_survives_thin_evidence(self):
+        report = _report("Polymarket markets closing soon")
+        report.planning_notes = ["closing_soon"]
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM_CLOSE",
+                title="Bitcoin Up or Down - April 23, 4PM ET",
+                question="Bitcoin Up or Down - April 23, 4PM ET",
+                url="https://polymarket.com/event/btc-up-down-apr23-4pm",
+                outcome_prices=[("Up", 0.43), ("Down", 0.57)],
+                engagement=_engagement(volume=32_000, liquidity=18_000),
+                market_type="crypto_daily",
+                market_signal_quality=0.24,
+                volume_24h=32_000,
+                best_bid=0.42,
+                best_ask=0.45,
+                spread=0.03,
+                relevance=0.40,
+                minutes_to_close=74.0,
+                closing_soon_reason="closing_soon",
+                resolvability="crypto reference-price market; verify Polymarket rules and live reference price",
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=3)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_item_id, "PM_CLOSE")
+        self.assertIn("closing soon", items[0].why_ranks)
+
     def test_nba_watchlist_rejects_ticket_available_as_catalyst(self):
         report = _report("NBA markets to watch today")
         report.polymarket = [

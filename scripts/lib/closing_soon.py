@@ -45,6 +45,8 @@ def preferred_venue(topic: str) -> str:
     lowered = (topic or "").lower()
     if "kalshi" in lowered:
         return "kalshi"
+    if any(token in lowered for token in ("crypto", "bitcoin", "ethereum", "solana", "btc", "eth", "sol")):
+        return "polymarket"
     if "polymarket" in lowered:
         return "polymarket"
     return ""
@@ -120,12 +122,18 @@ def closing_search_topics(
             f"bitcoin up or down {local_today.strftime('%B')} {local_today.day}",
             f"ethereum up or down {local_today.strftime('%B')} {local_today.day}",
             f"solana up or down {local_today.strftime('%B')} {local_today.day}",
+            f"bitcoin price {local_today.strftime('%B')} {local_today.day}",
+            f"ethereum price {local_today.strftime('%B')} {local_today.day}",
+            f"solana price {local_today.strftime('%B')} {local_today.day}",
             f"bitcoin {local_today.strftime('%B')} {local_today.day}",
             f"ethereum {local_today.strftime('%B')} {local_today.day}",
             f"solana {local_today.strftime('%B')} {local_today.day}",
             "bitcoin up or down today",
             "ethereum up or down today",
             "solana up or down today",
+            "bitcoin price today",
+            "ethereum price today",
+            "solana price today",
             "crypto daily",
             "crypto tonight",
         ])
@@ -136,11 +144,13 @@ def closing_search_topics(
             f"jobs {local_today.strftime('%B')} {local_today.day}",
             f"bitcoin {local_today.strftime('%B')} {local_today.day}",
             f"temperature {local_today.strftime('%B')} {local_today.day}",
+            f"ai {local_today.strftime('%B')} {local_today.day}",
             "fed",
             "cpi",
             "jobs",
             "bitcoin",
             "temperature",
+            "ai",
         ])
     elif is_weather:
         _extend_unique(seeds, [
@@ -158,10 +168,14 @@ def closing_search_topics(
             f"ethereum up or down {local_today.strftime('%B')} {local_today.day}",
             f"temperature {local_today.strftime('%B')} {local_today.day}",
             f"fed {local_today.strftime('%B')} {local_today.day}",
+            f"cpi {local_today.strftime('%B')} {local_today.day}",
+            f"jobs {local_today.strftime('%B')} {local_today.day}",
             "bitcoin up or down today",
             "ethereum up or down today",
             "temperature today",
             "fed today",
+            "cpi today",
+            "jobs today",
             "NBA today",
             "sports today",
         ])
