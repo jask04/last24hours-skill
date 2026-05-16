@@ -977,6 +977,57 @@ class PaperExtractionTests(unittest.TestCase):
             ],
         )
 
+    def test_cmd_daily_adds_kalshi_specialist_dry_run_summary(self):
+        portfolio_path = Path(self.tmp.name) / "paper_portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Kalshi markets closing soon", "enabled": True},
+            {"topic": "Fed rate cut by June", "enabled": True},
+            {"topic": "Counter-Strike 2 matches today", "enabled": True},
+        ]), encoding="utf-8")
+
+        mocked = [
+            {
+                "topic": "Kalshi markets closing soon",
+                "runtime_lane": "kalshi_specialist",
+                "status": "no_compatible_pick",
+                "reason_class": "no_near_expiry_candidates",
+                "elapsed_seconds": 24.0,
+            },
+            {
+                "topic": "Fed rate cut by June",
+                "runtime_lane": "kalshi_specialist",
+                "status": "duplicate_skip",
+                "reason_class": "",
+                "elapsed_seconds": 6.0,
+            },
+            {
+                "topic": "Counter-Strike 2 matches today",
+                "runtime_lane": "core",
+                "status": "ready",
+                "reason_class": "",
+                "elapsed_seconds": 4.0,
+            },
+        ]
+        with mock.patch("scripts.paper._daily_dry_run_entry", side_effect=mocked), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        summary = payload["kalshi_specialist_dry_run"]
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["rows"][0]["topic"], "Kalshi markets closing soon")
+        self.assertEqual(
+            summary["latency_outliers"],
+            [
+                {
+                    "topic": "Kalshi markets closing soon",
+                    "elapsed_seconds": 24.0,
+                    "status": "no_compatible_pick",
+                    "reason_class": "no_near_expiry_candidates",
+                }
+            ],
+        )
+
     def test_closing_soon_health_summary_groups_watchlist_rows(self):
         picks = [
             {
@@ -2054,6 +2105,9 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(open_default["by_runtime_lane"]["kalshi_specialist"], 1)
         self.assertEqual(closing_health["topics"]["Polymarket markets closing soon"]["count"], 1)
         self.assertEqual(closing_health["topics"]["Kalshi markets closing soon"]["count"], 0)
+        specialist_open = paper.kalshi_specialist_open_summary(picks)
+        self.assertEqual(specialist_open["count"], 1)
+        self.assertEqual(specialist_open["by_topic"]["Fed rate cut by June"], 1)
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

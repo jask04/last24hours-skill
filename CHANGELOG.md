@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-16
+
+### Added
+- `scripts/paper.py`: Added `kalshi_specialist_open_summary` to reports and a `kalshi_specialist_dry_run` slice to dry-run output so the thinnest specialist lane is easier to monitor without schema changes.
+- `tests/test_forecast_watchlist.py`, `tests/test_paper_ledger.py`, and `tests/test_reliability_batch.py`: Added regressions for README release-memory cleanup, Kalshi snapshot ranking, and Kalshi specialist dry-run reporting.
+
+### Fixed
+- `README.md`: Removed the internal `Release Discipline` section from the public docs while keeping rollover rules in local project memory.
+- `scripts/lib/market_watchlist.py` and `scripts/lib/render.py`: Tightened Kalshi specialist ranking and empty-state messaging so nearer quoted-depth rows win more often and thin/manual-rule-heavy closing-soon supply explains itself more clearly.
+- `scripts/last24hours.py`: Reduced the dedicated fast-path scan budget for explicit Kalshi closing-soon prompts so specialist no-supply checks do less unnecessary work before failing closed.
+
+### Safety
+- No schema migration
+- No historical ledger rewrite
+- No portfolio broadening or experimental-surface revival
+
 ## [1.0.99] - 2026-05-15
 
 ### Added

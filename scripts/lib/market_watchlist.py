@@ -1428,10 +1428,13 @@ def _kalshi_closing_actionable(
     volume: Optional[float],
     liquidity: Optional[float],
     resolvability: str,
+    minutes_to_close: Optional[float] = None,
 ) -> bool:
     if "manual rule check required" in (resolvability or "").lower():
         return False
     if (volume or 0.0) <= 0 and (liquidity or 0.0) <= 0:
+        return False
+    if minutes_to_close is not None and minutes_to_close > (24 * 60):
         return False
     if quality < 0.30:
         return False
@@ -1622,15 +1625,35 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         rank_score = max(0, rank_score - 10)
     if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0:
         zero_depth_days = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
+        if zero_depth_days is not None and zero_depth_days > 3:
+            rank_score = max(0, rank_score - 4)
         if zero_depth_days is not None and zero_depth_days > 7:
-            rank_score = max(0, rank_score - 4)
+            rank_score = max(0, rank_score - 6)
         if zero_depth_days is not None and zero_depth_days > 14:
-            rank_score = max(0, rank_score - 4)
-        if _has_nearer_snapshot_depth_peer(report, venue, item):
             rank_score = max(0, rank_score - 8)
+        if _has_nearer_snapshot_depth_peer(report, venue, item):
+            rank_score = max(0, rank_score - 12)
+    if (
+        snapshot_mode
+        and venue.lower() == "kalshi"
+        and (liquidity or 0.0) > 0
+        and spread_quality >= 0.55
+    ):
+        days_to_end = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
+        if days_to_end is not None and days_to_end <= 3:
+            rank_score = min(100, rank_score + 4)
+        if days_to_end is not None and days_to_end <= 1:
+            rank_score = min(100, rank_score + 2)
 
     if closing_mode and venue.lower() == "kalshi" and closing_reason == "closing_soon":
-        if not _kalshi_closing_actionable(quality, spread_quality, volume, liquidity, resolvability):
+        if not _kalshi_closing_actionable(
+            quality,
+            spread_quality,
+            volume,
+            liquidity,
+            resolvability,
+            getattr(item, "minutes_to_close", None),
+        ):
             _bump_debug_counter(report, "suppressed_kalshi_closing_actionability_candidates")
             return None
         if rank_score < 24:

@@ -2263,6 +2263,45 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
     return "all_candidates_low_quality"
 
 
+def _kalshi_specialist_latency_outliers(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    outliers = []
+    for entry in sorted(results, key=lambda item: float(item.get("elapsed_seconds") or 0), reverse=True):
+        topic = str(entry.get("topic") or "")
+        if _runtime_lane(topic) != "kalshi_specialist":
+            continue
+        elapsed = float(entry.get("elapsed_seconds") or 0)
+        if elapsed < 10.0:
+            continue
+        outliers.append({
+            "topic": topic,
+            "elapsed_seconds": entry.get("elapsed_seconds", 0),
+            "status": entry.get("status") or "",
+            "reason_class": entry.get("reason_class") or "",
+        })
+    return outliers[:5]
+
+
+def _kalshi_specialist_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rows = []
+    for entry in results:
+        topic = str(entry.get("topic") or "")
+        if _runtime_lane(topic) != "kalshi_specialist":
+            continue
+        rows.append({
+            "topic": topic,
+            "status": entry.get("status") or "",
+            "reason_class": entry.get("reason_class") or "",
+            "elapsed_seconds": entry.get("elapsed_seconds", 0),
+            "runtime_failure_class": entry.get("runtime_failure_class") or "",
+        })
+    return {
+        "count": len(rows),
+        "rows": rows,
+        "latency_outliers": _kalshi_specialist_latency_outliers(results),
+        "empty_reason": "" if rows else "No Kalshi specialist dry-run topics in this portfolio.",
+    }
+
+
 def _default_portfolio_topics() -> List[str]:
     try:
         return [str(entry.get("topic") or "") for entry in _load_portfolio(DEFAULT_PORTFOLIO) if entry.get("topic")]
@@ -2301,6 +2340,36 @@ def open_default_portfolio_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any
         "by_runtime_lane": dict(sorted(by_runtime_lane.items())),
         "rows": rows,
         "empty_reason": "" if relevant else "No open default-portfolio rows right now.",
+    }
+
+
+def kalshi_specialist_open_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    relevant = []
+    by_topic: Dict[str, int] = {}
+    rows: List[Dict[str, Any]] = []
+    for pick in picks:
+        topic = str(pick.get("topic") or "")
+        if pick.get("status") not in {"open", "unknown"}:
+            continue
+        if _runtime_lane(topic, pick) != "kalshi_specialist":
+            continue
+        relevant.append(pick)
+        by_topic[topic] = by_topic.get(topic, 0) + 1
+        if len(rows) < 12:
+            rows.append({
+                "id": pick.get("id"),
+                "topic": topic,
+                "title": pick.get("title") or pick.get("question") or "",
+                "status": pick.get("status") or "",
+                "venue": pick.get("venue") or "",
+                "market_type": pick.get("market_type") or "",
+                "skill_version": pick.get("skill_version") or "",
+            })
+    return {
+        "count": len(relevant),
+        "by_topic": dict(sorted(by_topic.items())),
+        "rows": rows,
+        "empty_reason": "" if relevant else "No open Kalshi specialist rows right now.",
     }
 
 
@@ -2507,6 +2576,7 @@ def _kalshi_closing_failure_summary(counters: Dict[str, int]) -> str:
 def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "topic": entry["topic"],
+        "runtime_lane": _runtime_lane(str(entry.get("topic") or ""), entry),
         "last24hours_args": list(entry.get("last24hours_args", [])),
         "pick_policy": entry.get("pick_policy", "default"),
         "dedupe_policy": entry.get("dedupe_policy", "allow"),
@@ -3155,6 +3225,7 @@ def cmd_daily(args) -> None:
             "topics": [entry["topic"] for entry in entries],
             "results": results,
             "latency_outliers": latency_outliers,
+            "kalshi_specialist_dry_run": _kalshi_specialist_dry_run_summary(results),
             "errors": errors,
         }, indent=2))
         return
@@ -3210,6 +3281,7 @@ def cmd_report(args) -> None:
         "current_skill_comparable_sample": comparable,
         "core_sample": runtime_lane_summary(recent, "core"),
         "kalshi_specialist_sample": runtime_lane_summary(recent, "kalshi_specialist"),
+        "kalshi_specialist_open_summary": kalshi_specialist_open_summary(recent),
         "experimental_sample": runtime_lane_summary(recent, "experimental"),
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),

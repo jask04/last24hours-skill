@@ -2671,7 +2671,7 @@ def main():
         )
     )
     kalshi_fast_scan = kalshi_closing_fast_path and (depth == "quick" or args.paper_fast_watchlist)
-    closing_seed_cap = 4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12
+    closing_seed_cap = 3 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12
 
     if kalshi_closing_fast_path:
         sources = "none"
@@ -2900,11 +2900,11 @@ def main():
                     to_date,
                     window_hours=max(1, args.closing_window_hours),
                     diagnostics=kalshi_closing_diagnostics,
-                    max_seeds=4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12,
-                    max_candidates=6 if kalshi_fast_scan else 16 if args.paper_fast_watchlist else 25,
-                    raw_cap_per_seed=12 if kalshi_fast_scan else 24 if args.paper_fast_watchlist else 40,
+                    max_seeds=3 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12,
+                    max_candidates=4 if kalshi_fast_scan else 16 if args.paper_fast_watchlist else 25,
+                    raw_cap_per_seed=10 if kalshi_fast_scan else 24 if args.paper_fast_watchlist else 40,
                     search_depth="quick" if (args.paper_fast_watchlist or kalshi_fast_scan) else "default",
-                    stop_after_compatible=4 if kalshi_fast_scan else None,
+                    stop_after_compatible=2 if kalshi_fast_scan else None,
                 )
                 plan.notes.append(f"closing-ka-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
                 plan.notes.append(f"closing-ka-raw:{kalshi_closing_diagnostics.get('kalshi_raw_seen', 0)}")

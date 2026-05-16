@@ -583,9 +583,9 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 elif raw == 0:
                     lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s), but no Kalshi near-expiry rows were discovered.")
                 elif kalshi_actionability and candidates is not None and kalshi_actionability >= candidates:
-                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but all failed final resolver/actionability checks.")
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but all were too thin or too manual-rule-heavy to trust in the final board.")
                 elif raw is not None and candidates is not None:
-                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but none cleared final watchlist ranking.")
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but the remaining supply was still too weak for the final watchlist ranking.")
                 else:
                     lines.append("Kalshi closing-soon filter: needed active, liquid, non-expired Kalshi markets inside the close window.")
             else:

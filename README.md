@@ -1,4 +1,4 @@
-# /last24hours v1.0.99.
+# /last24hours v1.1.1.
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today`, `macro markets to watch around Fed cuts`, or `Kalshi markets right now`.
 
@@ -143,14 +143,6 @@ Video/social expansion is opt-in for watchlist prompts unless explicitly request
 Search planning is deterministic-first. Quick mode expands to a small set of exact market/topic queries and does not call extra entity-resolution web searches. Default/deep mode records native-web availability for future bounded entity resolution while preserving clean fallback behavior.
 
 Supporting evidence is fused across X, Reddit, web, HN, Bluesky, and Truth Social with source weights, domain quality filters, light clustering, and per-author caps. This selects cleaner drivers for `Why this is the current line` and market-watchlist catalyst notes without letting social evidence move a clean market anchor. Market-watchlist catalyst notes also reject generic promotional posts, signal-room pitches, picks/parlay chatter, and domain-mismatched snippets.
-
-## Release Discipline
-
-- Do not skip release numbers within the active version lane. Each shipped version should map to one focused commit and one push.
-- Continue the current `v1.0.x` lane through `v1.0.99`; the next release after that is `v1.1.1`, not `v1.0.100`.
-- After `v1.1.1`, use short ten-release minor lanes: `v1.N.1` through `v1.N.10`, then roll to `v1.(N+1).1`. Do not ship `.0` patch releases in those lanes.
-- If work naturally breaks into multiple release-sized updates, commit and push them separately in order instead of bundling several release numbers into one large commit.
-- If a version gap is discovered after push, backfill the release notes immediately and tighten the repo instructions before continuing with later versions.
 
 ## Installation
 

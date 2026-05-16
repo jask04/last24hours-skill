@@ -2272,7 +2272,57 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         compact = render.render_compact(report)
 
-        self.assertIn("all failed final resolver/actionability checks", compact)
+        self.assertIn("too thin or too manual-rule-heavy to trust", compact)
+
+    def test_kalshi_snapshot_prefers_nearer_quoted_depth_rows_over_long_dated_zero_depth(self):
+        report = _report("Kalshi markets right now")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA_NEAR",
+                title="Fed funds rate after Jun 2026 meeting?",
+                question="Fed funds rate after Jun 2026 meeting?",
+                url="https://kalshi.com/markets/fed-june",
+                ticker="KAFED-NEAR",
+                event_ticker="KAFED",
+                current_probability=0.53,
+                implied_probability=0.53,
+                best_bid=0.52,
+                best_ask=0.54,
+                spread=0.02,
+                volume_24h=18_000,
+                market_signal_quality=0.60,
+                engagement=_engagement(volume=18_000, liquidity=6_000, open_interest=14_000),
+                market_type="macro_binary",
+                end_date="2026-04-24",
+                resolvability="Kalshi market",
+                relevance=0.46,
+            ),
+            schema.KalshiItem(
+                id="KA_FAR",
+                title="Game 4: Detroit at Cleveland",
+                question="Game 4: Detroit at Cleveland",
+                url="https://kalshi.com/markets/nba-game4",
+                ticker="KANBA-FAR",
+                event_ticker="KANBA",
+                current_probability=0.49,
+                implied_probability=0.49,
+                best_bid=0.47,
+                best_ask=0.51,
+                spread=0.04,
+                volume_24h=26_000,
+                market_signal_quality=0.58,
+                engagement=_engagement(volume=26_000, liquidity=0, open_interest=23_000),
+                market_type="game_outcome",
+                end_date="2026-05-26",
+                resolvability="Kalshi market",
+                relevance=0.44,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=2)
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0].source_item_id, "KA_NEAR")
 
     def test_polymarket_closing_soon_supported_candidate_survives_thin_evidence(self):
         report = _report("Polymarket markets closing soon")

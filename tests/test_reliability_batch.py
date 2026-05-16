@@ -307,6 +307,17 @@ class VersionConsistencyTests(unittest.TestCase):
             self.assertNotIn(previous, text, relative)
             self.assertNotIn(f"v{previous}", text, relative)
 
+    def test_release_discipline_rules_live_in_agents_not_public_readme(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("## Release Discipline", readme)
+        self.assertNotIn("Do not skip release numbers within the active lane", readme)
+        self.assertNotIn("v1.0.100", readme)
+
+        self.assertIn("Continue the current `v1.0.x` line through `v1.0.99`", agents)
+        self.assertIn("After the `v1.1.1` rollover", agents)
+
 
 if __name__ == "__main__":
     unittest.main()
