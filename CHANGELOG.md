@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.99] - 2026-05-15
+
+### Added
+- `tests/test_paper_ledger.py`: Added regressions for per-topic paper dry-run elapsed timing, structured runtime classification, and latency-outlier reporting so the paper watchdog no longer trusts pathological timing artifacts.
+
+### Fixed
+- `scripts/paper.py`: Repaired dry-run elapsed-time accounting so `elapsed_seconds` is measured per topic with monotonic wall time and no longer inherits corrupted timing from prior portfolio entries.
+- `scripts/paper.py`: Classified child global timeouts, Kalshi search timeouts, and bounded paper runtime overruns as structured paper results instead of opaque generic runtime failures.
+- `scripts/last24hours.py`: Kept the dedicated Kalshi closing-soon fast path active during paper fast-watchlist runs even when the paper layer injects `--search kalshi`.
+- `scripts/last24hours.py`: Detached timed-out research futures during result collection so bounded source overruns stop blocking the paper subprocess after timeout classification.
+
+### Safety
+- No schema migration
+- No historical ledger rewrite
+- No portfolio expansion or source-breadth widening
+
 ## [1.0.98] - 2026-05-13
 
 ### Added

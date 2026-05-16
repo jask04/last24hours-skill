@@ -31,6 +31,23 @@ LAUNCHD_LABEL = "com.jask.last24hours.paper-daily"
 LAUNCHD_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
 DRY_RUN_TOPIC_TIMEOUT_SECONDS = 45
 
+
+class PaperRuntimeError(RuntimeError):
+    def __init__(
+        self,
+        kind: str,
+        message: str,
+        *,
+        elapsed_seconds: Optional[float] = None,
+        stderr: str = "",
+        returncode: Optional[int] = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = str(kind or "")
+        self.elapsed_seconds = elapsed_seconds
+        self.stderr = stderr
+        self.returncode = returncode
+
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import store
@@ -85,6 +102,43 @@ def _paper_prediction_fast_args(topic: str, extra_args: Optional[List[str]] = No
     ):
         args.extend(["--search", "polymarket"])
     return args
+
+
+def _classify_paper_runtime_failure(stderr: str, returncode: int) -> str:
+    text = str(stderr or "")
+    lowered = text.lower()
+    if "kalshi search timed out after" in lowered:
+        return "kalshi_search_timeout"
+    if "[timeout] global timeout" in lowered:
+        return "child_global_timeout"
+    if "timed out after" in lowered:
+        return "paper_runtime_timeout"
+    if returncode not in (0, None):
+        return "paper_runtime_failure"
+    return ""
+
+
+def _runtime_failure_message(topic: str, kind: str, stderr: str, returncode: int) -> str:
+    detail = " ".join(str(stderr or "").strip().split())
+    if kind == "kalshi_search_timeout":
+        return f"{topic}: Kalshi search timed out before structured paper output was produced."
+    if kind == "child_global_timeout":
+        return f"{topic}: child global timeout fired before structured paper output was produced."
+    if kind == "paper_runtime_timeout":
+        return f"{topic}: bounded runtime timeout occurred before structured paper output was produced."
+    if detail:
+        return f"{topic}: runtime failed with exit code {returncode}: {detail}"
+    return f"{topic}: runtime failed with exit code {returncode}."
+
+
+def _runtime_failure_diagnostics(exc: PaperRuntimeError) -> Dict[str, Any]:
+    excerpt = " ".join(str(exc.stderr or "").strip().split())
+    return {
+        "runtime_failure_class": exc.kind,
+        "observed_subprocess_seconds": round(float(exc.elapsed_seconds or 0.0), 2),
+        "returncode": exc.returncode,
+        "stderr_excerpt": excerpt[:240],
+    }
 
 
 def _is_closing_soon_paper_topic(topic: str) -> bool:
@@ -1083,10 +1137,26 @@ def _run_last24hours(
         cmd.append("--quick")
     for arg in forwarded_args:
         cmd.append(str(arg))
+    started = time.monotonic()
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=timeout_seconds, check=False)
+    observed_elapsed = round(time.monotonic() - started, 2)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"last24hours exited {result.returncode}")
-    return json.loads(result.stdout)
+        kind = _classify_paper_runtime_failure(result.stderr, result.returncode)
+        message = _runtime_failure_message(topic, kind, result.stderr, result.returncode)
+        raise PaperRuntimeError(
+            kind or "paper_runtime_failure",
+            message,
+            elapsed_seconds=observed_elapsed,
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
+    payload = json.loads(result.stdout)
+    if isinstance(payload, dict):
+        payload["__paper_runtime"] = {
+            "observed_subprocess_seconds": observed_elapsed,
+            "returncode": result.returncode,
+        }
+    return payload
 
 
 def _filter_picks_by_policy(picks: List[Dict[str, Any]], pick_policy: str) -> List[Dict[str, Any]]:
@@ -2444,7 +2514,7 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
         "warnings": [],
     }
     debug_counters: Dict[str, int] = {}
-    started = time.time()
+    started = time.monotonic()
     topic = str(entry.get("topic") or "")
     timeout_seconds = DRY_RUN_TOPIC_TIMEOUT_SECONDS
     if _is_closing_soon_paper_topic(topic) and closing_soon.preferred_venue(topic) == "kalshi":
@@ -2456,24 +2526,39 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
             extra_args=entry.get("last24hours_args", []),
             timeout_seconds=timeout_seconds,
         )
+    except PaperRuntimeError as exc:
+        result["elapsed_seconds"] = round(time.monotonic() - started, 2)
+        result["runtime_failure_class"] = exc.kind
+        result["execution_diagnostics"] = _runtime_failure_diagnostics(exc)
+        if exc.kind in {"paper_runtime_timeout", "kalshi_search_timeout", "child_global_timeout"}:
+            result["status"] = "degraded_run"
+            result["reason_class"] = exc.kind
+            result["warnings"].append(str(exc))
+            return result
+        result["status"] = "error"
+        result["reason_class"] = exc.kind or "paper_runtime_failure"
+        result["warnings"].append(str(exc))
+        return result
     except subprocess.TimeoutExpired:
         if _is_closing_soon_paper_topic(topic) and closing_soon.preferred_venue(topic) == "kalshi":
             result["status"] = "degraded_run"
             result["reason_class"] = "kalshi_closing_soon_timeout"
-            result["elapsed_seconds"] = round(time.time() - started, 2)
+            result["elapsed_seconds"] = round(time.monotonic() - started, 2)
             result["warnings"].append(
                 f"{entry['topic']}: Kalshi closing-soon dry-run timed out after {timeout_seconds}s before structured market output; treating this as a bounded degraded scan, not a paper pick."
             )
+            result["runtime_failure_class"] = "kalshi_closing_soon_timeout"
             return result
         result["status"] = "error"
-        result["elapsed_seconds"] = round(time.time() - started, 2)
+        result["elapsed_seconds"] = round(time.monotonic() - started, 2)
         result["warnings"].append(
             f"{entry['topic']}: dry-run timed out after {timeout_seconds}s before a usable paper result was produced."
         )
+        result["runtime_failure_class"] = "paper_runtime_timeout"
         return result
     except Exception as exc:
         result["status"] = "error"
-        result["elapsed_seconds"] = round(time.time() - started, 2)
+        result["elapsed_seconds"] = round(time.monotonic() - started, 2)
         result["warnings"].append(f"{entry['topic']}: dry-run failed with {type(exc).__name__}: {exc}")
         return result
     if _is_closing_soon_paper_topic(topic):
@@ -2536,7 +2621,13 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
             existing = result.get("diagnostic_summary")
             result["diagnostic_summary"] = f"{existing}; {kalshi_summary}" if existing else kalshi_summary
             result["warnings"].append(f"{entry['topic']}: Kalshi closing-soon diagnostics: {kalshi_summary}.")
-    result["elapsed_seconds"] = round(time.time() - started, 2)
+    runtime_meta = report.get("__paper_runtime") if isinstance(report, dict) else None
+    if isinstance(runtime_meta, dict):
+        result["execution_diagnostics"] = {
+            "observed_subprocess_seconds": round(float(runtime_meta.get("observed_subprocess_seconds") or 0.0), 2),
+            "returncode": runtime_meta.get("returncode", 0),
+        }
+    result["elapsed_seconds"] = round(time.monotonic() - started, 2)
     return result
 
 

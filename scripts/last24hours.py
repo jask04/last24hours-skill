@@ -1757,7 +1757,9 @@ def run_research(
         + (1 if web_backend else 0)
     )
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    timed_out_futures = []
+    try:
         # Submit searches
         if do_reddit:
             if progress:
@@ -1879,6 +1881,8 @@ def run_research(
                     progress.show_error(f"Reddit error: {reddit_error}")
             except TimeoutError:
                 reddit_error = f"Reddit search timed out after {reddit_timeout}s"
+                reddit_future.cancel()
+                timed_out_futures.append("reddit")
                 if progress:
                     progress.show_error(reddit_error)
             except Exception as e:
@@ -1895,6 +1899,8 @@ def run_research(
                     progress.show_error(f"X error: {x_error}")
             except TimeoutError:
                 x_error = f"X search timed out after {future_timeout}s"
+                x_future.cancel()
+                timed_out_futures.append("x")
                 if progress:
                     progress.show_error(x_error)
             except Exception as e:
@@ -1912,6 +1918,8 @@ def run_research(
                     progress.show_error(f"YouTube error: {youtube_error}")
             except TimeoutError:
                 youtube_error = f"YouTube search timed out after {yt_timeout}s"
+                youtube_future.cancel()
+                timed_out_futures.append("youtube")
                 if progress:
                     progress.show_error(youtube_error)
             except Exception as e:
@@ -1929,6 +1937,8 @@ def run_research(
                     progress.show_error(f"TikTok error: {tiktok_error}")
             except TimeoutError:
                 tiktok_error = f"TikTok search timed out after {tk_timeout}s"
+                tiktok_future.cancel()
+                timed_out_futures.append("tiktok")
                 if progress:
                     progress.show_error(tiktok_error)
             except Exception as e:
@@ -1946,6 +1956,8 @@ def run_research(
                     progress.show_error(f"Instagram error: {instagram_error}")
             except TimeoutError:
                 instagram_error = f"Instagram search timed out after {ig_timeout}s"
+                instagram_future.cancel()
+                timed_out_futures.append("instagram")
                 if progress:
                     progress.show_error(instagram_error)
             except Exception as e:
@@ -1963,6 +1975,8 @@ def run_research(
                     progress.show_error(f"Xiaohongshu error: {xiaohongshu_error}")
             except TimeoutError:
                 xiaohongshu_error = f"Xiaohongshu search timed out after {future_timeout}s"
+                xiaohongshu_future.cancel()
+                timed_out_futures.append("xiaohongshu")
                 if progress:
                     progress.show_error(xiaohongshu_error)
             except Exception as e:
@@ -1978,6 +1992,8 @@ def run_research(
                     progress.show_error(f"HN error: {hackernews_error}")
             except TimeoutError:
                 hackernews_error = f"HN search timed out after {hn_timeout}s"
+                hackernews_future.cancel()
+                timed_out_futures.append("hackernews")
                 if progress:
                     progress.show_error(hackernews_error)
             except Exception as e:
@@ -1995,6 +2011,8 @@ def run_research(
                     progress.show_error(f"Bluesky error: {bluesky_error}")
             except TimeoutError:
                 bluesky_error = f"Bluesky search timed out after {bsky_timeout}s"
+                bluesky_future.cancel()
+                timed_out_futures.append("bluesky")
                 if progress:
                     progress.show_error(bluesky_error)
             except Exception as e:
@@ -2010,6 +2028,8 @@ def run_research(
                     progress.show_error(f"Truth Social error: {truthsocial_error}")
             except TimeoutError:
                 truthsocial_error = f"Truth Social search timed out after {ts_timeout}s"
+                truthsocial_future.cancel()
+                timed_out_futures.append("truthsocial")
                 if progress:
                     progress.show_error(truthsocial_error)
             except Exception as e:
@@ -2025,6 +2045,8 @@ def run_research(
                     progress.show_error(f"Polymarket error: {polymarket_error}")
             except TimeoutError:
                 polymarket_error = f"Polymarket search timed out after {pm_timeout}s"
+                polymarket_future.cancel()
+                timed_out_futures.append("polymarket")
                 if progress:
                     progress.show_error(polymarket_error)
             except Exception as e:
@@ -2042,6 +2064,8 @@ def run_research(
                     progress.show_error(f"Kalshi error: {kalshi_error}")
             except TimeoutError:
                 kalshi_error = f"Kalshi search timed out after {ka_timeout}s"
+                kalshi_future.cancel()
+                timed_out_futures.append("kalshi")
                 if progress:
                     progress.show_error(kalshi_error)
             except Exception as e:
@@ -2058,6 +2082,8 @@ def run_research(
                     progress.show_error(f"Web error: {web_error}")
             except TimeoutError:
                 web_error = f"Web search timed out after {future_timeout}s"
+                web_future.cancel()
+                timed_out_futures.append("web")
                 if progress:
                     progress.show_error(web_error)
             except Exception as e:
@@ -2065,6 +2091,11 @@ def run_research(
                 if progress:
                     progress.show_error(f"Web error: {e}")
             sys.stderr.write(f"[web] {len(web_items)} results\n")
+            sys.stderr.flush()
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+        if timed_out_futures:
+            sys.stderr.write(f"[timeouts] detached futures: {', '.join(sorted(set(timed_out_futures)))}\n")
             sys.stderr.flush()
 
     # Enrich Reddit items with real data (parallel, capped)
@@ -2545,15 +2576,10 @@ def main():
         sources = "none"
         mode = mode_label_for_sources(sources)
     preferred_closing_venue = closing_soon.preferred_venue(args.topic) if closing_soon_mode else ""
-    kalshi_closing_fast_path = (
-        closing_soon_mode
-        and query_type == "market_watchlist"
-        and preferred_closing_venue == "kalshi"
-        and not args.search
-        and not closing_soon.is_kalshi_live_board_query(args.topic)
-    )
-    kalshi_fast_scan = kalshi_closing_fast_path and (depth == "quick" or args.paper_fast_watchlist)
-    closing_seed_cap = 4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12
+    explicit_search_sources = parse_search_flag(args.search) if args.search else None
+    kalshi_closing_fast_path = False
+    kalshi_fast_scan = False
+    closing_seed_cap = 8 if args.paper_fast_watchlist else 12
     expanded_schedule_date = None
     search_topics = None
     nba_window_start = None
@@ -2616,7 +2642,7 @@ def main():
         has_xiaohongshu or bool(env.get_web_search_source(config))
     )
     if args.search:
-        search_sources = parse_search_flag(args.search)
+        search_sources = explicit_search_sources or set()
         has_reddit = "reddit" in search_sources
         has_x = "x" in search_sources
         search_do_hackernews = "hn" in search_sources
@@ -2633,6 +2659,19 @@ def main():
         include_search_web = "web" in search_sources
         sources = sources_mode_for_explicit_search(search_sources)
         mode = ",".join(sorted(search_sources)) if sources == "none" else mode_label_for_sources(sources)
+
+    kalshi_closing_fast_path = (
+        closing_soon_mode
+        and query_type == "market_watchlist"
+        and preferred_closing_venue == "kalshi"
+        and not closing_soon.is_kalshi_live_board_query(args.topic)
+        and (
+            not explicit_search_sources
+            or (args.paper_fast_watchlist and explicit_search_sources == {"kalshi"})
+        )
+    )
+    kalshi_fast_scan = kalshi_closing_fast_path and (depth == "quick" or args.paper_fast_watchlist)
+    closing_seed_cap = 4 if kalshi_fast_scan else 8 if args.paper_fast_watchlist else 12
 
     if kalshi_closing_fast_path:
         sources = "none"

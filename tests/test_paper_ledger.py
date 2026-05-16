@@ -796,6 +796,45 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertIn("--search", cmd)
         self.assertIn("polymarket", cmd)
 
+    def test_run_last24hours_records_observed_subprocess_time(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        with mock.patch("subprocess.run", return_value=completed), \
+             mock.patch("scripts.paper.time.monotonic", side_effect=[10.0, 12.4]):
+            payload = paper._run_last24hours("NYC rain tomorrow", quick=True)
+
+        self.assertEqual(payload["__paper_runtime"]["returncode"], 0)
+        self.assertEqual(payload["__paper_runtime"]["observed_subprocess_seconds"], 2.4)
+
+    def test_run_last24hours_classifies_child_global_timeout(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=124,
+            stdout="",
+            stderr="[TIMEOUT] Global timeout (90s) exceeded. Cleaning up.\n",
+        )
+        with mock.patch("subprocess.run", return_value=completed), \
+             mock.patch("scripts.paper.time.monotonic", side_effect=[50.0, 60.0]):
+            with self.assertRaises(paper.PaperRuntimeError) as ctx:
+                paper._run_last24hours("Kalshi markets closing soon", quick=True, timeout_seconds=100)
+
+        self.assertEqual(ctx.exception.kind, "child_global_timeout")
+        self.assertEqual(ctx.exception.elapsed_seconds, 10.0)
+
+    def test_run_last24hours_classifies_kalshi_search_timeout(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="Kalshi search timed out after 30s\n",
+        )
+        with mock.patch("subprocess.run", return_value=completed), \
+             mock.patch("scripts.paper.time.monotonic", side_effect=[100.0, 104.5]):
+            with self.assertRaises(paper.PaperRuntimeError) as ctx:
+                paper._run_last24hours("Kalshi markets closing soon", quick=True, timeout_seconds=100)
+
+        self.assertEqual(ctx.exception.kind, "kalshi_search_timeout")
+        self.assertEqual(ctx.exception.elapsed_seconds, 4.5)
+
     def test_extract_paper_picks_rejects_non_crypto_closing_soon_watchlist_row(self):
         report = {
             "topic": "crypto markets closing soon tonight",
@@ -872,6 +911,70 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertIn(
             "--paper-fast-watchlist",
             paper._paper_watchlist_fast_args("Kalshi markets closing soon", ["--search=kalshi"]),
+        )
+
+    def test_daily_dry_run_entry_classifies_child_global_timeout_as_degraded(self):
+        entry = {"topic": "Kalshi markets closing soon", "last24hours_args": []}
+        exc = paper.PaperRuntimeError(
+            "child_global_timeout",
+            "Kalshi markets closing soon: child global timeout fired before structured paper output was produced.",
+            elapsed_seconds=31.2,
+            stderr="[TIMEOUT] Global timeout (90s) exceeded. Cleaning up.",
+            returncode=124,
+        )
+        with mock.patch("scripts.paper._run_last24hours", side_effect=exc), \
+             mock.patch("scripts.paper.time.monotonic", side_effect=[10.0, 12.75]):
+            result = paper._daily_dry_run_entry(entry, quick=True)
+
+        self.assertEqual(result["status"], "degraded_run")
+        self.assertEqual(result["reason_class"], "child_global_timeout")
+        self.assertEqual(result["runtime_failure_class"], "child_global_timeout")
+        self.assertEqual(result["elapsed_seconds"], 2.75)
+        self.assertEqual(result["execution_diagnostics"]["observed_subprocess_seconds"], 31.2)
+
+    def test_daily_dry_run_entry_carries_success_execution_diagnostics(self):
+        entry = {"topic": "Polymarket markets closing soon", "last24hours_args": []}
+        report = {
+            "topic": "Polymarket markets closing soon",
+            "query_type": "market_watchlist",
+            "market_watchlist": [],
+            "__paper_runtime": {
+                "observed_subprocess_seconds": 6.7,
+                "returncode": 0,
+            },
+        }
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("scripts.paper.time.monotonic", side_effect=[20.0, 21.1]):
+            result = paper._daily_dry_run_entry(entry, quick=True)
+
+        self.assertEqual(result["execution_diagnostics"]["observed_subprocess_seconds"], 6.7)
+        self.assertEqual(result["execution_diagnostics"]["returncode"], 0)
+        self.assertEqual(result["elapsed_seconds"], 1.1)
+
+    def test_cmd_daily_latency_outliers_only_include_true_slow_topics(self):
+        portfolio_path = Path(self.tmp.name) / "paper_portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "fast topic", "enabled": True},
+            {"topic": "slow topic", "enabled": True},
+            {"topic": "slowest topic", "enabled": True},
+        ]), encoding="utf-8")
+
+        mocked = [
+            {"topic": "fast topic", "status": "ready", "elapsed_seconds": 4.0},
+            {"topic": "slow topic", "status": "ready", "elapsed_seconds": 21.5},
+            {"topic": "slowest topic", "status": "degraded_run", "elapsed_seconds": 28.2},
+        ]
+        with mock.patch("scripts.paper._daily_dry_run_entry", side_effect=mocked), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(
+            payload["latency_outliers"],
+            [
+                {"topic": "slowest topic", "elapsed_seconds": 28.2, "status": "degraded_run"},
+                {"topic": "slow topic", "elapsed_seconds": 21.5, "status": "ready"},
+            ],
         )
 
     def test_closing_soon_health_summary_groups_watchlist_rows(self):
