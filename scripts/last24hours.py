@@ -2872,6 +2872,7 @@ def main():
                     max_candidates=24 if args.paper_fast_watchlist else 25,
                     raw_cap_per_seed=32 if args.paper_fast_watchlist else 40,
                     search_depth="quick" if args.paper_fast_watchlist else "default",
+                    stop_after_candidates=6 if args.paper_fast_watchlist else None,
                 )
             closing_pm = normalize.normalize_polymarket_items(closing_raw_pm, from_date, to_date)
             closing_pm = score.score_polymarket_items(closing_pm)
@@ -2886,8 +2887,12 @@ def main():
             else:
                 plan.notes.append(f"closing-pm-candidates:{live_closing_diagnostics.get('polymarket_closing_candidates', 0)}")
                 plan.notes.append(f"closing-pm-raw:{live_closing_diagnostics.get('polymarket_raw_seen', 0)}")
+                plan.notes.append(f"closing-pm-seeds:{live_closing_diagnostics.get('polymarket_seeds_attempted', 0)}")
+                plan.notes.append(f"closing-pm-skipped-no-close:{live_closing_diagnostics.get('polymarket_skipped_no_close', 0)}")
+                plan.notes.append(f"closing-pm-skipped-expired:{live_closing_diagnostics.get('polymarket_skipped_expired', 0)}")
                 plan.notes.append(f"closing-pm-skipped-settled:{live_closing_diagnostics.get('polymarket_skipped_settled', 0)}")
                 plan.notes.append(f"closing-pm-skipped-liquidity:{live_closing_diagnostics.get('polymarket_skipped_no_liquidity', 0)}")
+                plan.notes.append(f"closing-pm-short-circuit:{live_closing_diagnostics.get('polymarket_short_circuited', 0)}")
         except Exception as e:
             polymarket_error = f"{polymarket_error}; closing-soon scan failed: {e}" if polymarket_error else f"closing-soon scan failed: {e}"
 
@@ -2909,6 +2914,7 @@ def main():
                 plan.notes.append(f"closing-ka-candidates:{kalshi_closing_diagnostics.get('kalshi_closing_candidates', 0)}")
                 plan.notes.append(f"closing-ka-raw:{kalshi_closing_diagnostics.get('kalshi_raw_seen', 0)}")
                 plan.notes.append(f"closing-ka-seeds:{kalshi_closing_diagnostics.get('kalshi_seeds_attempted', 0)}")
+                plan.notes.append(f"closing-ka-skipped-no-close:{kalshi_closing_diagnostics.get('kalshi_skipped_no_close', 0)}")
                 plan.notes.append(f"closing-ka-skipped-expired:{kalshi_closing_diagnostics.get('kalshi_skipped_expired', 0)}")
                 plan.notes.append(f"closing-ka-skipped-settled:{kalshi_closing_diagnostics.get('kalshi_skipped_settled', 0)}")
                 plan.notes.append(f"closing-ka-skipped-liquidity:{kalshi_closing_diagnostics.get('kalshi_skipped_no_liquidity', 0)}")

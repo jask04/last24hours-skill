@@ -695,6 +695,8 @@ class PaperExtractionTests(unittest.TestCase):
                 "market_watchlist": [],
                 "planning_notes": [
                     "closing_soon",
+                    "closing-pm-raw:2",
+                    "closing-pm-seeds:2",
                     "closing-pm-candidates:0",
                     "closing-pm-skipped-settled:2",
                     "closing-ka-candidates:0",
@@ -732,10 +734,41 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(by_topic["Polymarket markets closing soon"]["status"], "no_compatible_pick")
         self.assertEqual(by_topic["Polymarket markets closing soon"]["reason_class"], "all_candidates_effectively_settled")
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["reason_class"], "domain_mismatch")
+        self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["scanner_raw_rows"], 2)
         self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["raw_candidates"], 0)
         self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["final_board_survivors"], 0)
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["diagnostic_counts"]["raw_candidates"], 1)
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["diagnostic_counts"]["compatible_candidates"], 0)
+
+    def test_cmd_daily_dry_run_closing_soon_liquidity_filters_report_low_quality(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Polymarket markets closing soon", "enabled": True},
+        ]), encoding="utf-8")
+        report = {
+            "topic": "Polymarket markets closing soon",
+            "query_type": "market_watchlist",
+            "forecasts": [],
+            "market_watchlist": [],
+            "planning_notes": [
+                "closing_soon",
+                "closing-pm-raw:3",
+                "closing-pm-seeds:3",
+                "closing-pm-candidates:0",
+                "closing-pm-skipped-liquidity:3",
+            ],
+            "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "used"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        entry = payload["results"][0]
+        self.assertEqual(entry["status"], "no_compatible_pick")
+        self.assertEqual(entry["reason_class"], "all_candidates_low_quality")
+        self.assertEqual(entry["diagnostic_counts"]["scanner_raw_rows"], 3)
 
     def test_cmd_daily_dry_run_reports_bundle_specific_reason_classes(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"
@@ -1027,6 +1060,51 @@ class PaperExtractionTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_cmd_daily_adds_cross_venue_closing_soon_summary(self):
+        portfolio_path = Path(self.tmp.name) / "paper_portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Polymarket markets closing soon", "enabled": True},
+            {"topic": "Kalshi markets closing soon", "enabled": True},
+            {"topic": "crypto markets closing soon tonight", "enabled": True},
+        ]), encoding="utf-8")
+
+        mocked = [
+            {
+                "topic": "Polymarket markets closing soon",
+                "runtime_lane": "core",
+                "status": "no_compatible_pick",
+                "reason_class": "all_candidates_low_quality",
+                "elapsed_seconds": 12.3,
+                "diagnostic_counts": {"scanner_raw_rows": 3},
+            },
+            {
+                "topic": "Kalshi markets closing soon",
+                "runtime_lane": "kalshi_specialist",
+                "status": "no_compatible_pick",
+                "reason_class": "no_near_expiry_candidates",
+                "elapsed_seconds": 18.8,
+                "diagnostic_counts": {"scanner_raw_rows": 0},
+            },
+            {
+                "topic": "crypto markets closing soon tonight",
+                "runtime_lane": "core",
+                "status": "ready",
+                "reason_class": "",
+                "elapsed_seconds": 11.1,
+                "diagnostic_counts": {"scanner_raw_rows": 2},
+            },
+        ]
+        with mock.patch("scripts.paper._daily_dry_run_entry", side_effect=mocked), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        summary = payload["closing_soon_dry_run"]
+        self.assertEqual(summary["count"], 3)
+        self.assertEqual(summary["by_preferred_venue"]["polymarket"], 2)
+        self.assertEqual(summary["by_preferred_venue"]["kalshi"], 1)
+        self.assertEqual(summary["latency_outliers"][0]["topic"], "Kalshi markets closing soon")
 
     def test_closing_soon_health_summary_groups_watchlist_rows(self):
         picks = [

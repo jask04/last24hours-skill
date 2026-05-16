@@ -397,6 +397,7 @@ def scan_kalshi_closing_soon(
         diagnostics["kalshi_seeds_attempted"] = seeds_attempted
         diagnostics["kalshi_raw_seen"] = raw_seen
         diagnostics["kalshi_closing_candidates"] = len(candidates)
+        diagnostics["kalshi_window_minutes"] = window_minutes
         diagnostics["kalshi_skipped_no_close"] = skipped_no_close
         diagnostics["kalshi_skipped_expired"] = skipped_expired
         diagnostics["kalshi_skipped_no_liquidity"] = skipped_no_liquidity
@@ -419,6 +420,7 @@ def scan_polymarket_closing_soon(
     max_candidates: int = 25,
     raw_cap_per_seed: int = 40,
     search_depth: str = "default",
+    stop_after_candidates: Optional[int] = None,
 ) -> List[dict]:
     """Return normalized raw Polymarket dicts for near-expiry/live markets."""
     if window_hours == 12:
@@ -431,7 +433,10 @@ def scan_polymarket_closing_soon(
     window_minutes = int(window_hours * 60)
     events = {}
     raw_seen = 0
+    seeds_attempted = 0
+    short_circuited = False
     for seed in closing_search_topics(topic, live_games, max_seeds=max_seeds):
+        seeds_attempted += 1
         response = polymarket.search_polymarket(seed, from_date, to_date, depth=search_depth)
         raw_events = response.get("events", [])[:max(1, int(raw_cap_per_seed or 1))]
         raw_seen += len(raw_events)
@@ -439,6 +444,9 @@ def scan_polymarket_closing_soon(
             event_id = event.get("id") or event.get("slug")
             if event_id:
                 events[event_id] = event
+        if stop_after_candidates and len(events) >= max(1, int(stop_after_candidates)):
+            short_circuited = True
+            break
     parsed = polymarket.parse_polymarket_response({"events": list(events.values()), "_cap": 200}, topic=topic)
     candidates = []
     skipped_no_close = 0
@@ -490,12 +498,15 @@ def scan_polymarket_closing_soon(
         candidates.append(item)
     candidates.sort(key=lambda item: item.get("_closing_rank", 0), reverse=True)
     if diagnostics is not None:
+        diagnostics["polymarket_seeds_attempted"] = seeds_attempted
         diagnostics["polymarket_raw_seen"] = raw_seen
         diagnostics["polymarket_closing_candidates"] = len(candidates)
+        diagnostics["polymarket_window_minutes"] = window_minutes
         diagnostics["polymarket_skipped_no_close"] = skipped_no_close
         diagnostics["polymarket_skipped_expired"] = skipped_expired
         diagnostics["polymarket_skipped_no_liquidity"] = skipped_no_liquidity
         diagnostics["polymarket_skipped_settled"] = skipped_settled
+        diagnostics["polymarket_short_circuited"] = int(short_circuited)
         diagnostics["live_games"] = len(live_games)
         diagnostics["live_games_live"] = sum(1 for game in live_games if game.is_live)
         diagnostics["live_games_starting_soon"] = sum(1 for game in live_games if not game.is_live)

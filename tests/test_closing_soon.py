@@ -672,6 +672,37 @@ class ScanKalshiClosingSoonTests(unittest.TestCase):
         self.assertTrue(all(depth == "quick" for _, depth in seen))
         self.assertEqual(len(result), 5)
 
+    def test_polymarket_fast_path_stops_after_shortlist(self):
+        now = datetime(2026, 4, 20, 4, 0, tzinfo=timezone.utc)
+        seen = []
+
+        def _search(seed, from_date, to_date, depth="default"):
+            seen.append(seed)
+            return {
+                "events": [
+                    _market_event(f"btc-{len(seen)}", f"Bitcoin Up or Down batch {len(seen)}", "2026-04-20T06:00:00Z")
+                ]
+            }
+
+        diagnostics: dict = {}
+        with mock.patch("scripts.lib.closing_soon.closing_search_topics", return_value=["one", "two", "three", "four"]), \
+             mock.patch("scripts.lib.closing_soon.polymarket.search_polymarket", side_effect=_search):
+            result = closing_soon.scan_polymarket_closing_soon(
+                "Polymarket markets closing soon",
+                "2026-04-19",
+                "2026-04-19",
+                now=now,
+                diagnostics=diagnostics,
+                max_seeds=4,
+                stop_after_candidates=2,
+                search_depth="quick",
+            )
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(diagnostics.get("polymarket_seeds_attempted"), 2)
+        self.assertEqual(diagnostics.get("polymarket_short_circuited"), 1)
+
     def test_kalshi_fast_path_stops_after_compatible_shortlist(self):
         now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)
         diagnostics: dict = {}

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-16
+
+### Added
+- `scripts/paper.py`: Added a cross-venue `closing_soon_dry_run` summary with per-topic diagnostics and venue-specific latency outliers, plus richer candidate diagnostics that expose scanner seed count and raw-row count without schema changes.
+- `tests/test_closing_soon.py` and `tests/test_paper_ledger.py`: Added regressions for Polymarket fast-path short-circuiting, low-quality no-pick classification, and cross-venue closing-soon dry-run summaries.
+
+### Fixed
+- `scripts/lib/closing_soon.py` and `scripts/last24hours.py`: Gave Polymarket closing-soon the same bounded fast-path discipline as Kalshi in paper quick mode, including seed caps, early short-circuiting, and richer scanner diagnostics.
+- `scripts/paper.py`: Refined closing-soon reason classification so true empty-window scans stay `no_near_expiry_candidates`, while liquidity/close-time failures report as `all_candidates_low_quality` instead of being misread as empty supply.
+- `scripts/lib/render.py`: Improved closing-soon empty-state copy across Polymarket and Kalshi so no-pick outcomes clearly distinguish empty supply, effectively settled rows, and filtered weak supply.
+
+### Safety
+- No schema migration
+- No historical ledger rewrite
+- No core-lane routing changes or scope broadening
+
 ## [1.1.1] - 2026-05-16
 
 ### Added

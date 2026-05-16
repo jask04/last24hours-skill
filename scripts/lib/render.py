@@ -576,12 +576,20 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 seeds = _planning_note_int(report, "closing-ka-seeds:")
                 raw = _planning_note_int(report, "closing-ka-raw:")
                 candidates = _planning_note_int(report, "closing-ka-candidates:")
+                skipped_no_close = _planning_note_int(report, "closing-ka-skipped-no-close:") or 0
+                skipped_expired = _planning_note_int(report, "closing-ka-skipped-expired:") or 0
+                skipped_liquidity = _planning_note_int(report, "closing-ka-skipped-liquidity:") or 0
+                skipped_settled = _planning_note_int(report, "closing-ka-skipped-settled:") or 0
                 debug = ((report.evidence_fusion_stats or {}).get("debug_counters") or {})
                 kalshi_actionability = debug.get("suppressed_kalshi_closing_actionability_candidates", 0)
-                if candidates == 0 and raw:
-                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived expiry, liquidity, settled-price, and close-window filters.")
-                elif raw == 0:
+                if raw == 0:
                     lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s), but no Kalshi near-expiry rows were discovered.")
+                elif candidates == 0 and skipped_settled and skipped_settled >= raw:
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but the near-expiry supply was effectively settled already.")
+                elif candidates == 0 and (skipped_liquidity or skipped_no_close):
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived liquidity, close-time, and settled-price checks.")
+                elif candidates == 0 and raw:
+                    lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived expiry, liquidity, settled-price, and close-window filters.")
                 elif kalshi_actionability and candidates is not None and kalshi_actionability >= candidates:
                     lines.append(f"Kalshi closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but all were too thin or too manual-rule-heavy to trust in the final board.")
                 elif raw is not None and candidates is not None:
@@ -589,7 +597,23 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 else:
                     lines.append("Kalshi closing-soon filter: needed active, liquid, non-expired Kalshi markets inside the close window.")
             else:
-                lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
+                seeds = _planning_note_int(report, "closing-pm-seeds:")
+                raw = _planning_note_int(report, "closing-pm-raw:")
+                candidates = _planning_note_int(report, "closing-pm-candidates:")
+                skipped_no_close = _planning_note_int(report, "closing-pm-skipped-no-close:") or 0
+                skipped_expired = _planning_note_int(report, "closing-pm-skipped-expired:") or 0
+                skipped_liquidity = _planning_note_int(report, "closing-pm-skipped-liquidity:") or 0
+                skipped_settled = _planning_note_int(report, "closing-pm-skipped-settled:") or 0
+                if raw == 0:
+                    lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s), but no near-expiry rows were discovered.")
+                elif candidates == 0 and skipped_settled and skipped_settled >= raw:
+                    lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but the near-expiry supply was effectively settled already.")
+                elif candidates == 0 and (skipped_liquidity or skipped_no_close):
+                    lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived liquidity, close-time, and settled-price checks.")
+                elif raw is not None and candidates is not None:
+                    lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but none cleared final watchlist ranking.")
+                else:
+                    lines.append("Closing-soon filter: needed active, liquid, non-expired Polymarket markets inside the close window.")
         elif qt.is_exchange_snapshot_query(report.topic, venue="kalshi"):
             lines.append("Kalshi snapshot filter: board discovery ran, but no active market row cleared diversity, relevance, and settled-price filters.")
         elif qt.is_exchange_snapshot_query(report.topic, venue="polymarket"):

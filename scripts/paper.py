@@ -2238,7 +2238,12 @@ def _closing_soon_candidate_diagnostics(topic: str, report: Dict[str, Any]) -> D
     raw_candidates = _closing_soon_raw_candidates(report)
     compatible_candidates = [item for item in raw_candidates if not _closing_soon_item_reason_class(topic, item)]
     board_survivors = list(report.get("market_watchlist") or [])
+    preferred = closing_soon.preferred_venue(topic) or "polymarket"
+    note_prefix = "closing-ka-" if preferred == "kalshi" else "closing-pm-"
     return {
+        "preferred_venue": preferred,
+        "scanner_raw_rows": _closing_note_value(report, f"{note_prefix}raw:"),
+        "scanner_seeds_attempted": _closing_note_value(report, f"{note_prefix}seeds:"),
         "raw_candidates": len(raw_candidates),
         "compatible_candidates": len(compatible_candidates),
         "final_board_survivors": len(board_survivors),
@@ -2248,10 +2253,20 @@ def _closing_soon_candidate_diagnostics(topic: str, report: Dict[str, Any]) -> D
 
 def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) -> str:
     raw_candidates = _closing_soon_raw_candidates(report)
+    preferred = closing_soon.preferred_venue(topic) or "polymarket"
+    note_prefix = "closing-ka-" if preferred == "kalshi" else "closing-pm-"
+    raw_seen = _closing_note_value(report, f"{note_prefix}raw:")
+    skipped_no_close = _closing_note_value(report, f"{note_prefix}skipped-no-close:")
+    skipped_expired = _closing_note_value(report, f"{note_prefix}skipped-expired:")
+    skipped_settled = _closing_note_value(report, f"{note_prefix}skipped-settled:")
+    skipped_liquidity = _closing_note_value(report, f"{note_prefix}skipped-liquidity:")
     if not raw_candidates:
-        skipped_settled = _closing_note_value(report, "closing-pm-skipped-settled:") + _closing_note_value(report, "closing-ka-skipped-settled:")
-        if skipped_settled > 0:
+        if skipped_settled > 0 and skipped_settled >= max(1, raw_seen):
             return "all_candidates_effectively_settled"
+        if raw_seen > 0 and (skipped_no_close > 0 or skipped_liquidity > 0):
+            return "all_candidates_low_quality"
+        if raw_seen > 0 and skipped_expired >= raw_seen and skipped_liquidity == 0 and skipped_settled == 0 and skipped_no_close == 0:
+            return "no_near_expiry_candidates"
         return "no_near_expiry_candidates"
     compatible = [item for item in raw_candidates if not _closing_soon_item_reason_class(topic, item)]
     if compatible:
@@ -2299,6 +2314,51 @@ def _kalshi_specialist_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[st
         "rows": rows,
         "latency_outliers": _kalshi_specialist_latency_outliers(results),
         "empty_reason": "" if rows else "No Kalshi specialist dry-run topics in this portfolio.",
+    }
+
+
+def _closing_soon_latency_outliers(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    outliers = []
+    for entry in sorted(results, key=lambda item: float(item.get("elapsed_seconds") or 0), reverse=True):
+        topic = str(entry.get("topic") or "")
+        if not _is_closing_soon_paper_topic(topic):
+            continue
+        elapsed = float(entry.get("elapsed_seconds") or 0)
+        if elapsed < 10.0:
+            continue
+        outliers.append({
+            "topic": topic,
+            "preferred_venue": closing_soon.preferred_venue(topic) or "polymarket",
+            "elapsed_seconds": entry.get("elapsed_seconds", 0),
+            "status": entry.get("status") or "",
+            "reason_class": entry.get("reason_class") or "",
+        })
+    return outliers[:5]
+
+
+def _closing_soon_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rows = []
+    by_venue: Dict[str, int] = {}
+    for entry in results:
+        topic = str(entry.get("topic") or "")
+        if not _is_closing_soon_paper_topic(topic):
+            continue
+        preferred = closing_soon.preferred_venue(topic) or "polymarket"
+        by_venue[preferred] = by_venue.get(preferred, 0) + 1
+        rows.append({
+            "topic": topic,
+            "preferred_venue": preferred,
+            "status": entry.get("status") or "",
+            "reason_class": entry.get("reason_class") or "",
+            "elapsed_seconds": entry.get("elapsed_seconds", 0),
+            "diagnostic_counts": entry.get("diagnostic_counts") or {},
+        })
+    return {
+        "count": len(rows),
+        "by_preferred_venue": dict(sorted(by_venue.items())),
+        "rows": rows,
+        "latency_outliers": _closing_soon_latency_outliers(results),
+        "empty_reason": "" if rows else "No closing-soon dry-run topics in this portfolio.",
     }
 
 
@@ -3225,6 +3285,7 @@ def cmd_daily(args) -> None:
             "topics": [entry["topic"] for entry in entries],
             "results": results,
             "latency_outliers": latency_outliers,
+            "closing_soon_dry_run": _closing_soon_dry_run_summary(results),
             "kalshi_specialist_dry_run": _kalshi_specialist_dry_run_summary(results),
             "errors": errors,
         }, indent=2))
