@@ -733,12 +733,67 @@ class PaperExtractionTests(unittest.TestCase):
         by_topic = {entry["topic"]: entry for entry in payload["results"]}
         self.assertEqual(by_topic["Polymarket markets closing soon"]["status"], "no_compatible_pick")
         self.assertEqual(by_topic["Polymarket markets closing soon"]["reason_class"], "all_candidates_effectively_settled")
-        self.assertEqual(by_topic["crypto markets closing soon tonight"]["reason_class"], "domain_mismatch")
+        self.assertEqual(by_topic["crypto markets closing soon tonight"]["reason_class"], "crypto_only_rejection")
         self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["scanner_raw_rows"], 2)
         self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["raw_candidates"], 0)
         self.assertEqual(by_topic["Polymarket markets closing soon"]["diagnostic_counts"]["final_board_survivors"], 0)
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["diagnostic_counts"]["raw_candidates"], 1)
         self.assertEqual(by_topic["crypto markets closing soon tonight"]["diagnostic_counts"]["compatible_candidates"], 0)
+
+    def test_extract_paper_picks_closing_soon_prefers_valid_candidate_over_invalid_top_row(self):
+        report = {
+            "topic": "Polymarket markets closing soon",
+            "query_type": "market_watchlist",
+            "market_watchlist": [
+                {
+                    "venue": "Polymarket",
+                    "title": "WTI Crude Oil (WTI) closes above $103 on May 18?",
+                    "question": "WTI Crude Oil (WTI) closes above $103 on May 18?",
+                    "outcome_label": "No",
+                    "probability": 0.94,
+                    "market_type": "threshold",
+                    "url": "https://polymarket.com/event/wti-threshold",
+                    "minutes_to_close": 56.0,
+                    "closing_soon_reason": "closing_soon",
+                    "resolvability": "manual rule check required",
+                },
+                {
+                    "venue": "Polymarket",
+                    "title": "Bitcoin Up or Down - May 18, 4:00PM-4:05PM ET",
+                    "question": "Bitcoin Up or Down - May 18, 4:00PM-4:05PM ET",
+                    "outcome_label": "Up",
+                    "probability": 0.82,
+                    "market_type": "crypto_daily",
+                    "url": "https://polymarket.com/event/btc-updown-5m-1779134400",
+                    "source_item_id": "PM1",
+                    "minutes_to_close": 2.0,
+                    "closing_soon_reason": "closing_soon",
+                    "resolvability": "crypto reference-price market; verify Polymarket rules and live reference price",
+                    "implied_probability": 0.82,
+                },
+            ],
+            "polymarket": [
+                {
+                    "id": "PM1",
+                    "title": "Bitcoin Up or Down - May 18, 4:00PM-4:05PM ET",
+                    "question": "Bitcoin Up or Down - May 18, 4:00PM-4:05PM ET",
+                    "url": "https://polymarket.com/event/btc-updown-5m-1779134400",
+                    "market_type": "crypto_daily",
+                    "implied_probability": 0.82,
+                    "best_bid": 0.81,
+                    "best_ask": 0.82,
+                    "spread": 0.01,
+                    "minutes_to_close": 2.0,
+                    "closing_soon_reason": "closing_soon",
+                    "resolvability": "crypto reference-price market; verify Polymarket rules and live reference price",
+                }
+            ],
+            "kalshi": [],
+        }
+
+        picks = paper.extract_paper_picks(report)
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(picks[0]["market_url"], "https://polymarket.com/event/btc-updown-5m-1779134400")
 
     def test_cmd_daily_dry_run_closing_soon_liquidity_filters_report_low_quality(self):
         portfolio_path = Path(self.tmp.name) / "portfolio.json"

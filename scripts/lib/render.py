@@ -604,12 +604,15 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 skipped_expired = _planning_note_int(report, "closing-pm-skipped-expired:") or 0
                 skipped_liquidity = _planning_note_int(report, "closing-pm-skipped-liquidity:") or 0
                 skipped_settled = _planning_note_int(report, "closing-pm-skipped-settled:") or 0
+                crypto_topic = any(token in (report.topic or "").lower() for token in ("crypto", "bitcoin", "ethereum", "solana"))
                 if raw == 0:
                     lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s), but no near-expiry rows were discovered.")
                 elif candidates == 0 and skipped_settled and skipped_settled >= raw:
                     lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but the near-expiry supply was effectively settled already.")
                 elif candidates == 0 and (skipped_liquidity or skipped_no_close):
                     lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s), but none survived liquidity, close-time, and settled-price checks.")
+                elif crypto_topic and raw is not None and candidates is not None:
+                    lines.append(f"Crypto closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry row(s) were seen, but none cleared crypto-only admission and final watchlist ranking.")
                 elif raw is not None and candidates is not None:
                     lines.append(f"Polymarket closing-soon filter: scanned {seeds or 0} seed(s) and {raw} raw row(s); {candidates} near-expiry candidate(s) survived the scanner, but none cleared final watchlist ranking.")
                 else:

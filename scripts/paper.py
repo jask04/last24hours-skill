@@ -779,18 +779,20 @@ def _calibration_useful_watchlist_probability(probability: Optional[float]) -> b
     return probability is not None and 0.35 <= probability <= 0.80
 
 
-def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _select_watchlist_item(items: List[Dict[str, Any]], topic: str = "") -> Optional[Dict[str, Any]]:
     """Prefer calibration-useful watchlist items when the top item is an extreme favorite."""
     if not items:
         return None
     if any(item.get("closing_soon_reason") for item in items):
-        top = items[0]
+        tagged_items = [item for item in items if item.get("closing_soon_reason")]
+        valid_tagged = [item for item in tagged_items if not _watchlist_item_reason_class(topic, item)]
+        top = valid_tagged[0] if valid_tagged else tagged_items[0]
         top_probability = _watchlist_probability(top)
         if top_probability is None or top_probability < 0.95:
             return top
-        for item in items[1:]:
+        for item in valid_tagged[1:]:
             probability = _watchlist_probability(item)
-            if probability is not None and 0.20 <= probability <= 0.95 and item.get("closing_soon_reason"):
+            if probability is not None and 0.20 <= probability <= 0.95:
                 return item
         return top
     nba_mixed_watchlist = any(str(item.get("watchlist_scope") or "") in {"game", "series"} for item in items)
@@ -823,7 +825,7 @@ def _select_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, An
 def _watchlist_paper_selection_reason_class(topic: str, items: List[Dict[str, Any]]) -> str:
     if not items or _is_closing_soon_paper_topic(topic):
         return ""
-    if _select_watchlist_item(items) is not None:
+    if _select_watchlist_item(items, topic) is not None:
         return ""
     probabilities = [_watchlist_probability(item) for item in items]
     probabilities = [probability for probability in probabilities if probability is not None]
@@ -1041,7 +1043,7 @@ def extract_paper_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     watchlist = report.get("market_watchlist", [])
     if watchlist:
-        item = _select_watchlist_item(watchlist)
+        item = _select_watchlist_item(watchlist, topic)
         if item is None:
             return picks
         if _watchlist_item_reason_class(topic, item):
@@ -2272,6 +2274,11 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
     if compatible:
         return ""
     reasons = {_closing_soon_item_reason_class(topic, item) for item in raw_candidates}
+    if _closing_soon_topic_domain(topic) == "crypto":
+        if "domain_mismatch" in reasons:
+            return "crypto_only_rejection"
+        if raw_candidates and "all_candidates_low_quality" in reasons:
+            return "crypto_only_rejection"
     for preferred in ("domain_mismatch", "all_candidates_effectively_settled", "all_candidates_low_quality"):
         if preferred in reasons:
             return preferred
@@ -2525,7 +2532,7 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
         selection_reason = _watchlist_paper_selection_reason_class(topic, watchlist)
         if selection_reason:
             return selection_reason
-        reason = _watchlist_item_reason_class(topic, _select_watchlist_item(watchlist) or {})
+        reason = _watchlist_item_reason_class(topic, _select_watchlist_item(watchlist, topic) or {})
         if reason:
             return reason
     topic_subdomain = _subdomain(topic)

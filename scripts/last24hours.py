@@ -191,6 +191,43 @@ def mode_label_for_sources(sources: str) -> str:
     return sources
 
 
+def _closing_variant_key(item) -> str:
+    url = str(getattr(item, "url", "") or "").strip().lower()
+    if url:
+        return url
+    title = str(getattr(item, "title", "") or "").strip().lower()
+    question = str(getattr(item, "question", "") or "").strip().lower()
+    return f"{title}|{question}"
+
+
+def _preserve_closing_polymarket_variants(deduped_items, closing_items):
+    if not deduped_items or not closing_items:
+        return deduped_items
+    closing_by_key = {}
+    for item in closing_items:
+        key = _closing_variant_key(item)
+        if key:
+            closing_by_key[key] = item
+    if not closing_by_key:
+        return deduped_items
+    merged = []
+    matched = set()
+    for item in deduped_items:
+        key = _closing_variant_key(item)
+        closing_item = closing_by_key.get(key)
+        if closing_item is None:
+            merged.append(item)
+            continue
+        if (closing_item.score or 0.0) < (item.score or 0.0):
+            closing_item.score = item.score
+        merged.append(closing_item)
+        matched.add(key)
+    for key, item in closing_by_key.items():
+        if key not in matched:
+            merged.append(item)
+    return merged
+
+
 def register_child_pid(pid: int):
     """Track a child process for cleanup."""
     with _child_pids_lock:
@@ -2868,16 +2905,18 @@ def main():
                     window_hours=max(1, args.closing_window_hours),
                     live_games=live_games,
                     diagnostics=live_closing_diagnostics,
-                    max_seeds=10 if args.paper_fast_watchlist else 12,
-                    max_candidates=24 if args.paper_fast_watchlist else 25,
-                    raw_cap_per_seed=32 if args.paper_fast_watchlist else 40,
+                    max_seeds=6 if args.paper_fast_watchlist else 12,
+                    max_candidates=12 if args.paper_fast_watchlist else 25,
+                    raw_cap_per_seed=24 if args.paper_fast_watchlist else 40,
                     search_depth="quick" if args.paper_fast_watchlist else "default",
-                    stop_after_candidates=6 if args.paper_fast_watchlist else None,
+                    stop_after_candidates=3 if args.paper_fast_watchlist else None,
                 )
             closing_pm = normalize.normalize_polymarket_items(closing_raw_pm, from_date, to_date)
             closing_pm = score.score_polymarket_items(closing_pm)
             combined = closing_pm if live_sports_mode else closing_pm + deduped_pm
             deduped_pm = dedupe.dedupe_polymarket(score.sort_items(combined, query_type=query_type))
+            if not live_sports_mode and closing_pm:
+                deduped_pm = _preserve_closing_polymarket_variants(deduped_pm, closing_pm)
             if live_sports_mode:
                 plan.notes.append(f"live-polymarket-matches:{live_closing_diagnostics.get('live_polymarket_matches', 0)}")
                 reject_counts = live_closing_diagnostics.get("live_reject_reasons") or {}

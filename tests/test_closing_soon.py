@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
+from scripts import last24hours
 from scripts.lib import closing_soon, market_watchlist, normalize, query_type, render, schema, sports_schedule
 
 
@@ -744,6 +745,34 @@ class ScanKalshiClosingSoonTests(unittest.TestCase):
         self.assertEqual(diagnostics.get("kalshi_seeds_attempted"), 2)
         self.assertEqual(diagnostics.get("kalshi_raw_seen"), 6)
         self.assertEqual(diagnostics.get("kalshi_short_circuited"), 1)
+
+    def test_preserve_closing_polymarket_variants_restores_closing_metadata(self):
+        generic = schema.PolymarketItem(
+            id="PM1",
+            title="Bitcoin Up or Down - May 18, 4:05PM-4:10PM ET",
+            question="Bitcoin Up or Down - May 18, 4:05PM-4:10PM ET",
+            url="https://polymarket.com/event/btc-updown-5m-1779134700",
+            implied_probability=0.515,
+            score=0.81,
+        )
+        closing = schema.PolymarketItem(
+            id="PM9",
+            title="Bitcoin Up or Down - May 18, 4:05PM-4:10PM ET",
+            question="Bitcoin Up or Down - May 18, 4:05PM-4:10PM ET",
+            url="https://polymarket.com/event/btc-updown-5m-1779134700",
+            implied_probability=0.515,
+            minutes_to_close=2.7,
+            closing_soon_reason="closing_soon",
+            resolvability="crypto reference-price market; verify Polymarket rules and live reference price",
+            score=0.62,
+        )
+
+        merged = last24hours._preserve_closing_polymarket_variants([generic], [closing])
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].closing_soon_reason, "closing_soon")
+        self.assertEqual(merged[0].minutes_to_close, 2.7)
+        self.assertEqual(merged[0].score, 0.81)
 
     def test_kalshi_fast_path_keeps_raw_cap_per_seed_and_filters_bad_rows(self):
         now = datetime(2026, 4, 21, 20, 0, tzinfo=timezone.utc)

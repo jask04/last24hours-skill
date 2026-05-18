@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-05-18
+
+- Closing-soon paper-fast Polymarket runs now preserve scanner metadata through final watchlist synthesis, so valid near-expiry rows are less likely to disappear before paper admission.
+- Closing-soon paper selection now prefers a valid admissible row over a higher-ranked manual-rule row, and crypto-only failures now report a crypto-specific rejection class.
+- Polymarket paper-fast closing-soon scans use a smaller shortlist and lower raw cap for better runtime containment; Kalshi remains specialist-only and no-supply explicit.
+- Paper/report diagnostics remain schema-free; no ledger rewrite, no new CLI flags, and no core-lane scope expansion in this release.
+
 ## [1.1.2] - 2026-05-16
 
 ### Added
