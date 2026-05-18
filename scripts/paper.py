@@ -2258,10 +2258,13 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
     preferred = closing_soon.preferred_venue(topic) or "polymarket"
     note_prefix = "closing-ka-" if preferred == "kalshi" else "closing-pm-"
     raw_seen = _closing_note_value(report, f"{note_prefix}raw:")
+    scanner_candidates = _closing_note_value(report, f"{note_prefix}candidates:")
     skipped_no_close = _closing_note_value(report, f"{note_prefix}skipped-no-close:")
     skipped_expired = _closing_note_value(report, f"{note_prefix}skipped-expired:")
     skipped_settled = _closing_note_value(report, f"{note_prefix}skipped-settled:")
     skipped_liquidity = _closing_note_value(report, f"{note_prefix}skipped-liquidity:")
+    debug = (((report.get("evidence_fusion_stats") or {}).get("debug_counters")) or {})
+    kalshi_actionability = int(debug.get("suppressed_kalshi_closing_actionability_candidates", 0) or 0)
     if not raw_candidates:
         if skipped_settled > 0 and skipped_settled >= max(1, raw_seen):
             return "all_candidates_effectively_settled"
@@ -2271,6 +2274,13 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
             return "no_near_expiry_candidates"
         return "no_near_expiry_candidates"
     compatible = [item for item in raw_candidates if not _closing_soon_item_reason_class(topic, item)]
+    if (
+        preferred == "kalshi"
+        and scanner_candidates > 0
+        and kalshi_actionability >= scanner_candidates
+        and not (report.get("market_watchlist") or [])
+    ):
+        return "kalshi_low_quality_supply"
     if compatible:
         return ""
     reasons = {_closing_soon_item_reason_class(topic, item) for item in raw_candidates}
@@ -2279,6 +2289,8 @@ def _closing_soon_reason_class_for_report(topic: str, report: Dict[str, Any]) ->
             return "crypto_only_rejection"
         if raw_candidates and "all_candidates_low_quality" in reasons:
             return "crypto_only_rejection"
+    if preferred == "kalshi" and raw_candidates and "all_candidates_low_quality" in reasons:
+        return "kalshi_low_quality_supply"
     for preferred in ("domain_mismatch", "all_candidates_effectively_settled", "all_candidates_low_quality"):
         if preferred in reasons:
             return preferred
@@ -2305,19 +2317,40 @@ def _kalshi_specialist_latency_outliers(results: List[Dict[str, Any]]) -> List[D
 
 def _kalshi_specialist_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     rows = []
+    by_status: Dict[str, int] = {}
+    by_reason_class: Dict[str, int] = {}
+    no_supply_topics: List[str] = []
+    low_quality_topics: List[str] = []
+    duplicate_skip_topics: List[str] = []
     for entry in results:
         topic = str(entry.get("topic") or "")
         if _runtime_lane(topic) != "kalshi_specialist":
             continue
+        status = entry.get("status") or ""
+        reason_class = entry.get("reason_class") or ""
+        by_status[status] = by_status.get(status, 0) + 1
+        if reason_class:
+            by_reason_class[reason_class] = by_reason_class.get(reason_class, 0) + 1
+        if reason_class == "no_near_expiry_candidates":
+            no_supply_topics.append(topic)
+        if reason_class in {"kalshi_low_quality_supply", "all_candidates_low_quality"}:
+            low_quality_topics.append(topic)
+        if status == "duplicate_skip":
+            duplicate_skip_topics.append(topic)
         rows.append({
             "topic": topic,
-            "status": entry.get("status") or "",
-            "reason_class": entry.get("reason_class") or "",
+            "status": status,
+            "reason_class": reason_class,
             "elapsed_seconds": entry.get("elapsed_seconds", 0),
             "runtime_failure_class": entry.get("runtime_failure_class") or "",
         })
     return {
         "count": len(rows),
+        "by_status": dict(sorted(by_status.items())),
+        "by_reason_class": dict(sorted(by_reason_class.items())),
+        "no_supply_topics": no_supply_topics,
+        "low_quality_topics": low_quality_topics,
+        "duplicate_skip_topics": duplicate_skip_topics,
         "rows": rows,
         "latency_outliers": _kalshi_specialist_latency_outliers(results),
         "empty_reason": "" if rows else "No Kalshi specialist dry-run topics in this portfolio.",
@@ -2413,12 +2446,19 @@ def open_default_portfolio_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any
 def kalshi_specialist_open_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     relevant = []
     by_topic: Dict[str, int] = {}
+    by_status: Dict[str, int] = {}
+    resolved_by_topic: Dict[str, int] = {}
     rows: List[Dict[str, Any]] = []
     for pick in picks:
         topic = str(pick.get("topic") or "")
-        if pick.get("status") not in {"open", "unknown"}:
-            continue
         if _runtime_lane(topic, pick) != "kalshi_specialist":
+            continue
+        status = str(pick.get("status") or "")
+        by_status[status] = by_status.get(status, 0) + 1
+        if status == "resolved":
+            resolved_by_topic[topic] = resolved_by_topic.get(topic, 0) + 1
+            continue
+        if status not in {"open", "unknown"}:
             continue
         relevant.append(pick)
         by_topic[topic] = by_topic.get(topic, 0) + 1
@@ -2427,14 +2467,18 @@ def kalshi_specialist_open_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any
                 "id": pick.get("id"),
                 "topic": topic,
                 "title": pick.get("title") or pick.get("question") or "",
-                "status": pick.get("status") or "",
+                "status": status,
                 "venue": pick.get("venue") or "",
                 "market_type": pick.get("market_type") or "",
                 "skill_version": pick.get("skill_version") or "",
             })
     return {
         "count": len(relevant),
+        "open_count": len(relevant),
+        "resolved_count": sum(resolved_by_topic.values()),
+        "by_status": dict(sorted(by_status.items())),
         "by_topic": dict(sorted(by_topic.items())),
+        "resolved_by_topic": dict(sorted(resolved_by_topic.items())),
         "rows": rows,
         "empty_reason": "" if relevant else "No open Kalshi specialist rows right now.",
     }

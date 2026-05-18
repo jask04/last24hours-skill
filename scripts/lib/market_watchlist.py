@@ -1443,6 +1443,50 @@ def _kalshi_closing_actionable(
     return True
 
 
+def _kalshi_snapshot_zero_depth_penalty(
+    report: schema.Report,
+    venue: str,
+    item,
+    *,
+    spread_quality: float,
+    liquidity: Optional[float],
+    volume: Optional[float],
+    open_interest: Optional[float],
+) -> tuple[float, int]:
+    if not (_is_snapshot_mode(report) and venue.lower() == "kalshi"):
+        return 0.0, 0
+    if (liquidity or 0.0) > 0:
+        return 0.0, 0
+    carry_signal = max(volume or 0.0, open_interest or 0.0)
+    if carry_signal <= 0:
+        return 0.0, 0
+    base_date = _report_base_date(report)
+    days_to_end = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
+    relevance_penalty = 0.0
+    rank_penalty = 0
+    if _has_snapshot_depth_competitor(report, venue, item):
+        relevance_penalty += 0.05
+        rank_penalty += 10
+    if days_to_end is not None and days_to_end > 1:
+        rank_penalty += 2
+    if days_to_end is not None and days_to_end > 3:
+        relevance_penalty += 0.02
+        rank_penalty += 4
+    if days_to_end is not None and days_to_end > 7:
+        relevance_penalty += 0.03
+        rank_penalty += 6
+    if days_to_end is not None and days_to_end > 14:
+        relevance_penalty += 0.04
+        rank_penalty += 8
+    if spread_quality < 0.40:
+        relevance_penalty += 0.01
+        rank_penalty += 2
+    if _has_nearer_snapshot_depth_peer(report, venue, item):
+        relevance_penalty += 0.04
+        rank_penalty += 12
+    return min(0.18, relevance_penalty), rank_penalty
+
+
 def _closing_supported_candidate(
     market_type: str,
     resolvability: str,
@@ -1548,8 +1592,17 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         reference_date=base_date,
     )
     weighted_relevance = _snapshot_relevance_weight(report, relevance, snapshot_domain) if snapshot_mode else relevance
-    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0 and _has_snapshot_depth_competitor(report, venue, item):
-        weighted_relevance = max(0.0, weighted_relevance - 0.04)
+    zero_depth_relevance_penalty, zero_depth_rank_penalty = _kalshi_snapshot_zero_depth_penalty(
+        report,
+        venue,
+        item,
+        spread_quality=spread_quality,
+        liquidity=liquidity,
+        volume=volume,
+        open_interest=open_interest,
+    )
+    if zero_depth_relevance_penalty:
+        weighted_relevance = max(0.0, weighted_relevance - zero_depth_relevance_penalty)
     if domain == "esports":
         explicit_props = _is_explicit_esports_prop_prompt(report.topic)
         explicit_title = _is_explicit_esports_title_prompt(report.topic)
@@ -1621,18 +1674,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         volume,
         liquidity,
     )))
-    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0 and _has_snapshot_depth_competitor(report, venue, item):
-        rank_score = max(0, rank_score - 10)
-    if snapshot_mode and venue.lower() == "kalshi" and (liquidity or 0.0) <= 0:
-        zero_depth_days = _days_to_end(getattr(item, "end_date", None), reference_date=base_date)
-        if zero_depth_days is not None and zero_depth_days > 3:
-            rank_score = max(0, rank_score - 4)
-        if zero_depth_days is not None and zero_depth_days > 7:
-            rank_score = max(0, rank_score - 6)
-        if zero_depth_days is not None and zero_depth_days > 14:
-            rank_score = max(0, rank_score - 8)
-        if _has_nearer_snapshot_depth_peer(report, venue, item):
-            rank_score = max(0, rank_score - 12)
+    if zero_depth_rank_penalty:
+        rank_score = max(0, rank_score - zero_depth_rank_penalty)
     if (
         snapshot_mode
         and venue.lower() == "kalshi"
@@ -1643,6 +1686,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         if days_to_end is not None and days_to_end <= 3:
             rank_score = min(100, rank_score + 4)
         if days_to_end is not None and days_to_end <= 1:
+            rank_score = min(100, rank_score + 2)
+        if spread_quality >= 0.80:
             rank_score = min(100, rank_score + 2)
 
     if closing_mode and venue.lower() == "kalshi" and closing_reason == "closing_soon":

@@ -1,4 +1,4 @@
-"""YouTube search and transcript extraction via yt-dlp for /last24hours v1.1.3.
+"""YouTube search and transcript extraction via yt-dlp for /last24hours v1.1.4.
 
 Uses yt-dlp (https://github.com/yt-dlp/yt-dlp) for both YouTube search and
 transcript extraction. No API keys needed — just have yt-dlp installed.

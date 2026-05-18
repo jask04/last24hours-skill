@@ -1103,6 +1103,10 @@ class PaperExtractionTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         summary = payload["kalshi_specialist_dry_run"]
         self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["by_status"]["duplicate_skip"], 1)
+        self.assertEqual(summary["by_status"]["no_compatible_pick"], 1)
+        self.assertEqual(summary["no_supply_topics"], ["Kalshi markets closing soon"])
+        self.assertEqual(summary["duplicate_skip_topics"], ["Fed rate cut by June"])
         self.assertEqual(summary["rows"][0]["topic"], "Kalshi markets closing soon")
         self.assertEqual(
             summary["latency_outliers"],
@@ -1114,6 +1118,33 @@ class PaperExtractionTests(unittest.TestCase):
                     "reason_class": "no_near_expiry_candidates",
                 }
             ],
+        )
+
+    def test_closing_soon_reason_class_reports_kalshi_low_quality_seen_supply(self):
+        report = {
+            "planning_notes": ["closing_soon", "closing-ka-raw:3", "closing-ka-candidates:2"],
+            "kalshi": [
+                {
+                    "title": "Fed funds rate after Jun 2026 meeting?",
+                    "question": "Fed funds rate after Jun 2026 meeting?",
+                    "venue": "kalshi",
+                    "market_type": "macro_binary",
+                    "minutes_to_close": 90,
+                    "closing_soon_reason": "closing_soon",
+                    "probability": 0.55,
+                    "spread": 0.02,
+                    "resolvability": "Kalshi market",
+                }
+            ],
+            "market_watchlist": [],
+            "evidence_fusion_stats": {
+                "debug_counters": {"suppressed_kalshi_closing_actionability_candidates": 2}
+            },
+        }
+
+        self.assertEqual(
+            paper._closing_soon_reason_class_for_report("Kalshi markets closing soon", report),
+            "kalshi_low_quality_supply",
         )
 
     def test_cmd_daily_adds_cross_venue_closing_soon_summary(self):
@@ -2240,7 +2271,37 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(closing_health["topics"]["Kalshi markets closing soon"]["count"], 0)
         specialist_open = paper.kalshi_specialist_open_summary(picks)
         self.assertEqual(specialist_open["count"], 1)
+        self.assertEqual(specialist_open["by_status"]["unknown"], 1)
         self.assertEqual(specialist_open["by_topic"]["Fed rate cut by June"], 1)
+
+    def test_kalshi_specialist_open_summary_breaks_out_resolved_rows(self):
+        picks = [
+            {
+                "id": 1,
+                "status": "open",
+                "topic": "Kalshi live markets",
+                "query_type": "market_watchlist",
+                "pick_type": "watchlist",
+                "market_type": "threshold",
+                "venue": "kalshi",
+            },
+            {
+                "id": 2,
+                "status": "resolved",
+                "topic": "Fed rate cut by June",
+                "query_type": "prediction",
+                "pick_type": "forecast",
+                "market_type": "macro_binary",
+                "venue": "kalshi",
+            },
+        ]
+
+        specialist_open = paper.kalshi_specialist_open_summary(picks)
+
+        self.assertEqual(specialist_open["count"], 1)
+        self.assertEqual(specialist_open["open_count"], 1)
+        self.assertEqual(specialist_open["resolved_count"], 1)
+        self.assertEqual(specialist_open["resolved_by_topic"]["Fed rate cut by June"], 1)
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

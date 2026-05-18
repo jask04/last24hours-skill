@@ -2323,6 +2323,60 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0].source_item_id, "KA_NEAR")
+        self.assertIn("quoted liquidity is unavailable", items[1].risk)
+
+    def test_kalshi_live_board_prefers_nearer_tighter_depth_over_passive_long_dated_carry(self):
+        report = _report("Kalshi live markets")
+        report.kalshi = [
+            schema.KalshiItem(
+                id="KA_ACTIONABLE",
+                title="Bitcoin price today at 5pm EDT?",
+                question="Will Bitcoin be above $77,250?",
+                url="https://kalshi.com/markets/KXBTC-26MAY0117-B77250",
+                ticker="KXBTC-26MAY0117-B77250",
+                event_ticker="KXBTC-26MAY0117",
+                series_ticker="KXBTC",
+                current_probability=0.49,
+                implied_probability=0.49,
+                best_bid=0.48,
+                best_ask=0.49,
+                spread=0.01,
+                volume_24h=220_000,
+                movement_24h=6.0,
+                market_signal_quality=0.71,
+                engagement=_engagement(volume=220_000, liquidity=75_000, open_interest=180_000),
+                market_type="threshold",
+                end_date="2026-05-01",
+                resolvability="Kalshi market",
+                relevance=0.30,
+            ),
+            schema.KalshiItem(
+                id="KA_PASSIVE",
+                title="Top AI this week",
+                question="Will Anthropic lead AI mindshare this week?",
+                url="https://kalshi.com/markets/KXAI-26MAY20-TOP",
+                ticker="KXAI-26MAY20-TOP",
+                event_ticker="KXAI-26MAY20",
+                series_ticker="KXAI",
+                current_probability=0.47,
+                implied_probability=0.47,
+                best_bid=0.43,
+                best_ask=0.50,
+                spread=0.07,
+                volume_24h=260_000,
+                movement_24h=3.0,
+                market_signal_quality=0.58,
+                engagement=_engagement(volume=260_000, liquidity=0, open_interest=230_000),
+                market_type="threshold",
+                end_date="2026-05-20",
+                resolvability="Kalshi market",
+                relevance=0.31,
+            ),
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report, limit=2)
+
+        self.assertEqual([item.source_item_id for item in items], ["KA_ACTIONABLE", "KA_PASSIVE"])
 
     def test_polymarket_closing_soon_supported_candidate_survives_thin_evidence(self):
         report = _report("Polymarket markets closing soon")

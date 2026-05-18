@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-05-18
+
+- Kalshi specialist snapshot ranking now demotes long-dated zero-depth carry rows more aggressively and gives tighter, nearer, quoted-depth rows clearer priority on `Kalshi live markets` and `Kalshi markets right now`.
+- Kalshi closing-soon paper/report diagnostics now distinguish true empty-window specialist supply from `kalshi_low_quality_supply`, so sparse no-pick runs are easier to read in the daily portfolio.
+- Kalshi specialist dry-run and report summaries now break out status mixes, duplicate-skip churn, no-supply topics, and resolved specialist rows without schema changes or ledger rewrites.
+- Paper-fast Kalshi closing-soon scans use a smaller bounded seed/raw budget before failing closed; no new CLI flags, no portfolio demotion, and no core-lane scope expansion in this release.
+
 ## [1.1.3] - 2026-05-18
 
 - Closing-soon paper-fast Polymarket runs now preserve scanner metadata through final watchlist synthesis, so valid near-expiry rows are less likely to disappear before paper admission.
