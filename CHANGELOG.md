@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-05-19
+
+- Default daily paper calibration no longer includes `Kalshi markets closing soon`; the prompt remains implemented for explicit specialist/audit runs, but it no longer burns daily portfolio slots without producing resolved sample rows.
+- Paper dedupe policy now supports topic-aware duplicate scopes for long-lived fixtures such as `Bitcoin above 100k this week`, `tomorrows nba games`, `NBA paper bundle next 2 days`, and `League of Legends matches today`, reducing repeat open-row churn when the anchor does not materially improve.
+- `scripts/paper.py` reports now expose duplicate-heavy default topics, per-fixture usefulness, and Kalshi specialist fixture usefulness so daily automation can distinguish calibration value from backlog without schema changes.
+- No schema migration, no historical ledger rewrite, no source-tier broadening, and no Polymarket/crypto closing-soon redesign in this release.
+
 ## [1.1.4] - 2026-05-18
 
 - Kalshi specialist snapshot ranking now demotes long-dated zero-depth carry rows more aggressively and gives tighter, nearer, quoted-depth rows clearer priority on `Kalshi live markets` and `Kalshi markets right now`.

@@ -162,6 +162,7 @@ def _load_portfolio(path: Path) -> List[Dict[str, Any]]:
         item.setdefault("last24hours_args", [])
         item.setdefault("pick_policy", "default")
         item.setdefault("dedupe_policy", "allow")
+        item.setdefault("dedupe_scope", "market_key")
         item.setdefault("dedupe_window_days", 7)
         normalized.append(item)
     return normalized
@@ -715,6 +716,25 @@ def _bundle_duplicate_key_from_pick(pick: Dict[str, Any]) -> str:
     return _bundle_duplicate_key_from_legs(notes.get("legs") or [])
 
 
+def _bundle_duplicate_key_from_legs_relaxed(legs: Iterable[Dict[str, Any]]) -> str:
+    signatures = sorted(
+        "|".join(
+            part for part in (
+                _normalize_bundle_leg_text(leg.get("title")),
+                _normalize_bundle_leg_text(leg.get("outcome_label")),
+            ) if part
+        )
+        for leg in legs
+    )
+    signatures = [signature for signature in signatures if signature]
+    return "||".join(signatures)
+
+
+def _bundle_duplicate_key_from_pick_relaxed(pick: Dict[str, Any]) -> str:
+    notes = _safe_json_loads(pick.get("notes_json"))
+    return _bundle_duplicate_key_from_legs_relaxed(notes.get("legs") or [])
+
+
 def _existing_open_bundle_duplicate_rows(bundle_key: str) -> List[Dict[str, Any]]:
     if not bundle_key:
         return []
@@ -730,6 +750,72 @@ def _existing_open_bundle_duplicate_rows(bundle_key: str) -> List[Dict[str, Any]
         for row in rows:
             payload = dict(row)
             if _bundle_duplicate_key_from_pick(payload) == bundle_key:
+                matches.append(payload)
+        return matches
+    finally:
+        conn.close()
+
+
+def _existing_open_bundle_duplicate_rows_relaxed(bundle_key: str) -> List[Dict[str, Any]]:
+    if not bundle_key:
+        return []
+    conn = store._connect()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status IN ('open', 'unknown')
+                 AND (pick_type = 'bundle' OR venue = 'paper_bundle')
+               ORDER BY created_at DESC"""
+        ).fetchall()
+        matches = []
+        for row in rows:
+            payload = dict(row)
+            if _bundle_duplicate_key_from_pick_relaxed(payload) == bundle_key:
+                matches.append(payload)
+        return matches
+    finally:
+        conn.close()
+
+
+def _normalize_pick_text(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9\s]", " ", str(value or "").lower())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _pick_duplicate_signature(pick: Dict[str, Any], scope: str) -> str:
+    scope = str(scope or "market_key").strip().lower()
+    topic = str(pick.get("topic") or "")
+    if scope == "market_key":
+        return str(pick.get("venue_market_key") or "")
+    if scope == "topic_anchor":
+        venue = str(pick.get("venue") or pick.get("anchor_source") or "")
+        return f"{topic}|{venue}"
+    if scope == "topic_title_outcome":
+        title = _normalize_pick_text(pick.get("title") or pick.get("question") or "")
+        outcome = _normalize_pick_text(pick.get("outcome_label") or "")
+        market_type = str(pick.get("market_type") or "")
+        return "|".join(part for part in (topic, title, outcome, market_type) if part)
+    if scope == "bundle_legs_relaxed":
+        return _bundle_duplicate_key_from_pick_relaxed(pick)
+    return str(pick.get("venue_market_key") or "")
+
+
+def _existing_open_topic_duplicate_rows(topic: str, signature: str, scope: str) -> List[Dict[str, Any]]:
+    if not signature or not topic:
+        return []
+    conn = store._connect()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status IN ('open', 'unknown')
+                 AND topic = ?
+               ORDER BY created_at DESC""",
+            [topic],
+        ).fetchall()
+        matches = []
+        for row in rows:
+            payload = dict(row)
+            if _pick_duplicate_signature(payload, scope) == signature:
                 matches.append(payload)
         return matches
     finally:
@@ -1237,25 +1323,37 @@ def _apply_dedupe_policy(
     debug_counters: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, Any]]:
     policy = str(entry.get("dedupe_policy") or "allow").strip().lower()
+    scope = str(entry.get("dedupe_scope") or "market_key").strip().lower()
     if policy == "allow":
         return picks
     window_days = int(entry.get("dedupe_window_days") or 7)
     kept: List[Dict[str, Any]] = []
     for pick in picks:
-        key = str(pick.get("venue_market_key") or "")
+        duplicate_label = ""
+        if scope == "market_key":
+            key = str(pick.get("venue_market_key") or "")
+            duplicate_label = key
+        else:
+            key = _pick_duplicate_signature(pick, scope)
+            duplicate_label = key
         if not key:
             kept.append(pick)
             continue
         duplicates = []
         if policy == "skip_if_open_duplicate":
-            if pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle":
-                duplicates = _existing_open_bundle_duplicate_rows(_bundle_duplicate_key_from_pick(pick))
+            if scope == "bundle_legs_relaxed":
+                duplicates = _existing_open_bundle_duplicate_rows_relaxed(key)
+                duplicate_label = key
+            elif pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle":
+                duplicate_label = _bundle_duplicate_key_from_pick(pick)
+                duplicates = _existing_open_bundle_duplicate_rows(duplicate_label)
+            elif scope in {"topic_anchor", "topic_title_outcome"}:
+                duplicates = _existing_open_topic_duplicate_rows(str(entry.get("topic") or ""), key, scope)
             else:
                 duplicates = _existing_pick_rows(key, open_only=True)
         elif policy == "skip_if_recent_duplicate":
             duplicates = _existing_pick_rows(key, window_days=window_days)
         if duplicates:
-            duplicate_label = _bundle_duplicate_key_from_pick(pick) if pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle" else key
             warnings.append(
                 f"{entry['topic']}: skipped duplicate {pick.get('pick_type', 'pick')} for {duplicate_label or key} under {policy} ({len(duplicates)} existing row(s))"
             )
@@ -2402,6 +2500,31 @@ def _closing_soon_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[str, An
     }
 
 
+def _default_fixture_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = set(_default_portfolio_topics())
+    rows = []
+    by_status: Dict[str, int] = {}
+    for entry in results:
+        topic = str(entry.get("topic") or "")
+        if topic not in topics:
+            continue
+        status = str(entry.get("status") or "")
+        by_status[status] = by_status.get(status, 0) + 1
+        rows.append({
+            "topic": topic,
+            "runtime_lane": entry.get("runtime_lane") or _runtime_lane(topic),
+            "status": status,
+            "reason_class": entry.get("reason_class") or "",
+            "elapsed_seconds": entry.get("elapsed_seconds", 0),
+        })
+    return {
+        "count": len(rows),
+        "by_status": dict(sorted(by_status.items())),
+        "rows": rows,
+        "empty_reason": "" if rows else "No default fixture dry-run topics in this portfolio.",
+    }
+
+
 def _default_portfolio_topics() -> List[str]:
     try:
         return [str(entry.get("topic") or "") for entry in _load_portfolio(DEFAULT_PORTFOLIO) if entry.get("topic")]
@@ -2443,6 +2566,43 @@ def open_default_portfolio_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any
     }
 
 
+def duplicate_heavy_default_topics_summary(picks: List[Dict[str, Any]], *, min_open_count: int = 2) -> Dict[str, Any]:
+    topics = set(_default_portfolio_topics())
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for pick in picks:
+        topic = str(pick.get("topic") or "")
+        if topic not in topics or pick.get("status") not in {"open", "unknown"}:
+            continue
+        grouped.setdefault(topic, []).append(pick)
+    rows = []
+    for topic, rows_for_topic in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+        if len(rows_for_topic) < min_open_count:
+            continue
+        by_skill_version: Dict[str, int] = {}
+        by_status: Dict[str, int] = {}
+        by_venue: Dict[str, int] = {}
+        for pick in rows_for_topic:
+            skill_version = str(pick.get("skill_version") or "legacy_unversioned")
+            by_skill_version[skill_version] = by_skill_version.get(skill_version, 0) + 1
+            status = str(pick.get("status") or "")
+            by_status[status] = by_status.get(status, 0) + 1
+            venue = str(pick.get("venue") or "")
+            by_venue[venue] = by_venue.get(venue, 0) + 1
+        rows.append({
+            "topic": topic,
+            "open_count": len(rows_for_topic),
+            "runtime_lane": _runtime_lane(topic, rows_for_topic[0]),
+            "by_skill_version": dict(sorted(by_skill_version.items())),
+            "by_status": dict(sorted(by_status.items())),
+            "by_venue": dict(sorted(by_venue.items())),
+        })
+    return {
+        "count": len(rows),
+        "rows": rows[:12],
+        "empty_reason": "" if rows else "No duplicate-heavy default portfolio topics right now.",
+    }
+
+
 def kalshi_specialist_open_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     relevant = []
     by_topic: Dict[str, int] = {}
@@ -2481,6 +2641,64 @@ def kalshi_specialist_open_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any
         "resolved_by_topic": dict(sorted(resolved_by_topic.items())),
         "rows": rows,
         "empty_reason": "" if relevant else "No open Kalshi specialist rows right now.",
+    }
+
+
+def default_fixture_usefulness_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = _default_portfolio_topics()
+    rows = []
+    for topic in topics:
+        topic_rows = [pick for pick in picks if str(pick.get("topic") or "") == topic]
+        resolved = [pick for pick in topic_rows if pick.get("status") == "resolved"]
+        open_rows = [pick for pick in topic_rows if pick.get("status") in {"open", "unknown"}]
+        unknown_rows = [pick for pick in topic_rows if pick.get("status") == "unknown"]
+        sorted_rows = sorted(
+            topic_rows,
+            key=lambda pick: _parse_timestamp(pick.get("created_at")) or datetime.min,
+            reverse=True,
+        )
+        latest = sorted_rows[0] if sorted_rows else {}
+        rows.append({
+            "topic": topic,
+            "runtime_lane": _runtime_lane(topic, latest if latest else None),
+            "resolved_count": len(resolved),
+            "open_count": len(open_rows),
+            "unknown_count": len(unknown_rows),
+            "latest_status": str(latest.get("status") or ""),
+            "latest_skill_version": str(latest.get("skill_version") or ""),
+        })
+    return {
+        "count": len(rows),
+        "rows": rows,
+        "empty_reason": "" if rows else "No default fixture topics configured.",
+    }
+
+
+def kalshi_specialist_fixture_usefulness_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = [
+        topic for topic in _default_portfolio_topics()
+        if _runtime_lane(topic) == "kalshi_specialist"
+    ]
+    rows = []
+    for topic in topics:
+        topic_rows = [pick for pick in picks if str(pick.get("topic") or "") == topic]
+        resolved = [pick for pick in topic_rows if pick.get("status") == "resolved"]
+        open_rows = [pick for pick in topic_rows if pick.get("status") in {"open", "unknown"}]
+        status_mix: Dict[str, int] = {}
+        for pick in topic_rows:
+            status = str(pick.get("status") or "")
+            status_mix[status] = status_mix.get(status, 0) + 1
+        rows.append({
+            "topic": topic,
+            "resolved_count": len(resolved),
+            "open_count": len(open_rows),
+            "has_resolved_sample": bool(resolved),
+            "status_mix": dict(sorted(status_mix.items())),
+        })
+    return {
+        "count": len(rows),
+        "rows": rows,
+        "empty_reason": "" if rows else "No Kalshi specialist default fixtures configured.",
     }
 
 
@@ -3338,6 +3556,7 @@ def cmd_daily(args) -> None:
             "latency_outliers": latency_outliers,
             "closing_soon_dry_run": _closing_soon_dry_run_summary(results),
             "kalshi_specialist_dry_run": _kalshi_specialist_dry_run_summary(results),
+            "default_fixture_dry_run": _default_fixture_dry_run_summary(results),
             "errors": errors,
         }, indent=2))
         return
@@ -3394,6 +3613,7 @@ def cmd_report(args) -> None:
         "core_sample": runtime_lane_summary(recent, "core"),
         "kalshi_specialist_sample": runtime_lane_summary(recent, "kalshi_specialist"),
         "kalshi_specialist_open_summary": kalshi_specialist_open_summary(recent),
+        "kalshi_specialist_fixture_usefulness": kalshi_specialist_fixture_usefulness_summary(recent),
         "experimental_sample": runtime_lane_summary(recent, "experimental"),
         "post_1_0_30_nba_watchlist_sample": post_1_0_30_nba_watchlist_summary(recent),
         "post_1_0_38_esports_sample": post_1_0_38_esports_summary(recent),
@@ -3405,6 +3625,8 @@ def cmd_report(args) -> None:
         "probability_bucket_65_80_health": probability_bucket_health_summary(recent, bucket="65-80"),
         "open_portfolio": open_pick_diagnostics(recent),
         "open_default_portfolio": open_default_portfolio_summary(recent),
+        "duplicate_heavy_default_topics": duplicate_heavy_default_topics_summary(recent),
+        "default_fixture_usefulness": default_fixture_usefulness_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))
 

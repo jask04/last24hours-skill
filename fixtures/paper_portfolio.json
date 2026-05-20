@@ -6,6 +6,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_title_outcome",
     "notes": "Daily NBA slate calibration sample; should prefer direct game-outcome markets."
   },
   {
@@ -24,6 +25,7 @@
     "expected_pick_types": ["bundle"],
     "pick_policy": "bundle_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "bundle_legs_relaxed",
     "notes": "Forward-looking NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
   },
   {
@@ -42,6 +44,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_anchor",
     "notes": "Crypto threshold calibration sample; incompatible lower-threshold markets should not anchor."
   },
   {
@@ -115,6 +118,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_title_outcome",
     "notes": "LoL direct-match forecast sample; should anchor on same-day LoL match winner markets and reject CS2/Valorant rows."
   },
   {
@@ -126,16 +130,6 @@
     "dedupe_policy": "skip_if_open_duplicate",
     "last24hours_args": ["--closing-window-hours", "6"],
     "notes": "Closing-soon market sample; should store a bounded paper watchlist row with resolvability notes."
-  },
-  {
-    "topic": "Kalshi markets closing soon",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["watchlist"],
-    "pick_policy": "watchlist_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "last24hours_args": ["--closing-window-hours", "6"],
-    "notes": "Kalshi near-expiry market sample; should widen closing-soon coverage beyond Polymarket without collapsing the shared ranking."
   },
   {
     "topic": "crypto markets closing soon tonight",
