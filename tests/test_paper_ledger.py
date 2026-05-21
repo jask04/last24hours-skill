@@ -179,14 +179,31 @@ class PaperStoreTests(unittest.TestCase):
         self.assertEqual(entries[0]["dedupe_scope"], "market_key")
         self.assertEqual(entries[0]["dedupe_window_days"], 7)
 
-    def test_default_portfolio_excludes_kalshi_markets_closing_soon(self):
+    def test_default_portfolio_excludes_pruned_fixtures(self):
         entries = paper._load_portfolio(paper.DEFAULT_PORTFOLIO)
         topics = [entry["topic"] for entry in entries]
 
         self.assertNotIn("Kalshi markets closing soon", topics)
+        self.assertNotIn("Bitcoin above 100k this week", topics)
+        self.assertNotIn("NBA paper bundle next 2 days", topics)
         self.assertIn("Kalshi live markets", topics)
         self.assertIn("Polymarket markets closing soon", topics)
         self.assertIn("crypto markets closing soon tonight", topics)
+
+    def test_removed_fixtures_can_still_be_loaded_from_explicit_portfolio(self):
+        portfolio_path = Path(self.tmp.name) / "explicit_portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {"topic": "Bitcoin above 100k this week", "enabled": True},
+            {"topic": "NBA paper bundle next 2 days", "enabled": True},
+        ]), encoding="utf-8")
+
+        entries = paper._load_portfolio(portfolio_path)
+        topics = [entry["topic"] for entry in entries]
+
+        self.assertEqual(
+            topics,
+            ["Bitcoin above 100k this week", "NBA paper bundle next 2 days"],
+        )
 
     def test_topic_anchor_dedupe_suppresses_unchanged_bitcoin_row(self):
         run_id = paper.store.record_paper_run("paper_portfolio")
@@ -231,7 +248,7 @@ class PaperStoreTests(unittest.TestCase):
         self.assertEqual(debug["skipped_duplicate_paper_rows"], 1)
         self.assertIn("skipped duplicate forecast", " ".join(warnings))
 
-    def test_topic_title_outcome_dedupe_suppresses_same_slate_duplicate(self):
+    def test_topic_target_date_title_outcome_dedupe_suppresses_same_slate_duplicate(self):
         run_id = paper.store.record_paper_run("paper_portfolio")
         paper.store.add_paper_pick({
             "paper_run_id": run_id,
@@ -244,6 +261,7 @@ class PaperStoreTests(unittest.TestCase):
             "title": "Knicks vs. Celtics",
             "outcome_label": "Knicks",
             "market_type": "game_outcome",
+            "end_date": "2026-05-20",
             "model_probability": 0.53,
             "status": "open",
             "skill_version": "1.1.test",
@@ -257,6 +275,7 @@ class PaperStoreTests(unittest.TestCase):
             "title": "Knicks vs. Celtics",
             "outcome_label": "Knicks",
             "market_type": "game_outcome",
+            "end_date": "2026-05-20",
         }
 
         warnings = []
@@ -265,7 +284,7 @@ class PaperStoreTests(unittest.TestCase):
             {
                 "topic": "tomorrows nba games",
                 "dedupe_policy": "skip_if_open_duplicate",
-                "dedupe_scope": "topic_title_outcome",
+                "dedupe_scope": "topic_target_date_title_outcome",
             },
             [candidate],
             warnings,
@@ -274,6 +293,53 @@ class PaperStoreTests(unittest.TestCase):
 
         self.assertEqual(kept, [])
         self.assertEqual(debug["skipped_duplicate_paper_rows"], 1)
+
+    def test_topic_target_date_title_outcome_allows_true_date_rollover(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "tomorrows nba games",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "anchor_source": "polymarket",
+            "venue_market_key": "pm-nba-old",
+            "title": "Knicks vs. Celtics",
+            "outcome_label": "Knicks",
+            "market_type": "game_outcome",
+            "end_date": "2026-05-20",
+            "model_probability": 0.53,
+            "status": "open",
+            "skill_version": "1.1.test",
+        })
+        candidate = {
+            "topic": "tomorrows nba games",
+            "pick_type": "forecast",
+            "venue": "kalshi",
+            "anchor_source": "kalshi",
+            "venue_market_key": "ka-nba-new",
+            "title": "Knicks vs. Celtics",
+            "outcome_label": "Knicks",
+            "market_type": "game_outcome",
+            "end_date": "2026-05-21",
+        }
+
+        warnings = []
+        debug = {}
+        kept = paper._apply_dedupe_policy(
+            {
+                "topic": "tomorrows nba games",
+                "dedupe_policy": "skip_if_open_duplicate",
+                "dedupe_scope": "topic_target_date_title_outcome",
+            },
+            [candidate],
+            warnings,
+            debug,
+        )
+
+        self.assertEqual(len(kept), 1)
+        self.assertFalse(warnings)
+        self.assertEqual(debug, {})
 
     def test_relaxed_bundle_dedupe_suppresses_near_identical_leg_sets(self):
         existing_legs = [
@@ -339,7 +405,7 @@ class PaperStoreTests(unittest.TestCase):
         self.assertEqual(kept, [])
         self.assertEqual(debug["skipped_duplicate_paper_rows"], 1)
 
-    def test_topic_title_outcome_dedupe_suppresses_low_information_lol_repeat(self):
+    def test_topic_target_date_title_outcome_dedupe_suppresses_low_information_lol_repeat(self):
         run_id = paper.store.record_paper_run("paper_portfolio")
         paper.store.add_paper_pick({
             "paper_run_id": run_id,
@@ -352,6 +418,7 @@ class PaperStoreTests(unittest.TestCase):
             "title": "T1 vs. Gen.G",
             "outcome_label": "T1",
             "market_type": "match_winner",
+            "end_date": "2026-05-19",
             "model_probability": 0.56,
             "status": "open",
             "skill_version": "1.1.test",
@@ -365,6 +432,7 @@ class PaperStoreTests(unittest.TestCase):
             "title": "T1 vs. Gen.G",
             "outcome_label": "T1",
             "market_type": "match_winner",
+            "end_date": "2026-05-19",
         }
 
         warnings = []
@@ -373,7 +441,51 @@ class PaperStoreTests(unittest.TestCase):
             {
                 "topic": "League of Legends matches today",
                 "dedupe_policy": "skip_if_open_duplicate",
-                "dedupe_scope": "topic_title_outcome",
+                "dedupe_scope": "topic_target_date_title_outcome",
+            },
+            [candidate],
+            warnings,
+            debug,
+        )
+
+        self.assertEqual(kept, [])
+        self.assertEqual(debug["skipped_duplicate_paper_rows"], 1)
+
+    def test_topic_target_date_anchor_suppresses_same_weather_target_date(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "NYC rain tomorrow",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "weather_api",
+            "anchor_source": "weather_api",
+            "venue_market_key": "weather_api|NYC rain tomorrow|NYC rain tomorrow|2026-05-20",
+            "title": "NYC rain tomorrow",
+            "market_type": "weather",
+            "end_date": "2026-05-20",
+            "model_probability": 0.12,
+            "status": "open",
+            "skill_version": "1.1.test",
+        })
+        candidate = {
+            "topic": "NYC rain tomorrow",
+            "pick_type": "forecast",
+            "venue": "weather_api",
+            "anchor_source": "weather_api",
+            "venue_market_key": "weather_api|NYC rain tomorrow|NYC rain tomorrow|2026-05-20",
+            "title": "NYC rain tomorrow",
+            "market_type": "weather",
+            "end_date": "2026-05-20",
+        }
+
+        warnings = []
+        debug = {}
+        kept = paper._apply_dedupe_policy(
+            {
+                "topic": "NYC rain tomorrow",
+                "dedupe_policy": "skip_if_open_duplicate",
+                "dedupe_scope": "topic_target_date_anchor",
             },
             [candidate],
             warnings,
@@ -2542,26 +2654,28 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(specialist_open["resolved_count"], 1)
         self.assertEqual(specialist_open["resolved_by_topic"]["Fed rate cut by June"], 1)
 
-    def test_fixture_usefulness_and_duplicate_heavy_topic_summaries(self):
+    def test_fixture_usefulness_duplicate_heavy_and_explicit_only_summaries(self):
         picks = [
             {
                 "id": 1,
                 "status": "open",
-                "topic": "Bitcoin above 100k this week",
+                "topic": "NYC rain tomorrow",
                 "query_type": "prediction",
                 "pick_type": "forecast",
-                "venue": "kalshi",
+                "venue": "weather_api",
                 "skill_version": "1.1.4",
+                "end_date": "2026-05-20",
                 "created_at": "2026-05-18T08:00:00",
             },
             {
                 "id": 2,
-                "status": "unknown",
-                "topic": "Bitcoin above 100k this week",
+                "status": "open",
+                "topic": "NYC rain tomorrow",
                 "query_type": "prediction",
                 "pick_type": "forecast",
-                "venue": "kalshi",
+                "venue": "weather_api",
                 "skill_version": "1.1.5",
+                "end_date": "2026-05-21",
                 "created_at": "2026-05-19T08:00:00",
             },
             {
@@ -2584,24 +2698,61 @@ class CalibrationTests(unittest.TestCase):
                 "skill_version": "1.1.5",
                 "created_at": "2026-05-19T10:00:00",
             },
+            {
+                "id": 5,
+                "status": "open",
+                "topic": "Bitcoin above 100k this week",
+                "query_type": "prediction",
+                "pick_type": "forecast",
+                "venue": "model_implied",
+                "skill_version": "1.1.4",
+                "created_at": "2026-05-19T11:00:00",
+            },
+            {
+                "id": 6,
+                "status": "open",
+                "topic": "NBA paper bundle next 2 days",
+                "query_type": "market_watchlist",
+                "pick_type": "bundle",
+                "venue": "paper_bundle",
+                "skill_version": "1.1.4",
+                "created_at": "2026-05-19T12:00:00",
+            },
         ]
 
         duplicate_heavy = paper.duplicate_heavy_default_topics_summary(picks)
         fixture_usefulness = paper.default_fixture_usefulness_summary(picks)
         kalshi_usefulness = paper.kalshi_specialist_fixture_usefulness_summary(picks)
+        prune_candidates = paper.default_fixture_prune_candidates_summary(picks)
+        rollover_churn = paper.date_rollover_churn_topics_summary(picks)
+        explicit_only = paper.explicit_only_fixture_summary(picks)
 
         self.assertEqual(duplicate_heavy["count"], 1)
-        self.assertEqual(duplicate_heavy["rows"][0]["topic"], "Bitcoin above 100k this week")
+        self.assertEqual(duplicate_heavy["rows"][0]["topic"], "NYC rain tomorrow")
         self.assertEqual(duplicate_heavy["rows"][0]["open_count"], 2)
 
         fixture_topics = {row["topic"]: row for row in fixture_usefulness["rows"]}
-        self.assertEqual(fixture_topics["Bitcoin above 100k this week"]["open_count"], 2)
+        self.assertEqual(fixture_topics["NYC rain tomorrow"]["open_count"], 2)
         self.assertEqual(fixture_topics["Fed rate cut by June"]["resolved_count"], 1)
         self.assertEqual(fixture_topics["Kalshi live markets"]["latest_status"], "duplicate_skip")
 
         kalshi_topics = {row["topic"]: row for row in kalshi_usefulness["rows"]}
         self.assertTrue(kalshi_topics["Fed rate cut by June"]["has_resolved_sample"])
         self.assertEqual(kalshi_topics["Kalshi live markets"]["status_mix"]["duplicate_skip"], 1)
+
+        self.assertEqual(prune_candidates["count"], 1)
+        self.assertEqual(prune_candidates["rows"][0]["topic"], "NYC rain tomorrow")
+        self.assertEqual(rollover_churn["count"], 1)
+        self.assertEqual(rollover_churn["rows"][0]["topic"], "NYC rain tomorrow")
+        self.assertEqual(
+            rollover_churn["rows"][0]["by_target_date"],
+            {"2026-05-20": 1, "2026-05-21": 1},
+        )
+
+        explicit_topics = {row["topic"]: row for row in explicit_only["rows"]}
+        self.assertFalse(explicit_topics["Bitcoin above 100k this week"]["in_default_portfolio"])
+        self.assertEqual(explicit_topics["Bitcoin above 100k this week"]["open_count"], 1)
+        self.assertFalse(explicit_topics["NBA paper bundle next 2 days"]["in_default_portfolio"])
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

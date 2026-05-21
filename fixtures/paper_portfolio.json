@@ -6,7 +6,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
-    "dedupe_scope": "topic_title_outcome",
+    "dedupe_scope": "topic_target_date_title_outcome",
     "notes": "Daily NBA slate calibration sample; should prefer direct game-outcome markets."
   },
   {
@@ -16,17 +16,8 @@
     "expected_pick_types": ["watchlist"],
     "pick_policy": "watchlist_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_target_date_title_outcome",
     "notes": "Daily NBA watchlist sample; should store only a direct game-outcome watchlist row."
-  },
-  {
-    "topic": "NBA paper bundle next 2 days",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["bundle"],
-    "pick_policy": "bundle_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "dedupe_scope": "bundle_legs_relaxed",
-    "notes": "Forward-looking NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
   },
   {
     "topic": "NBA paper bundle tomorrow",
@@ -36,16 +27,6 @@
     "pick_policy": "bundle_only",
     "dedupe_policy": "skip_if_open_duplicate",
     "notes": "Next-day NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
-  },
-  {
-    "topic": "Bitcoin above 100k this week",
-    "query_type": "prediction",
-    "enabled": true,
-    "expected_pick_types": ["forecast"],
-    "pick_policy": "forecast_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "dedupe_scope": "topic_anchor",
-    "notes": "Crypto threshold calibration sample; incompatible lower-threshold markets should not anchor."
   },
   {
     "topic": "Fed rate cut by June",
@@ -72,6 +53,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_target_date_anchor",
     "notes": "Weather calibration sample; NWS-led forecasts may require manual/public resolution."
   },
   {
@@ -100,6 +82,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_target_date_title_outcome",
     "notes": "CS2 direct-match forecast sample; should anchor on same-day Counter-Strike match winner markets."
   },
   {
@@ -109,6 +92,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
+    "dedupe_scope": "topic_target_date_title_outcome",
     "notes": "Valorant direct-match forecast sample; should anchor on same-day Valorant match winner markets and reject CS2/LoL rows."
   },
   {
@@ -118,7 +102,7 @@
     "expected_pick_types": ["forecast"],
     "pick_policy": "forecast_only",
     "dedupe_policy": "skip_if_open_duplicate",
-    "dedupe_scope": "topic_title_outcome",
+    "dedupe_scope": "topic_target_date_title_outcome",
     "notes": "LoL direct-match forecast sample; should anchor on same-day LoL match winner markets and reject CS2/Valorant rows."
   },
   {

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-05-20
+
+- Default daily paper calibration no longer includes `Bitcoin above 100k this week` or `NBA paper bundle next 2 days`; both prompts remain implemented for explicit runs, but they no longer consume default portfolio slots without resolved calibration value.
+- Paper dedupe now supports target-date-aware recurring-fixture suppression, so daily reruns for `tomorrows nba games`, `NYC rain tomorrow`, and same-day eSports/sports prompts suppress unchanged same-target rows while still allowing real calendar rollover.
+- `scripts/paper.py` reports now expose `default_fixture_prune_candidates`, `date_rollover_churn_topics`, and `explicit_only_fixture_summary` so daily automation can distinguish useful defaults from backlog and explicit-only residue without schema changes.
+- No schema migration, no historical ledger rewrite, no source-tier changes, and no closing-soon redesign in this release.
+
 ## [1.1.5] - 2026-05-19
 
 - Default daily paper calibration no longer includes `Kalshi markets closing soon`; the prompt remains implemented for explicit specialist/audit runs, but it no longer burns daily portfolio slots without producing resolved sample rows.

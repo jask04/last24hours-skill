@@ -782,6 +782,20 @@ def _normalize_pick_text(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _pick_effective_target_date(pick: Dict[str, Any]) -> str:
+    end_date = str(pick.get("end_date") or "").strip()
+    if end_date:
+        return end_date[:10]
+    created_at = pick.get("created_at")
+    topic = str(pick.get("topic") or "")
+    if not topic:
+        return ""
+    try:
+        return _target_date_for_topic(topic, created_at).isoformat()
+    except Exception:
+        return ""
+
+
 def _pick_duplicate_signature(pick: Dict[str, Any], scope: str) -> str:
     scope = str(scope or "market_key").strip().lower()
     topic = str(pick.get("topic") or "")
@@ -795,6 +809,16 @@ def _pick_duplicate_signature(pick: Dict[str, Any], scope: str) -> str:
         outcome = _normalize_pick_text(pick.get("outcome_label") or "")
         market_type = str(pick.get("market_type") or "")
         return "|".join(part for part in (topic, title, outcome, market_type) if part)
+    if scope == "topic_target_date_title_outcome":
+        target_date = _pick_effective_target_date(pick)
+        title = _normalize_pick_text(pick.get("title") or pick.get("question") or "")
+        outcome = _normalize_pick_text(pick.get("outcome_label") or "")
+        market_type = str(pick.get("market_type") or "")
+        return "|".join(part for part in (topic, target_date, title, outcome, market_type) if part)
+    if scope == "topic_target_date_anchor":
+        target_date = _pick_effective_target_date(pick)
+        venue = str(pick.get("venue") or pick.get("anchor_source") or "")
+        return "|".join(part for part in (topic, target_date, venue) if part)
     if scope == "bundle_legs_relaxed":
         return _bundle_duplicate_key_from_pick_relaxed(pick)
     return str(pick.get("venue_market_key") or "")
@@ -1347,7 +1371,7 @@ def _apply_dedupe_policy(
             elif pick.get("pick_type") == "bundle" or pick.get("venue") == "paper_bundle":
                 duplicate_label = _bundle_duplicate_key_from_pick(pick)
                 duplicates = _existing_open_bundle_duplicate_rows(duplicate_label)
-            elif scope in {"topic_anchor", "topic_title_outcome"}:
+            elif scope in {"topic_anchor", "topic_title_outcome", "topic_target_date_title_outcome", "topic_target_date_anchor"}:
                 duplicates = _existing_open_topic_duplicate_rows(str(entry.get("topic") or ""), key, scope)
             else:
                 duplicates = _existing_pick_rows(key, open_only=True)
@@ -2674,6 +2698,66 @@ def default_fixture_usefulness_summary(picks: List[Dict[str, Any]]) -> Dict[str,
     }
 
 
+def default_fixture_prune_candidates_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    usefulness = default_fixture_usefulness_summary(picks)
+    rows = [
+        row for row in usefulness["rows"]
+        if int(row.get("resolved_count") or 0) == 0 and int(row.get("open_count") or 0) > 0
+    ]
+    rows.sort(key=lambda row: (-int(row.get("open_count") or 0), str(row.get("topic") or "")))
+    return {
+        "count": len(rows),
+        "rows": rows[:12],
+        "empty_reason": "" if rows else "No default fixture prune candidates right now.",
+    }
+
+
+def date_rollover_churn_topics_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    recurring_topics = {
+        "NYC rain tomorrow",
+        "tomorrows nba games",
+        "NBA markets to watch today",
+        "League of Legends matches today",
+        "Counter-Strike 2 matches today",
+        "Valorant matches today",
+    }
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for pick in picks:
+        topic = str(pick.get("topic") or "")
+        if topic not in recurring_topics or pick.get("status") not in {"open", "unknown"}:
+            continue
+        grouped.setdefault(topic, []).append(pick)
+    rows = []
+    for topic, topic_rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+        if len(topic_rows) < 2:
+            continue
+        by_target_date: Dict[str, int] = {}
+        by_skill_version: Dict[str, int] = {}
+        by_status: Dict[str, int] = {}
+        for pick in topic_rows:
+            target_date = _pick_effective_target_date(pick) or "unknown"
+            by_target_date[target_date] = by_target_date.get(target_date, 0) + 1
+            skill_version = str(pick.get("skill_version") or "legacy_unversioned")
+            by_skill_version[skill_version] = by_skill_version.get(skill_version, 0) + 1
+            status = str(pick.get("status") or "")
+            by_status[status] = by_status.get(status, 0) + 1
+        if len(by_target_date) < 2 and len(by_skill_version) < 2:
+            continue
+        rows.append({
+            "topic": topic,
+            "open_count": len(topic_rows),
+            "runtime_lane": _runtime_lane(topic, topic_rows[0]),
+            "by_target_date": dict(sorted(by_target_date.items())),
+            "by_skill_version": dict(sorted(by_skill_version.items())),
+            "by_status": dict(sorted(by_status.items())),
+        })
+    return {
+        "count": len(rows),
+        "rows": rows[:12],
+        "empty_reason": "" if rows else "No recurring daily rollover churn topics right now.",
+    }
+
+
 def kalshi_specialist_fixture_usefulness_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
     topics = [
         topic for topic in _default_portfolio_topics()
@@ -2699,6 +2783,39 @@ def kalshi_specialist_fixture_usefulness_summary(picks: List[Dict[str, Any]]) ->
         "count": len(rows),
         "rows": rows,
         "empty_reason": "" if rows else "No Kalshi specialist default fixtures configured.",
+    }
+
+
+def explicit_only_fixture_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = [
+        "Kalshi markets closing soon",
+        "Bitcoin above 100k this week",
+        "NBA paper bundle next 2 days",
+    ]
+    rows = []
+    for topic in topics:
+        topic_rows = [pick for pick in picks if str(pick.get("topic") or "") == topic]
+        resolved = [pick for pick in topic_rows if pick.get("status") == "resolved"]
+        open_rows = [pick for pick in topic_rows if pick.get("status") in {"open", "unknown"}]
+        sorted_rows = sorted(
+            topic_rows,
+            key=lambda pick: _parse_timestamp(pick.get("created_at")) or datetime.min,
+            reverse=True,
+        )
+        latest = sorted_rows[0] if sorted_rows else {}
+        rows.append({
+            "topic": topic,
+            "implemented": True,
+            "in_default_portfolio": topic in set(_default_portfolio_topics()),
+            "resolved_count": len(resolved),
+            "open_count": len(open_rows),
+            "latest_status": str(latest.get("status") or ""),
+            "latest_skill_version": str(latest.get("skill_version") or ""),
+        })
+    return {
+        "count": len(rows),
+        "rows": rows,
+        "empty_reason": "" if rows else "No explicit-only retained fixtures configured.",
     }
 
 
@@ -3627,6 +3744,9 @@ def cmd_report(args) -> None:
         "open_default_portfolio": open_default_portfolio_summary(recent),
         "duplicate_heavy_default_topics": duplicate_heavy_default_topics_summary(recent),
         "default_fixture_usefulness": default_fixture_usefulness_summary(recent),
+        "default_fixture_prune_candidates": default_fixture_prune_candidates_summary(recent),
+        "date_rollover_churn_topics": date_rollover_churn_topics_summary(recent),
+        "explicit_only_fixture_summary": explicit_only_fixture_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))
 
