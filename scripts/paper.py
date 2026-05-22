@@ -67,6 +67,8 @@ def _paper_watchlist_fast_args(topic: str, extra_args: Optional[List[str]] = Non
     args = list(extra_args or [])
     lowered = (topic or "").lower()
     if closing_soon.is_kalshi_live_board_query(topic or ""):
+        if "--paper-fast-watchlist" not in args:
+            args.append("--paper-fast-watchlist")
         return args
     if not closing_soon.is_closing_soon_query(topic or ""):
         return args
@@ -889,6 +891,63 @@ def _calibration_useful_watchlist_probability(probability: Optional[float]) -> b
     return probability is not None and 0.35 <= probability <= 0.80
 
 
+def _kalshi_live_board_item_is_actionable(item: Dict[str, Any]) -> bool:
+    if str(item.get("venue") or "").lower() != "kalshi":
+        return False
+    if "manual rule check required" in str(item.get("resolvability") or "").lower():
+        return False
+    probability = _watchlist_probability(item)
+    spread = item.get("spread")
+    tight_spread = spread is None or float(spread) <= 0.12
+    very_tight_spread = spread is None or float(spread) <= 0.06
+    liquidity = max(0.0, float(item.get("liquidity") or 0.0))
+    volume = max(0.0, float(item.get("volume_24h") or item.get("volume") or 0.0))
+    open_interest = max(0.0, float(item.get("open_interest") or 0.0))
+    quality = max(0.0, float(item.get("market_signal_quality") or 0.0))
+    rank_score = max(0.0, float(item.get("rank_score") or 0.0))
+    end_date = _parse_iso_date(item.get("end_date"))
+    days_to_end = (end_date - datetime.now().astimezone().date()).days if end_date else None
+    if probability is not None and (probability >= 0.985 or probability <= 0.015) and (spread is None or float(spread) <= 0.01):
+        return False
+    if (
+        item.get("liquidity") is None
+        and item.get("volume_24h") is None
+        and item.get("volume") is None
+        and item.get("open_interest") is None
+        and item.get("market_signal_quality") is None
+        and item.get("rank_score") is None
+    ):
+        return probability is not None and 0.10 < probability < 0.80 and tight_spread
+    if liquidity > 0:
+        if rank_score < 24 or quality < 0.55 or not tight_spread:
+            return False
+        if days_to_end is not None and days_to_end > 14 and quality < 0.70:
+            return False
+        return True
+    carry_signal = max(volume, open_interest)
+    if carry_signal <= 0:
+        return False
+    if days_to_end is None or days_to_end > 3:
+        return False
+    if rank_score < 28 or quality < 0.72 or not very_tight_spread:
+        return False
+    return carry_signal >= 100_000
+
+
+def _select_generic_watchlist_item(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not items:
+        return None
+    top_probability = _watchlist_probability(items[0])
+    if top_probability is None or 0.10 < top_probability < 0.80:
+        return items[0]
+    for item in items:
+        if _calibration_useful_watchlist_probability(_watchlist_probability(item)):
+            return item
+    if top_probability >= 0.90 or top_probability <= 0.10:
+        return None
+    return items[0]
+
+
 def _select_watchlist_item(items: List[Dict[str, Any]], topic: str = "") -> Optional[Dict[str, Any]]:
     """Prefer calibration-useful watchlist items when the top item is an extreme favorite."""
     if not items:
@@ -905,6 +964,12 @@ def _select_watchlist_item(items: List[Dict[str, Any]], topic: str = "") -> Opti
             if probability is not None and 0.20 <= probability <= 0.95:
                 return item
         return top
+    if closing_soon.is_kalshi_live_board_query(topic or ""):
+        actionable = [item for item in items if _kalshi_live_board_item_is_actionable(item)]
+        if not actionable:
+            return None
+        depth_backed = [item for item in actionable if float(item.get("liquidity") or 0.0) > 0.0]
+        return _select_generic_watchlist_item(depth_backed or actionable)
     nba_mixed_watchlist = any(str(item.get("watchlist_scope") or "") in {"game", "series"} for item in items)
     if nba_mixed_watchlist:
         top = items[0]
@@ -921,15 +986,7 @@ def _select_watchlist_item(items: List[Dict[str, Any]], topic: str = "") -> Opti
             )
             if preferred_game:
                 return preferred_game
-    top_probability = _watchlist_probability(items[0])
-    if top_probability is None or 0.10 < top_probability < 0.80:
-        return items[0]
-    for item in items:
-        if _calibration_useful_watchlist_probability(_watchlist_probability(item)):
-            return item
-    if top_probability >= 0.90 or top_probability <= 0.10:
-        return None
-    return items[0]
+    return _select_generic_watchlist_item(items)
 
 
 def _watchlist_paper_selection_reason_class(topic: str, items: List[Dict[str, Any]]) -> str:
@@ -937,6 +994,8 @@ def _watchlist_paper_selection_reason_class(topic: str, items: List[Dict[str, An
         return ""
     if _select_watchlist_item(items, topic) is not None:
         return ""
+    if closing_soon.is_kalshi_live_board_query(topic or ""):
+        return "kalshi_live_board_low_actionability"
     probabilities = [_watchlist_probability(item) for item in items]
     probabilities = [probability for probability in probabilities if probability is not None]
     if probabilities and all(probability >= 0.90 or probability <= 0.10 for probability in probabilities):
@@ -2791,6 +2850,7 @@ def explicit_only_fixture_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]
         "Kalshi markets closing soon",
         "Bitcoin above 100k this week",
         "NBA paper bundle next 2 days",
+        "NBA paper bundle tomorrow",
     ]
     rows = []
     for topic in topics:
@@ -2816,6 +2876,85 @@ def explicit_only_fixture_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]
         "count": len(rows),
         "rows": rows,
         "empty_reason": "" if rows else "No explicit-only retained fixtures configured.",
+    }
+
+
+def default_fixture_keep_review_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    usefulness = default_fixture_usefulness_summary(picks)
+    duplicate_heavy = {
+        str(row.get("topic") or ""): row
+        for row in duplicate_heavy_default_topics_summary(picks)["rows"]
+    }
+    rows = []
+    for row in usefulness["rows"]:
+        topic = str(row.get("topic") or "")
+        resolved_count = int(row.get("resolved_count") or 0)
+        open_count = int(row.get("open_count") or 0)
+        latest_status = str(row.get("latest_status") or "")
+        review_reasons: List[str] = []
+        if resolved_count == 0 and open_count > 0:
+            review_reasons.append("no_resolved_value")
+        if topic in duplicate_heavy:
+            review_reasons.append("duplicate_churn")
+        if latest_status in {"duplicate_skip", "no_compatible_pick"}:
+            review_reasons.append(f"latest_{latest_status}")
+        if not review_reasons:
+            continue
+        rows.append({
+            **row,
+            "review_reasons": review_reasons,
+            "duplicate_open_count": int((duplicate_heavy.get(topic) or {}).get("open_count") or 0),
+        })
+    rows.sort(
+        key=lambda row: (
+            -len(list(row.get("review_reasons") or [])),
+            -int(row.get("open_count") or 0),
+            int(row.get("resolved_count") or 0),
+            str(row.get("topic") or ""),
+        )
+    )
+    return {
+        "count": len(rows),
+        "rows": rows[:12],
+        "empty_reason": "" if rows else "No current default fixtures need keep-vs-explicit review.",
+    }
+
+
+def kalshi_live_board_health_summary(
+    picks: List[Dict[str, Any]],
+    dry_run_results: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    topic = "Kalshi live markets"
+    topic_rows = [pick for pick in picks if str(pick.get("topic") or "") == topic]
+    resolved = [pick for pick in topic_rows if pick.get("status") == "resolved"]
+    open_rows = [pick for pick in topic_rows if pick.get("status") in {"open", "unknown"}]
+    duplicate_rows = [pick for pick in topic_rows if pick.get("status") == "duplicate_skip"]
+    sorted_rows = sorted(
+        topic_rows,
+        key=lambda pick: _parse_timestamp(pick.get("created_at")) or datetime.min,
+        reverse=True,
+    )
+    latest = sorted_rows[0] if sorted_rows else {}
+    latest_dry_run = next(
+        (
+            row for row in (dry_run_results or [])
+            if str(row.get("topic") or "") == topic
+        ),
+        {},
+    )
+    return {
+        "topic": topic,
+        "implemented": True,
+        "in_default_portfolio": topic in set(_default_portfolio_topics()),
+        "resolved_count": len(resolved),
+        "open_count": len(open_rows),
+        "duplicate_skip_count": len(duplicate_rows),
+        "latest_status": str(latest.get("status") or ""),
+        "latest_skill_version": str(latest.get("skill_version") or ""),
+        "latest_dry_run_status": str(latest_dry_run.get("status") or ""),
+        "latest_dry_run_reason_class": str(latest_dry_run.get("reason_class") or ""),
+        "latest_dry_run_elapsed_seconds": latest_dry_run.get("elapsed_seconds"),
+        "empty_reason": "" if topic_rows or latest_dry_run else "No Kalshi live-board paper rows in the selected window.",
     }
 
 
@@ -3674,6 +3813,7 @@ def cmd_daily(args) -> None:
             "closing_soon_dry_run": _closing_soon_dry_run_summary(results),
             "kalshi_specialist_dry_run": _kalshi_specialist_dry_run_summary(results),
             "default_fixture_dry_run": _default_fixture_dry_run_summary(results),
+            "kalshi_live_board_health": kalshi_live_board_health_summary([], results),
             "errors": errors,
         }, indent=2))
         return
@@ -3745,8 +3885,10 @@ def cmd_report(args) -> None:
         "duplicate_heavy_default_topics": duplicate_heavy_default_topics_summary(recent),
         "default_fixture_usefulness": default_fixture_usefulness_summary(recent),
         "default_fixture_prune_candidates": default_fixture_prune_candidates_summary(recent),
+        "default_fixture_keep_review": default_fixture_keep_review_summary(recent),
         "date_rollover_churn_topics": date_rollover_churn_topics_summary(recent),
         "explicit_only_fixture_summary": explicit_only_fixture_summary(recent),
+        "kalshi_live_board_health": kalshi_live_board_health_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))
 

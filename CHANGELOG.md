@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-05-21
+
+- Default daily paper calibration no longer includes `NBA paper bundle tomorrow`; the bundle prompt remains implemented for explicit paper/audit runs, but it no longer consumes a default slot without resolved calibration value.
+- `Kalshi live markets` now uses stricter paper admission: depth-backed, nearer-expiry, tighter-spread Kalshi rows are preferred, and thin passive carry rows can fail closed as `kalshi_live_board_low_actionability` instead of creating more low-information churn.
+- Paper quick mode now forwards `--paper-fast-watchlist` for `Kalshi live markets`, trims the synthesized Kalshi live board in paper-fast mode, and exposes `default_fixture_keep_review` plus `kalshi_live_board_health` so daily automation can review keep-vs-explicit defaults without schema changes.
+- No schema migration, no historical ledger rewrite, no source-tier broadening, and no Polymarket/crypto closing-soon redesign in this release.
+
 ## [1.1.6] - 2026-05-20
 
 - Default daily paper calibration no longer includes `Bitcoin above 100k this week` or `NBA paper bundle next 2 days`; both prompts remain implemented for explicit runs, but they no longer consume default portfolio slots without resolved calibration value.

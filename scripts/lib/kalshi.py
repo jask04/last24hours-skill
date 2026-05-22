@@ -107,6 +107,10 @@ def _is_broad_live_board_topic(topic: str) -> bool:
     return not re.search(r"\b(closing soon|ending soon|settling soon|in-game|ingame)\b", lowered)
 
 
+def _is_kalshi_live_markets_topic(topic: str) -> bool:
+    return (topic or "").strip().lower() == "kalshi live markets"
+
+
 def _series_key(market: Dict[str, Any]) -> str:
     for value in (market.get("series_ticker"), market.get("event_ticker"), market.get("ticker")):
         if value:
@@ -586,7 +590,7 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
         return [], {}
     live_board = _is_broad_live_board_topic(topic)
     if live_board:
-        event_fetch_limit = {"quick": 8, "default": 10, "deep": 12}.get(depth, 10)
+        event_fetch_limit = {"quick": 6, "default": 10, "deep": 12}.get(depth, 10)
         event_select_limit = {"quick": 1, "default": 2, "deep": 3}.get(depth, 2)
     elif set(re.sub(r"[^\w\s]", " ", (topic or "").lower()).split()) & {"golf", "pga", "zurich", "masters"}:
         event_limit = {"quick": 25, "default": 35, "deep": 50}.get(depth, 35)
@@ -597,7 +601,7 @@ def _series_markets_for_topic(topic: str, depth: str) -> tuple[List[Dict[str, An
     wanted_months = _topic_months(topic)
     event_tickers: List[str] = []
     if live_board and depth == "quick":
-        series_limit = min(12, len(_BROAD_LIVE_SERIES))
+        series_limit = min(8 if _is_kalshi_live_markets_topic(topic) else 12, len(_BROAD_LIVE_SERIES))
     else:
         series_limit = len(_BROAD_LIVE_SERIES) if live_board else 3
     for series_ticker in series[:series_limit]:
@@ -896,6 +900,8 @@ def search_kalshi(topic: str, from_date: str, to_date: str, depth: str = "defaul
     page_count = PAGE_LIMITS.get(depth, PAGE_LIMITS["default"])
     cap = RESULT_CAP.get(depth, RESULT_CAP["default"])
     live_board = _is_broad_live_board_topic(topic)
+    if live_board and depth == "quick" and _is_kalshi_live_markets_topic(topic):
+        cap = min(cap, 3)
 
     markets: List[Dict[str, Any]] = []
     if not live_board:

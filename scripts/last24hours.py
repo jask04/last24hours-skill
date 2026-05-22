@@ -3052,7 +3052,10 @@ def main():
     report.planned_queries = search_topics if closing_soon_mode and search_topics else plan.search_topics
     report.forecasts = forecast.synthesize_forecasts(report)
     if query_type == "market_watchlist":
-        report.market_watchlist = market_watchlist.synthesize_market_watchlist(report)
+        watchlist_limit = 5
+        if args.paper_fast_watchlist and closing_soon.is_kalshi_live_board_query(args.topic):
+            watchlist_limit = 3
+        report.market_watchlist = market_watchlist.synthesize_market_watchlist(report, limit=watchlist_limit)
         report.paper_bundles, report.paper_bundle_reason = paper_bundles.synthesize_paper_bundles(report)
         if paper_bundles.wants_paper_bundles(args.topic) and not report.paper_bundles:
             if nba_window_error:

@@ -186,6 +186,7 @@ class PaperStoreTests(unittest.TestCase):
         self.assertNotIn("Kalshi markets closing soon", topics)
         self.assertNotIn("Bitcoin above 100k this week", topics)
         self.assertNotIn("NBA paper bundle next 2 days", topics)
+        self.assertNotIn("NBA paper bundle tomorrow", topics)
         self.assertIn("Kalshi live markets", topics)
         self.assertIn("Polymarket markets closing soon", topics)
         self.assertIn("crypto markets closing soon tonight", topics)
@@ -195,6 +196,7 @@ class PaperStoreTests(unittest.TestCase):
         portfolio_path.write_text(json.dumps([
             {"topic": "Bitcoin above 100k this week", "enabled": True},
             {"topic": "NBA paper bundle next 2 days", "enabled": True},
+            {"topic": "NBA paper bundle tomorrow", "enabled": True},
         ]), encoding="utf-8")
 
         entries = paper._load_portfolio(portfolio_path)
@@ -202,7 +204,7 @@ class PaperStoreTests(unittest.TestCase):
 
         self.assertEqual(
             topics,
-            ["Bitcoin above 100k this week", "NBA paper bundle next 2 days"],
+            ["Bitcoin above 100k this week", "NBA paper bundle next 2 days", "NBA paper bundle tomorrow"],
         )
 
     def test_topic_anchor_dedupe_suppresses_unchanged_bitcoin_row(self):
@@ -1308,15 +1310,68 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(picks[0]["market_type"], "macro_binary")
         self.assertEqual(picks[0]["status"], "open")
 
-    def test_kalshi_live_board_keeps_normal_watchlist_forwarding_args(self):
+    def test_kalshi_live_board_adds_paper_fast_watchlist_without_losing_kalshi_search(self):
         self.assertEqual(
             paper._paper_watchlist_fast_args("Kalshi live markets", ["--search=kalshi"]),
-            ["--search=kalshi"],
+            ["--search=kalshi", "--paper-fast-watchlist"],
         )
         self.assertIn(
             "--paper-fast-watchlist",
             paper._paper_watchlist_fast_args("Kalshi markets closing soon", ["--search=kalshi"]),
         )
+
+    def test_kalshi_live_board_selection_prefers_actionable_depth_backed_row(self):
+        passive = {
+            "venue": "kalshi",
+            "title": "Top AI this week",
+            "market_type": "threshold",
+            "probability": 0.47,
+            "spread": 0.07,
+            "liquidity": 0,
+            "volume_24h": 180_000,
+            "open_interest": 160_000,
+            "market_signal_quality": 0.69,
+            "rank_score": 34,
+            "end_date": "2099-06-20",
+        }
+        actionable = {
+            "venue": "kalshi",
+            "title": "Bitcoin price today at 5pm EDT?",
+            "market_type": "threshold",
+            "probability": 0.49,
+            "spread": 0.01,
+            "liquidity": 75_000,
+            "volume_24h": 220_000,
+            "open_interest": 180_000,
+            "market_signal_quality": 0.71,
+            "rank_score": 41,
+            "end_date": "2099-05-22",
+        }
+
+        selected = paper._select_watchlist_item([passive, actionable], "Kalshi live markets")
+
+        self.assertEqual(selected, actionable)
+
+    def test_kalshi_live_board_low_actionability_rows_fail_closed_in_paper_selection(self):
+        passive = {
+            "venue": "kalshi",
+            "title": "Top AI this week",
+            "market_type": "threshold",
+            "probability": 0.47,
+            "spread": 0.07,
+            "liquidity": 0,
+            "volume_24h": 180_000,
+            "open_interest": 160_000,
+            "market_signal_quality": 0.69,
+            "rank_score": 34,
+            "end_date": "2099-06-20",
+        }
+
+        selected = paper._select_watchlist_item([passive], "Kalshi live markets")
+        reason = paper._watchlist_paper_selection_reason_class("Kalshi live markets", [passive])
+
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "kalshi_live_board_low_actionability")
 
     def test_daily_dry_run_entry_classifies_child_global_timeout_as_degraded(self):
         entry = {"topic": "Kalshi markets closing soon", "last24hours_args": []}
@@ -2724,8 +2779,13 @@ class CalibrationTests(unittest.TestCase):
         fixture_usefulness = paper.default_fixture_usefulness_summary(picks)
         kalshi_usefulness = paper.kalshi_specialist_fixture_usefulness_summary(picks)
         prune_candidates = paper.default_fixture_prune_candidates_summary(picks)
+        keep_review = paper.default_fixture_keep_review_summary(picks)
         rollover_churn = paper.date_rollover_churn_topics_summary(picks)
         explicit_only = paper.explicit_only_fixture_summary(picks)
+        kalshi_live_board_health = paper.kalshi_live_board_health_summary(
+            picks,
+            [{"topic": "Kalshi live markets", "status": "no_compatible_pick", "reason_class": "kalshi_live_board_low_actionability", "elapsed_seconds": 9.4}],
+        )
 
         self.assertEqual(duplicate_heavy["count"], 1)
         self.assertEqual(duplicate_heavy["rows"][0]["topic"], "NYC rain tomorrow")
@@ -2742,6 +2802,10 @@ class CalibrationTests(unittest.TestCase):
 
         self.assertEqual(prune_candidates["count"], 1)
         self.assertEqual(prune_candidates["rows"][0]["topic"], "NYC rain tomorrow")
+        self.assertEqual(keep_review["count"], 2)
+        keep_review_topics = {row["topic"]: row for row in keep_review["rows"]}
+        self.assertIn("latest_duplicate_skip", keep_review_topics["Kalshi live markets"]["review_reasons"])
+        self.assertIn("no_resolved_value", keep_review_topics["NYC rain tomorrow"]["review_reasons"])
         self.assertEqual(rollover_churn["count"], 1)
         self.assertEqual(rollover_churn["rows"][0]["topic"], "NYC rain tomorrow")
         self.assertEqual(
@@ -2753,6 +2817,10 @@ class CalibrationTests(unittest.TestCase):
         self.assertFalse(explicit_topics["Bitcoin above 100k this week"]["in_default_portfolio"])
         self.assertEqual(explicit_topics["Bitcoin above 100k this week"]["open_count"], 1)
         self.assertFalse(explicit_topics["NBA paper bundle next 2 days"]["in_default_portfolio"])
+        self.assertFalse(explicit_topics["NBA paper bundle tomorrow"]["in_default_portfolio"])
+        self.assertEqual(kalshi_live_board_health["latest_dry_run_status"], "no_compatible_pick")
+        self.assertEqual(kalshi_live_board_health["latest_dry_run_reason_class"], "kalshi_live_board_low_actionability")
+        self.assertEqual(kalshi_live_board_health["latest_dry_run_elapsed_seconds"], 9.4)
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([

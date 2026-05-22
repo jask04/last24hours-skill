@@ -20,15 +20,6 @@
     "notes": "Daily NBA watchlist sample; should store only a direct game-outcome watchlist row."
   },
   {
-    "topic": "NBA paper bundle tomorrow",
-    "query_type": "market_watchlist",
-    "enabled": true,
-    "expected_pick_types": ["bundle"],
-    "pick_policy": "bundle_only",
-    "dedupe_policy": "skip_if_open_duplicate",
-    "notes": "Next-day NBA paper bundle calibration sample; bundle rows stay paper-only and unresolved."
-  },
-  {
     "topic": "Fed rate cut by June",
     "query_type": "prediction",
     "enabled": true,
