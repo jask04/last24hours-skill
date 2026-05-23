@@ -848,6 +848,84 @@ def _existing_open_topic_duplicate_rows(topic: str, signature: str, scope: str) 
         conn.close()
 
 
+def _existing_open_topic_rows(topic: str) -> List[Dict[str, Any]]:
+    if not topic:
+        return []
+    conn = store._connect()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status IN ('open', 'unknown')
+                 AND topic = ?
+               ORDER BY created_at DESC""",
+            [topic],
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _anchor_quality_rank(pick: Dict[str, Any]) -> int:
+    anchor = str(pick.get("anchor_source") or pick.get("venue") or "").strip().lower()
+    if anchor == "model_implied":
+        return 0
+    if anchor in {"weather_api", "nws", "nws_observations"}:
+        return 3
+    if anchor in {"polymarket", "kalshi", "paper_bundle"}:
+        return 2
+    if anchor:
+        return 1
+    return 0
+
+
+def _pick_specificity_rank(pick: Dict[str, Any]) -> int:
+    rank = 0
+    if _normalize_pick_text(pick.get("title") or pick.get("question") or ""):
+        rank += 1
+    if _normalize_pick_text(pick.get("outcome_label") or ""):
+        rank += 1
+    market_type = str(pick.get("market_type") or "").strip().lower()
+    if market_type and market_type != "model_implied":
+        rank += 1
+    return rank
+
+
+def _pick_materially_improves_same_slate(existing_rows: List[Dict[str, Any]], pick: Dict[str, Any]) -> bool:
+    candidate_anchor_rank = _anchor_quality_rank(pick)
+    best_existing_anchor_rank = max(_anchor_quality_rank(row) for row in existing_rows)
+    if candidate_anchor_rank > best_existing_anchor_rank:
+        return True
+    candidate_specificity_rank = _pick_specificity_rank(pick)
+    best_existing_specificity_rank = max(_pick_specificity_rank(row) for row in existing_rows)
+    return candidate_specificity_rank > best_existing_specificity_rank
+
+
+def _same_slate_open_rows(topic: str, pick: Dict[str, Any], scope: str) -> List[Dict[str, Any]]:
+    target_date = _pick_effective_target_date(pick)
+    if not topic or not target_date:
+        return []
+    rows = []
+    for existing in _existing_open_topic_rows(topic):
+        if _pick_effective_target_date(existing) != target_date:
+            continue
+        if scope == "topic_target_date_anchor":
+            existing_title = _normalize_pick_text(existing.get("title") or existing.get("question") or "")
+            pick_title = _normalize_pick_text(pick.get("title") or pick.get("question") or "")
+            if existing_title and pick_title and existing_title != pick_title:
+                continue
+        rows.append(existing)
+    return rows
+
+
+def _existing_open_same_slate_duplicate_rows(topic: str, pick: Dict[str, Any], scope: str) -> List[Dict[str, Any]]:
+    same_slate_rows = _same_slate_open_rows(topic, pick, scope)
+    if not same_slate_rows:
+        return []
+    if _pick_materially_improves_same_slate(same_slate_rows, pick):
+        return []
+    return same_slate_rows
+
+
 def _market_map(items: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return {str(item.get("id", "")): item for item in items if item.get("id")}
 
@@ -1432,6 +1510,11 @@ def _apply_dedupe_policy(
                 duplicates = _existing_open_bundle_duplicate_rows(duplicate_label)
             elif scope in {"topic_anchor", "topic_title_outcome", "topic_target_date_title_outcome", "topic_target_date_anchor"}:
                 duplicates = _existing_open_topic_duplicate_rows(str(entry.get("topic") or ""), key, scope)
+                if duplicates and scope in {"topic_target_date_title_outcome", "topic_target_date_anchor"}:
+                    if _pick_materially_improves_same_slate(duplicates, pick):
+                        duplicates = []
+                if not duplicates and scope in {"topic_target_date_title_outcome", "topic_target_date_anchor"}:
+                    duplicates = _existing_open_same_slate_duplicate_rows(str(entry.get("topic") or ""), pick, scope)
             else:
                 duplicates = _existing_pick_rows(key, open_only=True)
         elif policy == "skip_if_recent_duplicate":
@@ -2851,6 +2934,7 @@ def explicit_only_fixture_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]
         "Bitcoin above 100k this week",
         "NBA paper bundle next 2 days",
         "NBA paper bundle tomorrow",
+        "Kalshi live markets",
     ]
     rows = []
     for topic in topics:
@@ -2885,6 +2969,7 @@ def default_fixture_keep_review_summary(picks: List[Dict[str, Any]]) -> Dict[str
         str(row.get("topic") or ""): row
         for row in duplicate_heavy_default_topics_summary(picks)["rows"]
     }
+    stale_statuses = {"duplicate_skip", "no_compatible_pick"}
     rows = []
     for row in usefulness["rows"]:
         topic = str(row.get("topic") or "")
@@ -2893,11 +2978,11 @@ def default_fixture_keep_review_summary(picks: List[Dict[str, Any]]) -> Dict[str
         latest_status = str(row.get("latest_status") or "")
         review_reasons: List[str] = []
         if resolved_count == 0 and open_count > 0:
-            review_reasons.append("no_resolved_value")
+            review_reasons.append("no_recent_resolved_value")
         if topic in duplicate_heavy:
-            review_reasons.append("duplicate_churn")
-        if latest_status in {"duplicate_skip", "no_compatible_pick"}:
-            review_reasons.append(f"latest_{latest_status}")
+            review_reasons.append("same_slate_duplicate_churn")
+        if latest_status in stale_statuses:
+            review_reasons.append("stale_open_default_row")
         if not review_reasons:
             continue
         rows.append({
@@ -2917,6 +3002,71 @@ def default_fixture_keep_review_summary(picks: List[Dict[str, Any]]) -> Dict[str
         "count": len(rows),
         "rows": rows[:12],
         "empty_reason": "" if rows else "No current default fixtures need keep-vs-explicit review.",
+    }
+
+
+def sports_fixture_churn_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    recurring_topics = {
+        "tomorrows nba games",
+        "NBA markets to watch today",
+        "Counter-Strike 2 matches today",
+        "Valorant matches today",
+        "League of Legends matches today",
+    }
+    rows = []
+    for topic in sorted(recurring_topics):
+        topic_rows = [
+            pick for pick in picks
+            if str(pick.get("topic") or "") == topic and pick.get("status") in {"open", "unknown"}
+        ]
+        if not topic_rows:
+            continue
+        by_target_date: Dict[str, int] = {}
+        by_skill_version: Dict[str, int] = {}
+        anchor_mix = {"anchored": 0, "model_implied": 0}
+        for pick in topic_rows:
+            target_date = _pick_effective_target_date(pick) or "unknown"
+            by_target_date[target_date] = by_target_date.get(target_date, 0) + 1
+            skill_version = str(pick.get("skill_version") or "legacy_unversioned")
+            by_skill_version[skill_version] = by_skill_version.get(skill_version, 0) + 1
+            if str(pick.get("anchor_source") or "") == "model_implied":
+                anchor_mix["model_implied"] += 1
+            else:
+                anchor_mix["anchored"] += 1
+        rows.append({
+            "topic": topic,
+            "open_count": len(topic_rows),
+            "by_target_date": dict(sorted(by_target_date.items())),
+            "by_skill_version": dict(sorted(by_skill_version.items())),
+            "open_anchor_mix": anchor_mix,
+        })
+    rows.sort(key=lambda row: (-int(row.get("open_count") or 0), str(row.get("topic") or "")))
+    return {
+        "count": len(rows),
+        "rows": rows[:12],
+        "empty_reason": "" if rows else "No recurring sports fixture churn right now.",
+    }
+
+
+def weather_fixture_rollover_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topic = "NYC rain tomorrow"
+    topic_rows = [
+        pick for pick in picks
+        if str(pick.get("topic") or "") == topic and pick.get("status") in {"open", "unknown"}
+    ]
+    by_target_date: Dict[str, int] = {}
+    by_anchor_source: Dict[str, int] = {}
+    for pick in topic_rows:
+        target_date = _pick_effective_target_date(pick) or "unknown"
+        by_target_date[target_date] = by_target_date.get(target_date, 0) + 1
+        anchor_source = str(pick.get("anchor_source") or pick.get("venue") or "unknown")
+        by_anchor_source[anchor_source] = by_anchor_source.get(anchor_source, 0) + 1
+    return {
+        "topic": topic,
+        "open_count": len(topic_rows),
+        "by_target_date": dict(sorted(by_target_date.items())),
+        "by_anchor_source": dict(sorted(by_anchor_source.items())),
+        "empty_reason": "" if topic_rows else "No open NYC rain rollover rows right now.",
     }
 
 
@@ -3888,6 +4038,8 @@ def cmd_report(args) -> None:
         "default_fixture_keep_review": default_fixture_keep_review_summary(recent),
         "date_rollover_churn_topics": date_rollover_churn_topics_summary(recent),
         "explicit_only_fixture_summary": explicit_only_fixture_summary(recent),
+        "sports_fixture_churn_summary": sports_fixture_churn_summary(recent),
+        "weather_fixture_rollover_summary": weather_fixture_rollover_summary(recent),
         "kalshi_live_board_health": kalshi_live_board_health_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

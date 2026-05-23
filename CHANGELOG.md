@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-05-23
+
+- Default daily paper calibration no longer includes `Kalshi live markets`; the prompt remains implemented for explicit paper/audit runs, but it no longer consumes a default slot while producing low-actionability no-picks.
+- Paper dedupe now suppresses same-slate recurring sports and weather rows more aggressively across adjacent skill versions unless the new row materially improves the anchor or target date genuinely rolls over.
+- `scripts/paper.py` reports now expose clearer keep-review reasons plus `sports_fixture_churn_summary` and `weather_fixture_rollover_summary`, making it easier to separate useful defaults from recurring backlog without schema changes.
+- No schema migration, no historical ledger rewrite, no source-tier widening, and no closing-soon redesign in this release.
+
 ## [1.1.7] - 2026-05-21
 
 - Default daily paper calibration no longer includes `NBA paper bundle tomorrow`; the bundle prompt remains implemented for explicit paper/audit runs, but it no longer consumes a default slot without resolved calibration value.
