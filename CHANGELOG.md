@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-05-23
+
+- Recurring default sports and weather fixtures now keep one best paper row per topic/target-date group in each run, reducing same-run batch churn without changing market discovery or forecast routing.
+- Same-run paper selection prefers anchored, direct, cleaner, calibration-useful rows before falling back to spread and rank-score tie-breaks.
+- Paper reports now expose same-run batch churn, stale default open rows, and richer sports target-date concentration so daily automation can distinguish fresh value from backlog without schema changes.
+- No schema migration, no historical ledger rewrite, no default portfolio change, no source-tier widening, and no Polymarket/crypto closing-soon redesign in this release.
+
 ## [1.1.8] - 2026-05-23
 
 - Default daily paper calibration no longer includes `Kalshi live markets`; the prompt remains implemented for explicit paper/audit runs, but it no longer consumes a default slot while producing low-actionability no-picks.

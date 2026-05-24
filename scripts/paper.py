@@ -1530,6 +1530,88 @@ def _apply_dedupe_policy(
     return kept
 
 
+def _recurring_single_row_topics() -> set[str]:
+    return {
+        "tomorrows nba games",
+        "NBA markets to watch today",
+        "Counter-Strike 2 matches today",
+        "Valorant matches today",
+        "League of Legends matches today",
+        "NYC rain tomorrow",
+    }
+
+
+def _same_run_fixture_candidate_score(pick: Dict[str, Any]) -> tuple:
+    anchor_rank = _anchor_quality_rank(pick)
+    market_type = str(pick.get("market_type") or "").strip().lower()
+    direct_market_rank = 1 if market_type in {"game_outcome", "match_winner", "weather", "weather_binary"} else 0
+    resolvability = str(pick.get("resolvability") or "").lower()
+    if not resolvability:
+        try:
+            notes = json.loads(str(pick.get("notes_json") or "{}"))
+        except Exception:
+            notes = {}
+        if isinstance(notes, dict):
+            resolvability = str(notes.get("resolvability") or "").lower()
+    clean_resolution_rank = 0 if "manual rule check required" in resolvability else 1
+    probability = _prob(pick.get("model_probability") or pick.get("market_probability"))
+    probability_rank = 1 if _calibration_useful_watchlist_probability(probability) else 0
+    spread = pick.get("spread")
+    try:
+        spread_rank = -float(spread) if spread is not None else -1.0
+    except (TypeError, ValueError):
+        spread_rank = -1.0
+    rank_score = 0.0
+    try:
+        notes = json.loads(str(pick.get("notes_json") or "{}"))
+    except Exception:
+        notes = {}
+    if isinstance(notes, dict):
+        rank_score = float(notes.get("rank_score") or 0.0)
+    return (
+        anchor_rank,
+        direct_market_rank,
+        clean_resolution_rank,
+        probability_rank,
+        spread_rank,
+        rank_score,
+        _pick_specificity_rank(pick),
+    )
+
+
+def _apply_same_run_recurring_fixture_cap(
+    entry: Dict[str, Any],
+    picks: List[Dict[str, Any]],
+    warnings: List[str],
+    debug_counters: Optional[Dict[str, int]] = None,
+) -> List[Dict[str, Any]]:
+    topic = str(entry.get("topic") or "")
+    if topic not in _recurring_single_row_topics() or len(picks) <= 1:
+        return picks
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for pick in picks:
+        target_date = _pick_effective_target_date(pick) or "unknown"
+        grouped.setdefault(target_date, []).append(pick)
+    kept: List[Dict[str, Any]] = []
+    suppressed_total = 0
+    for target_date, group in grouped.items():
+        if len(group) <= 1:
+            kept.extend(group)
+            continue
+        best = sorted(group, key=_same_run_fixture_candidate_score, reverse=True)[0]
+        kept.append(best)
+        suppressed = len(group) - 1
+        suppressed_total += suppressed
+        warnings.append(
+            f"{topic}: suppressed {suppressed} same-run paper row(s) for target date {target_date}; kept the strongest calibration candidate."
+        )
+    if suppressed_total and debug_counters is not None:
+        debug_counters["same_run_batch_suppressed_paper_rows"] = int(debug_counters.get("same_run_batch_suppressed_paper_rows", 0) or 0) + suppressed_total
+        key = f"same_run_batch_suppressed:{topic}"
+        debug_counters[key] = int(debug_counters.get(key, 0) or 0) + suppressed_total
+    return kept
+
+
 def _resolve_manual(pick_id: int, outcome: str) -> Dict[str, Any]:
     normalized = outcome.strip().lower()
     if normalized in {"1", "true", "yes"}:
@@ -2691,6 +2773,35 @@ def _default_fixture_dry_run_summary(results: List[Dict[str, Any]]) -> Dict[str,
     }
 
 
+def _same_run_batch_churn_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rows = []
+    total_suppressed = 0
+    for entry in results:
+        debug = entry.get("debug_counters") or {}
+        if not isinstance(debug, dict):
+            continue
+        topic = str(entry.get("topic") or "")
+        suppressed = int(debug.get(f"same_run_batch_suppressed:{topic}") or 0)
+        if suppressed <= 0:
+            continue
+        total_suppressed += suppressed
+        rows.append({
+            "topic": topic,
+            "status": entry.get("status") or "",
+            "post_admission_pick_count": entry.get("post_admission_pick_count", 0),
+            "post_same_run_cap_pick_count": entry.get("post_same_run_cap_pick_count", 0),
+            "suppressed_count": suppressed,
+            "elapsed_seconds": entry.get("elapsed_seconds", 0),
+        })
+    rows.sort(key=lambda row: (-int(row.get("suppressed_count") or 0), str(row.get("topic") or "")))
+    return {
+        "count": len(rows),
+        "total_suppressed": total_suppressed,
+        "rows": rows,
+        "empty_reason": "" if rows else "No same-run recurring fixture batch churn in this dry-run.",
+    }
+
+
 def _default_portfolio_topics() -> List[str]:
     try:
         return [str(entry.get("topic") or "") for entry in _load_portfolio(DEFAULT_PORTFOLIO) if entry.get("topic")]
@@ -3033,12 +3144,19 @@ def sports_fixture_churn_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 anchor_mix["model_implied"] += 1
             else:
                 anchor_mix["anchored"] += 1
+        concentrated_target_dates = {
+            target_date: count
+            for target_date, count in sorted(by_target_date.items())
+            if count > 1
+        }
         rows.append({
             "topic": topic,
             "open_count": len(topic_rows),
             "by_target_date": dict(sorted(by_target_date.items())),
             "by_skill_version": dict(sorted(by_skill_version.items())),
             "open_anchor_mix": anchor_mix,
+            "max_same_target_date_open_count": max(by_target_date.values()) if by_target_date else 0,
+            "concentrated_target_dates": concentrated_target_dates,
         })
     rows.sort(key=lambda row: (-int(row.get("open_count") or 0), str(row.get("topic") or "")))
     return {
@@ -3067,6 +3185,50 @@ def weather_fixture_rollover_summary(picks: List[Dict[str, Any]]) -> Dict[str, A
         "by_target_date": dict(sorted(by_target_date.items())),
         "by_anchor_source": dict(sorted(by_anchor_source.items())),
         "empty_reason": "" if topic_rows else "No open NYC rain rollover rows right now.",
+    }
+
+
+def stale_default_open_rows_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = set(_default_portfolio_topics())
+    version = _skill_version()
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for pick in picks:
+        topic = str(pick.get("topic") or "")
+        if topic not in topics or pick.get("status") not in {"open", "unknown"}:
+            continue
+        target_date = _pick_effective_target_date(pick) or "unknown"
+        try:
+            current_target_date = _target_date_for_topic(topic).isoformat()
+        except Exception:
+            current_target_date = ""
+        skill_version = str(pick.get("skill_version") or "legacy_unversioned")
+        is_old_target = bool(current_target_date and target_date != "unknown" and target_date < current_target_date)
+        is_old_version = bool(skill_version and skill_version != version)
+        if not (is_old_target or is_old_version):
+            continue
+        key = "|".join([topic, target_date, skill_version, str(pick.get("anchor_source") or pick.get("venue") or "unknown")])
+        row = grouped.setdefault(key, {
+            "topic": topic,
+            "target_date": target_date,
+            "current_target_date": current_target_date,
+            "skill_version": skill_version,
+            "anchor_source": str(pick.get("anchor_source") or pick.get("venue") or "unknown"),
+            "count": 0,
+            "reasons": [],
+        })
+        row["count"] += 1
+        reasons = set(row.get("reasons") or [])
+        if is_old_target:
+            reasons.add("old_target_date")
+        if is_old_version:
+            reasons.add("old_skill_version")
+        row["reasons"] = sorted(reasons)
+    rows = list(grouped.values())
+    rows.sort(key=lambda row: (-int(row.get("count") or 0), str(row.get("topic") or ""), str(row.get("target_date") or "")))
+    return {
+        "count": len(rows),
+        "rows": rows[:20],
+        "empty_reason": "" if rows else "No stale default open rows in the selected window.",
     }
 
 
@@ -3374,6 +3536,8 @@ def _daily_dry_run_entry(entry: Dict[str, Any], *, quick: bool) -> Dict[str, Any
     result["post_policy_pick_count"] = len(picks)
     picks = _admission_filtered_picks(entry, report, picks, result["warnings"])
     result["post_admission_pick_count"] = len(picks)
+    picks = _apply_same_run_recurring_fixture_cap(entry, picks, result["warnings"], debug_counters)
+    result["post_same_run_cap_pick_count"] = len(picks)
     picks = _apply_dedupe_policy(entry, picks, result["warnings"], debug_counters)
     result["post_dedupe_pick_count"] = len(picks)
     result["pick_types"] = _pick_types(picks)
@@ -3963,6 +4127,7 @@ def cmd_daily(args) -> None:
             "closing_soon_dry_run": _closing_soon_dry_run_summary(results),
             "kalshi_specialist_dry_run": _kalshi_specialist_dry_run_summary(results),
             "default_fixture_dry_run": _default_fixture_dry_run_summary(results),
+            "same_run_batch_churn_summary": _same_run_batch_churn_summary(results),
             "kalshi_live_board_health": kalshi_live_board_health_summary([], results),
             "errors": errors,
         }, indent=2))
@@ -3979,6 +4144,7 @@ def cmd_daily(args) -> None:
             picks = extract_paper_picks(report)
             picks = _filter_picks_by_policy(picks, entry.get("pick_policy", "default"))
             picks = _admission_filtered_picks(entry, report, picks, warnings)
+            picks = _apply_same_run_recurring_fixture_cap(entry, picks, warnings, debug_counters)
             picks = _apply_dedupe_policy(entry, picks, warnings, debug_counters)
             if not picks:
                 reason = _dry_run_reason_class(entry, report, picks)
@@ -4040,6 +4206,7 @@ def cmd_report(args) -> None:
         "explicit_only_fixture_summary": explicit_only_fixture_summary(recent),
         "sports_fixture_churn_summary": sports_fixture_churn_summary(recent),
         "weather_fixture_rollover_summary": weather_fixture_rollover_summary(recent),
+        "stale_default_open_rows": stale_default_open_rows_summary(recent),
         "kalshi_live_board_health": kalshi_live_board_health_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

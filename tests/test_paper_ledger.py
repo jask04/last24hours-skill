@@ -590,6 +590,128 @@ class PaperStoreTests(unittest.TestCase):
         self.assertFalse(warnings)
         self.assertEqual(debug, {})
 
+    def test_same_run_recurring_fixture_cap_keeps_one_best_valorant_row(self):
+        weak = {
+            "topic": "Valorant matches today",
+            "pick_type": "forecast",
+            "venue": "model_implied",
+            "anchor_source": "model_implied",
+            "title": "Valorant matches today",
+            "outcome_label": "Yes",
+            "market_type": "model_implied",
+            "model_probability": 0.92,
+            "end_date": "2026-05-24",
+        }
+        best = {
+            "topic": "Valorant matches today",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "anchor_source": "polymarket",
+            "title": "Valorant: Team A vs Team B",
+            "outcome_label": "Team A",
+            "market_type": "game_outcome",
+            "model_probability": 0.62,
+            "spread": 0.02,
+            "end_date": "2026-05-24",
+        }
+        other = {
+            "topic": "Valorant matches today",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "anchor_source": "polymarket",
+            "title": "Valorant: Team C vs Team D",
+            "outcome_label": "Team C",
+            "market_type": "game_outcome",
+            "model_probability": 0.91,
+            "spread": 0.06,
+            "end_date": "2026-05-24",
+        }
+
+        warnings = []
+        debug = {}
+        kept = paper._apply_same_run_recurring_fixture_cap(
+            {"topic": "Valorant matches today"},
+            [weak, best, other],
+            warnings,
+            debug,
+        )
+
+        self.assertEqual(kept, [best])
+        self.assertEqual(debug["same_run_batch_suppressed_paper_rows"], 2)
+        self.assertEqual(debug["same_run_batch_suppressed:Valorant matches today"], 2)
+        self.assertIn("suppressed 2 same-run paper row", " ".join(warnings))
+
+    def test_same_run_recurring_fixture_cap_preserves_true_date_rollover(self):
+        today = {
+            "topic": "tomorrows nba games",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "anchor_source": "polymarket",
+            "title": "Knicks vs. Celtics",
+            "outcome_label": "Knicks",
+            "market_type": "game_outcome",
+            "end_date": "2026-05-24",
+        }
+        tomorrow = {
+            "topic": "tomorrows nba games",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "anchor_source": "polymarket",
+            "title": "Lakers vs. Suns",
+            "outcome_label": "Lakers",
+            "market_type": "game_outcome",
+            "end_date": "2026-05-25",
+        }
+
+        warnings = []
+        debug = {}
+        kept = paper._apply_same_run_recurring_fixture_cap(
+            {"topic": "tomorrows nba games"},
+            [today, tomorrow],
+            warnings,
+            debug,
+        )
+
+        self.assertEqual(kept, [today, tomorrow])
+        self.assertFalse(warnings)
+        self.assertEqual(debug, {})
+
+    def test_same_run_recurring_fixture_cap_prefers_weather_api_over_model_implied(self):
+        model = {
+            "topic": "NYC rain tomorrow",
+            "pick_type": "forecast",
+            "venue": "model_implied",
+            "anchor_source": "model_implied",
+            "title": "NYC rain tomorrow",
+            "outcome_label": "Yes",
+            "market_type": "model_implied",
+            "model_probability": 0.55,
+            "end_date": "2026-05-24",
+        }
+        weather = {
+            "topic": "NYC rain tomorrow",
+            "pick_type": "forecast",
+            "venue": "weather_api",
+            "anchor_source": "weather_api",
+            "title": "NYC rain tomorrow",
+            "outcome_label": "Yes",
+            "market_type": "weather",
+            "model_probability": 0.82,
+            "end_date": "2026-05-24",
+        }
+
+        warnings = []
+        debug = {}
+        kept = paper._apply_same_run_recurring_fixture_cap(
+            {"topic": "NYC rain tomorrow"},
+            [model, weather],
+            warnings,
+            debug,
+        )
+
+        self.assertEqual(kept, [weather])
+        self.assertEqual(debug["same_run_batch_suppressed_paper_rows"], 1)
+
 
 class PaperExtractionTests(unittest.TestCase):
     def setUp(self):
@@ -2921,6 +3043,74 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(kalshi_live_board_health["latest_dry_run_status"], "no_compatible_pick")
         self.assertEqual(kalshi_live_board_health["latest_dry_run_reason_class"], "kalshi_live_board_low_actionability")
         self.assertEqual(kalshi_live_board_health["latest_dry_run_elapsed_seconds"], 9.4)
+
+    def test_same_run_batch_and_stale_default_summaries(self):
+        dry_run = [
+            {
+                "topic": "Valorant matches today",
+                "status": "ready",
+                "post_admission_pick_count": 5,
+                "post_same_run_cap_pick_count": 1,
+                "elapsed_seconds": 4.2,
+                "debug_counters": {
+                    "same_run_batch_suppressed_paper_rows": 4,
+                    "same_run_batch_suppressed:Valorant matches today": 4,
+                },
+            },
+            {
+                "topic": "Polymarket markets closing soon",
+                "status": "ready",
+                "post_admission_pick_count": 1,
+                "post_same_run_cap_pick_count": 1,
+                "elapsed_seconds": 5.1,
+                "debug_counters": {},
+            },
+        ]
+        same_run = paper._same_run_batch_churn_summary(dry_run)
+
+        self.assertEqual(same_run["count"], 1)
+        self.assertEqual(same_run["total_suppressed"], 4)
+        self.assertEqual(same_run["rows"][0]["topic"], "Valorant matches today")
+        self.assertEqual(same_run["rows"][0]["post_same_run_cap_pick_count"], 1)
+
+        picks = [
+            {
+                "id": 1,
+                "status": "open",
+                "topic": "Valorant matches today",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "end_date": "2026-05-24",
+                "skill_version": "1.1.8",
+            },
+            {
+                "id": 2,
+                "status": "unknown",
+                "topic": "Valorant matches today",
+                "venue": "polymarket",
+                "anchor_source": "polymarket",
+                "end_date": "2026-05-24",
+                "skill_version": "1.1.8",
+            },
+            {
+                "id": 3,
+                "status": "open",
+                "topic": "League of Legends matches today",
+                "venue": "model_implied",
+                "anchor_source": "model_implied",
+                "end_date": "2000-01-01",
+                "skill_version": "1.1.7",
+            },
+        ]
+        sports = paper.sports_fixture_churn_summary(picks)
+        stale = paper.stale_default_open_rows_summary(picks)
+        sports_topics = {row["topic"]: row for row in sports["rows"]}
+
+        self.assertEqual(sports_topics["Valorant matches today"]["max_same_target_date_open_count"], 2)
+        self.assertEqual(sports_topics["Valorant matches today"]["concentrated_target_dates"], {"2026-05-24": 2})
+        self.assertGreaterEqual(stale["count"], 1)
+        stale_topics = {row["topic"] for row in stale["rows"]}
+        self.assertIn("League of Legends matches today", stale_topics)
 
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([
