@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.10] - 2026-05-24
+
+- Paper resolution now lifecycle-handles stale default-portfolio rows after normal deterministic resolution fails, moving old target-date unresolved rows to `stale_unknown` with `resolution_source=stale_default_backlog`.
+- Reports now separate active unresolved default rows from `stale_default_terminal_rows`, while `stale_default_open_rows` focuses on old target-date backlog candidates before lifecycle handling.
+- Future-dated macro/Kalshi rows and current target-date weather rows remain active; resolved rows and historical calibration metrics are not rewritten.
+- No schema migration, no new CLI flags, no portfolio change, no source-tier widening, and no Polymarket/crypto closing-soon redesign in this release.
+
 ## [1.1.9] - 2026-05-23
 
 - Recurring default sports and weather fixtures now keep one best paper row per topic/target-date group in each run, reducing same-run batch churn without changing market discovery or forecast routing.

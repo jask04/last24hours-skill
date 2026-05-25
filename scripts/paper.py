@@ -2040,15 +2040,79 @@ def _resolve_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
     return {"pick_id": pick["id"], "status": status, "resolution_value": value, "resolution_source": source}
 
 
+def _is_stale_default_backlog_pick(pick: Dict[str, Any]) -> bool:
+    topic = str(pick.get("topic") or "")
+    if topic not in set(_default_portfolio_topics()):
+        return False
+    if str(pick.get("status") or "") not in {"open", "unknown"}:
+        return False
+    target_date = _pick_effective_target_date(pick)
+    if not target_date or target_date == "unknown":
+        return False
+    try:
+        current_target_date = _target_date_for_topic(topic).isoformat()
+    except Exception:
+        return False
+    return target_date < current_target_date
+
+
+def _mark_stale_default_backlog_pick(pick: Dict[str, Any]) -> Dict[str, Any]:
+    store.update_paper_pick_resolution(
+        pick["id"],
+        status="stale_unknown",
+        resolution_source="stale_default_backlog",
+    )
+    return {
+        "pick_id": pick["id"],
+        "status": "stale_unknown",
+        "resolution_value": None,
+        "resolution_source": "stale_default_backlog",
+    }
+
+
+def _list_stale_default_backlog_candidates(limit: int = 200) -> List[Dict[str, Any]]:
+    topics = set(_default_portfolio_topics())
+    if not topics:
+        return []
+    conn = store._connect()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM paper_picks
+               WHERE status IN ('open', 'unknown')
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        candidates = []
+        for row in rows:
+            pick = dict(row)
+            if str(pick.get("topic") or "") not in topics:
+                continue
+            if _is_stale_default_backlog_pick(pick):
+                candidates.append(pick)
+        return candidates
+    finally:
+        conn.close()
+
+
 def resolve_open_picks(limit: int = 200) -> List[Dict[str, Any]]:
     results = []
+    processed_ids = set()
     for pick in store.list_unresolved_paper_picks(limit=limit):
+        processed_ids.add(pick.get("id"))
         try:
-            results.append(_resolve_pick(pick))
+            result = _resolve_pick(pick)
+            if result.get("status") in {"open", "unknown"} and _is_stale_default_backlog_pick(pick):
+                result = _mark_stale_default_backlog_pick(pick)
+            results.append(result)
         except Exception as exc:
             source = f"retryable_error:{type(exc).__name__}"
             store.update_paper_pick_resolution(pick["id"], status="open", resolution_source=source)
             results.append({"pick_id": pick["id"], "status": "open", "resolution_source": source, "error": str(exc)[:200]})
+    for pick in _list_stale_default_backlog_candidates(limit=limit):
+        if pick.get("id") in processed_ids:
+            continue
+        results.append(_mark_stale_default_backlog_pick(pick))
     return results
 
 
@@ -3204,7 +3268,7 @@ def stale_default_open_rows_summary(picks: List[Dict[str, Any]]) -> Dict[str, An
         skill_version = str(pick.get("skill_version") or "legacy_unversioned")
         is_old_target = bool(current_target_date and target_date != "unknown" and target_date < current_target_date)
         is_old_version = bool(skill_version and skill_version != version)
-        if not (is_old_target or is_old_version):
+        if not is_old_target:
             continue
         key = "|".join([topic, target_date, skill_version, str(pick.get("anchor_source") or pick.get("venue") or "unknown")])
         row = grouped.setdefault(key, {
@@ -3229,6 +3293,34 @@ def stale_default_open_rows_summary(picks: List[Dict[str, Any]]) -> Dict[str, An
         "count": len(rows),
         "rows": rows[:20],
         "empty_reason": "" if rows else "No stale default open rows in the selected window.",
+    }
+
+
+def stale_default_terminal_rows_summary(picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    topics = set(_default_portfolio_topics())
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for pick in picks:
+        topic = str(pick.get("topic") or "")
+        if topic not in topics or pick.get("status") != "stale_unknown":
+            continue
+        target_date = _pick_effective_target_date(pick) or "unknown"
+        skill_version = str(pick.get("skill_version") or "legacy_unversioned")
+        anchor_source = str(pick.get("anchor_source") or pick.get("venue") or "unknown")
+        key = "|".join([topic, target_date, skill_version, anchor_source])
+        row = grouped.setdefault(key, {
+            "topic": topic,
+            "target_date": target_date,
+            "skill_version": skill_version,
+            "anchor_source": anchor_source,
+            "count": 0,
+        })
+        row["count"] += 1
+    rows = list(grouped.values())
+    rows.sort(key=lambda row: (-int(row.get("count") or 0), str(row.get("topic") or ""), str(row.get("target_date") or "")))
+    return {
+        "count": len(rows),
+        "rows": rows[:20],
+        "empty_reason": "" if rows else "No stale terminal default rows in the selected window.",
     }
 
 
@@ -4207,6 +4299,7 @@ def cmd_report(args) -> None:
         "sports_fixture_churn_summary": sports_fixture_churn_summary(recent),
         "weather_fixture_rollover_summary": weather_fixture_rollover_summary(recent),
         "stale_default_open_rows": stale_default_open_rows_summary(recent),
+        "stale_default_terminal_rows": stale_default_terminal_rows_summary(recent),
         "kalshi_live_board_health": kalshi_live_board_health_summary(recent),
         "recent_picks": recent,
     }, indent=2, default=str))

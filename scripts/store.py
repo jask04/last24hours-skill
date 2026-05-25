@@ -657,7 +657,7 @@ def update_paper_pick_resolution(
         conn.execute(
             """UPDATE paper_picks SET
                    status = ?,
-                   resolved_at = CASE WHEN ? IN ('resolved', 'canceled') THEN datetime('now') ELSE resolved_at END,
+                   resolved_at = CASE WHEN ? IN ('resolved', 'canceled', 'stale_unknown') THEN datetime('now') ELSE resolved_at END,
                    resolution_value = ?,
                    resolution_source = ?,
                    brier_score = ?,

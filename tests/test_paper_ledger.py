@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from argparse import Namespace
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -3112,6 +3113,36 @@ class CalibrationTests(unittest.TestCase):
         stale_topics = {row["topic"] for row in stale["rows"]}
         self.assertIn("League of Legends matches today", stale_topics)
 
+    def test_stale_default_terminal_rows_summary_separates_terminal_backlog(self):
+        picks = [
+            {
+                "id": 1,
+                "status": "stale_unknown",
+                "topic": "NYC rain tomorrow",
+                "venue": "weather_api",
+                "anchor_source": "weather_api",
+                "end_date": "2026-05-22",
+                "skill_version": "1.1.8",
+            },
+            {
+                "id": 2,
+                "status": "open",
+                "topic": "NYC rain tomorrow",
+                "venue": "weather_api",
+                "anchor_source": "weather_api",
+                "end_date": "2026-05-25",
+                "skill_version": "1.1.10",
+            },
+        ]
+
+        open_default = paper.open_default_portfolio_summary(picks)
+        terminal = paper.stale_default_terminal_rows_summary(picks)
+
+        self.assertEqual(open_default["count"], 1)
+        self.assertEqual(terminal["count"], 1)
+        self.assertEqual(terminal["rows"][0]["topic"], "NYC rain tomorrow")
+        self.assertEqual(terminal["rows"][0]["target_date"], "2026-05-22")
+
     def test_open_pick_diagnostics_breaks_out_versions_domains_pick_types_and_duplicates(self):
         diagnostics = paper.open_pick_diagnostics([
             {
@@ -3801,6 +3832,146 @@ class ResolveOpenPickTests(unittest.TestCase):
         self.assertEqual(result[0]["status"], "open")
         self.assertEqual(updated["status"], "open")
         self.assertEqual(updated["resolution_source"], "retryable_error:RuntimeError")
+
+    def test_stale_default_open_row_becomes_terminal_after_unresolved_attempt(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        pick_id = paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "Counter-Strike 2 matches today",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "model_implied",
+            "anchor_source": "model_implied",
+            "venue_market_key": "model_implied|cs2-old",
+            "title": "Counter-Strike 2 matches today",
+            "outcome_label": "Yes",
+            "market_type": "model_implied",
+            "model_probability": 0.55,
+            "end_date": "2026-05-20",
+            "status": "open",
+            "skill_version": "1.1.7",
+        })
+
+        with mock.patch("scripts.paper._target_date_for_topic", return_value=datetime.fromisoformat("2026-05-25").date()):
+            result = paper.resolve_open_picks()
+
+        updated = paper.store.get_paper_pick(pick_id)
+        self.assertEqual(result[0]["status"], "stale_unknown")
+        self.assertEqual(updated["status"], "stale_unknown")
+        self.assertEqual(updated["resolution_source"], "stale_default_backlog")
+        self.assertIsNone(updated["brier_score"])
+
+    def test_stale_default_unknown_row_without_resolver_queue_becomes_terminal(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        pick_id = paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "League of Legends matches today",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "model_implied",
+            "anchor_source": "model_implied",
+            "venue_market_key": "model_implied|lol-old",
+            "title": "League of Legends matches today",
+            "outcome_label": "Yes",
+            "market_type": "model_implied",
+            "model_probability": 0.55,
+            "end_date": "2026-05-20",
+            "status": "unknown",
+            "skill_version": "1.1.7",
+        })
+
+        with mock.patch("scripts.paper._target_date_for_topic", return_value=datetime.fromisoformat("2026-05-25").date()):
+            result = paper.resolve_open_picks()
+
+        updated = paper.store.get_paper_pick(pick_id)
+        self.assertEqual(result[0]["status"], "stale_unknown")
+        self.assertEqual(updated["status"], "stale_unknown")
+        self.assertEqual(updated["resolution_source"], "stale_default_backlog")
+
+    def test_current_target_default_row_remains_active(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        pick_id = paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "NYC rain tomorrow",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "weather_api",
+            "anchor_source": "weather_api",
+            "venue_market_key": "weather_api|nyc|2026-05-25",
+            "title": "NYC rain tomorrow",
+            "outcome_label": "Yes",
+            "market_type": "weather",
+            "model_probability": 0.65,
+            "end_date": "2026-05-25",
+            "status": "open",
+            "skill_version": "1.1.9",
+        })
+
+        with mock.patch("scripts.paper._target_date_for_topic", return_value=datetime.fromisoformat("2026-05-25").date()), \
+             mock.patch("scripts.paper._resolve_weather_pick", return_value=("unknown", None, "nws_observations")):
+            result = paper.resolve_open_picks()
+
+        updated = paper.store.get_paper_pick(pick_id)
+        self.assertEqual(result[0]["status"], "unknown")
+        self.assertEqual(updated["status"], "unknown")
+        self.assertEqual(updated["resolution_source"], "nws_observations")
+
+    def test_future_dated_macro_row_is_not_staled_for_old_version(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        pick_id = paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "CPI in June",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "kalshi",
+            "anchor_source": "kalshi",
+            "venue_market_key": "KXCPI-26JUN-T0.0",
+            "title": "CPI in June",
+            "outcome_label": "Yes",
+            "market_type": "macro_binary",
+            "model_probability": 0.42,
+            "end_date": "2026-07-14",
+            "status": "open",
+            "skill_version": "1.1.7",
+        })
+
+        with mock.patch("scripts.paper._target_date_for_topic", return_value=datetime.fromisoformat("2026-05-25").date()), \
+             mock.patch("scripts.paper.http.request", return_value={"market": {"status": "open"}}):
+            result = paper.resolve_open_picks()
+
+        updated = paper.store.get_paper_pick(pick_id)
+        self.assertEqual(result[0]["status"], "open")
+        self.assertEqual(updated["status"], "open")
+        self.assertEqual(updated["resolution_source"], "kalshi")
+
+    def test_resolved_old_target_row_is_not_marked_stale(self):
+        run_id = paper.store.record_paper_run("paper_portfolio")
+        pick_id = paper.store.add_paper_pick({
+            "paper_run_id": run_id,
+            "topic": "tomorrows nba games",
+            "query_type": "prediction",
+            "pick_type": "forecast",
+            "venue": "polymarket",
+            "anchor_source": "polymarket",
+            "venue_market_key": "nba-okc-sas-2026-05-20|Thunder vs. Spurs|Thunder",
+            "title": "Thunder vs. Spurs",
+            "outcome_label": "Thunder",
+            "market_type": "game_outcome",
+            "model_probability": 0.60,
+            "end_date": "2026-05-20",
+            "status": "open",
+            "skill_version": "1.1.7",
+        })
+
+        with mock.patch("scripts.paper._target_date_for_topic", return_value=datetime.fromisoformat("2026-05-25").date()), \
+             mock.patch("scripts.paper._resolve_nba_pick", return_value=("unknown", None, "espn_nba")), \
+             mock.patch("scripts.paper.http.request", return_value={"events": [{"markets": [{"question": "Thunder vs. Spurs", "winner": "Thunder"}]}]}):
+            result = paper.resolve_open_picks()
+
+        updated = paper.store.get_paper_pick(pick_id)
+        self.assertEqual(result[0]["status"], "resolved")
+        self.assertEqual(updated["status"], "resolved")
+        self.assertEqual(updated["resolution_source"], "polymarket")
 
 
 if __name__ == "__main__":
