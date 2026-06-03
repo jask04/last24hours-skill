@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-03
+
+- NBA slate paper diagnostics now distinguish empty scheduled slates from direct-game market supply/admission failures, making `tomorrows nba games` no-pick runs less ambiguous.
+- Market-discovery prompts such as `Polymarket markets happening today` and `markets occurring today` now route to watchlist mode while ordinary forecast-shaped today prompts stay in prediction mode.
+- Bird/X and YouTube subprocess paths now use shared process-group timeout cleanup adapted from upstream `last30days` runtime hygiene.
+- Added a small `SKILL.md` version metadata helper and kept the standard `v1.2.1` release surfaces in sync.
+- No schema migration, no new CLI flags, no source broadening, no Kalshi default reintroduction, and no closing-soon redesign in this release.
+
 ## [1.1.10] - 2026-05-24
 
 - Paper resolution now lifecycle-handles stale default-portfolio rows after normal deterministic resolution fails, moving old target-date unresolved rows to `stale_unknown` with `resolution_source=stale_default_backlog`.

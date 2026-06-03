@@ -29,6 +29,7 @@ _MARKET_WATCHLIST_PATTERNS = re.compile(
     r"\b("
     r"markets?\s+to\s+watch|best\s+[^?]{0,40}\s+markets?|recommend\s+[^?]{0,50}\s+markets?|"
     r"market\s+opportunit(?:y|ies)|market\s+picks?|biggest\s+market\s+moves?|"
+    r"markets?\s+(?:happening|occurring)\s+today|(?:polymarket|kalshi)\s+markets?\s+(?:happening|occurring)\s+today|"
     r"paper\s+parlays?|parlay\s+ideas?|parlays?|multi[-\s]?leg|paper\s+bundles?|bundles?|"
     r"closing\s+soon|live\s+markets?|live\s+(?:sports\s+)?games?|live\s+sports|in-game|ingame|markets?\s+ending\s+soon|settling\s+soon|ending\s+soon|"
     r"interesting\s+(?:polymarket|kalshi|prediction\s+market)[^?]{0,40}\s+markets?|"
@@ -72,6 +73,7 @@ _FORECASTABLE_DOMAIN_PATTERNS = re.compile(
 _OUTCOME_PHRASE_PATTERNS = re.compile(
     r"\b("
     r"who wins?|who will win|will .+ win|does .+ win|beats? .+|make the playoffs|miss the playoffs|"
+    r"will .+ happen|does .+ happen|"
     r"landfall|passes?|fails?|approved?|signs?|cuts?|hikes?|hits? \d+|above \d+|below \d+|"
     r"chance of rain|chance of snow|cut rates|have a recession"
     r")\b",
@@ -104,7 +106,14 @@ def _looks_like_sports_matchup(topic: str) -> bool:
 
 def is_market_watchlist_query(topic: str) -> bool:
     """Return True for one-shot market discovery/watchlist prompts."""
-    return bool(_MARKET_WATCHLIST_PATTERNS.search(topic or "") or is_exchange_snapshot_query(topic))
+    text = topic or ""
+    lowered = text.lower()
+    if re.search(r"\b(happening|occurring)\s+today\b", lowered):
+        market_shaped = re.search(r"\b(markets?|polymarket|kalshi|prediction\s+markets?)\b", lowered)
+        forecast_shaped = re.search(r"\b(will|chance|odds|forecast|probability|predict)\b", lowered)
+        if market_shaped and not forecast_shaped:
+            return True
+    return bool(_MARKET_WATCHLIST_PATTERNS.search(text) or is_exchange_snapshot_query(text))
 
 
 def is_exchange_snapshot_query(topic: str, venue: str = "") -> bool:

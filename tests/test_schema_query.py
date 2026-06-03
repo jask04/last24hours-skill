@@ -15,6 +15,9 @@ class SchemaQueryTests(unittest.TestCase):
         self.assertEqual(query_type.detect_query_type("Kalshi board right now"), "market_watchlist")
         self.assertEqual(query_type.detect_query_type("Polymarket markets right now"), "market_watchlist")
         self.assertEqual(query_type.detect_query_type("Polymarket board now"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("Polymarket markets happening today May 25"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("Kalshi markets occurring today"), "market_watchlist")
+        self.assertEqual(query_type.detect_query_type("will this happen today"), "prediction")
 
     def test_runtime_lane_classification_regressions(self):
         self.assertEqual(query_type.runtime_lane("Fed rate cut by June", "prediction"), "kalshi_specialist")

@@ -1,4 +1,4 @@
-"""YouTube search and transcript extraction via yt-dlp for /last24hours v1.1.10.
+"""YouTube search and transcript extraction via yt-dlp for /last24hours v1.2.1.
 
 Uses yt-dlp (https://github.com/yt-dlp/yt-dlp) for both YouTube search and
 transcript extraction. No API keys needed — just have yt-dlp installed.
@@ -10,7 +10,6 @@ import importlib.util
 import json
 import os
 import re
-import signal
 import shutil
 import subprocess
 import sys
@@ -35,7 +34,7 @@ TRANSCRIPT_LIMITS = {
 # Max words to keep from each transcript
 TRANSCRIPT_MAX_WORDS = 5000
 
-from . import relevance, cache
+from . import relevance, cache, subproc
 from .relevance import token_overlap_relevance as _compute_relevance
 
 
@@ -166,27 +165,12 @@ def search_youtube(
         "--no-download",
     ]
 
-    preexec = os.setsid if hasattr(os, 'setsid') else None
-
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            preexec_fn=preexec,
-        )
-        try:
-            stdout, stderr = proc.communicate(timeout=120)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                proc.kill()
-            proc.wait(timeout=5)
-            _log("YouTube search timed out (120s)")
-            return {"items": [], "error": "Search timed out"}
+        result = subproc.run_with_timeout(cmd, timeout=120)
+        stdout = result.stdout
+    except subproc.SubprocTimeout:
+        _log("YouTube search timed out (120s)")
+        return {"items": [], "error": "Search timed out"}
     except FileNotFoundError:
         return {"items": [], "error": "yt-dlp not found"}
 
@@ -292,26 +276,10 @@ def fetch_transcript(video_id: str, temp_dir: str) -> Optional[str]:
         f"https://www.youtube.com/watch?v={video_id}",
     ]
 
-    preexec = os.setsid if hasattr(os, 'setsid') else None
-
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            preexec_fn=preexec,
-        )
-        try:
-            proc.communicate(timeout=30)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                proc.kill()
-            proc.wait(timeout=5)
-            return None
+        subproc.run_with_timeout(cmd, timeout=30)
+    except subproc.SubprocTimeout:
+        return None
     except FileNotFoundError:
         return None
 

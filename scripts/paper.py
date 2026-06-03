@@ -54,13 +54,11 @@ import store
 from lib import closing_soon, evidence_quality as eq
 from lib import http
 from lib import query_type as qt
-from lib import sports_schedule, weather
+from lib import skill_meta, sports_schedule, weather
 
 
 def _skill_version() -> str:
-    text = (REPO_ROOT / "SKILL.md").read_text(encoding="utf-8")
-    match = re.search(r'^version:\s*"([^"]+)"', text, re.MULTILINE)
-    return match.group(1) if match else ""
+    return skill_meta.read_skill_version(REPO_ROOT / "SKILL.md")
 
 
 def _paper_watchlist_fast_args(topic: str, extra_args: Optional[List[str]] = None) -> List[str]:
@@ -3432,6 +3430,36 @@ def _report_market_subdomains(report: Dict[str, Any]) -> set[str]:
     return values
 
 
+def _item_is_direct_nba_game_market(item: Dict[str, Any]) -> bool:
+    market_type = str(item.get("market_type") or "").strip().lower()
+    if market_type != "game_outcome":
+        return False
+    text = " ".join(
+        str(part or "")
+        for part in (
+            item.get("title", ""),
+            item.get("question", ""),
+            item.get("url", ""),
+            item.get("live_game_league", ""),
+            item.get("watchlist_scope", ""),
+        )
+    ).lower()
+    return "nba" in text or str(item.get("live_game_league") or "").lower() == "nba"
+
+
+def _nba_slate_reason_class_for_report(topic: str, report: Dict[str, Any]) -> str:
+    if _domain(topic) != "nba" or not sports_schedule.is_nba_slate_query(topic):
+        return ""
+    notes = [str(note or "") for note in report.get("planning_notes") or []]
+    if any(note == "nba-slate-games:0" for note in notes):
+        return "no_scheduled_nba_games"
+    markets = list(report.get("polymarket") or []) + list(report.get("kalshi") or []) + list(report.get("market_watchlist") or [])
+    direct_games = [item for item in markets if _item_is_direct_nba_game_market(item)]
+    if not direct_games:
+        return "no_direct_nba_game_markets"
+    return "nba_final_admission_rejected"
+
+
 def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: List[Dict[str, Any]]) -> str:
     if picks:
         return ""
@@ -3449,6 +3477,9 @@ def _dry_run_reason_class(entry: Dict[str, Any], report: Dict[str, Any], picks: 
         reason = _closing_soon_reason_class_for_report(topic, report)
         if reason:
             return reason
+    nba_reason = _nba_slate_reason_class_for_report(topic, report)
+    if nba_reason:
+        return nba_reason
     watchlist = report.get("market_watchlist") or []
     if watchlist:
         selection_reason = _watchlist_paper_selection_reason_class(topic, watchlist)

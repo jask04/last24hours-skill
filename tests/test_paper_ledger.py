@@ -1388,6 +1388,118 @@ class PaperExtractionTests(unittest.TestCase):
         self.assertEqual(payload["results"][0]["status"], "no_compatible_pick")
         self.assertEqual(payload["results"][0]["reason_class"], "no_future_games_in_window")
 
+    def test_cmd_daily_dry_run_reports_nba_slate_supply_reason_classes(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "tomorrows nba games",
+                "enabled": True,
+                "pick_policy": "forecast_only",
+                "expected_pick_types": ["forecast"],
+            }
+        ]), encoding="utf-8")
+        report = {
+            "topic": "tomorrows nba games",
+            "query_type": "prediction",
+            "forecasts": [],
+            "market_watchlist": [],
+            "polymarket": [],
+            "planning_notes": ["deterministic-plan", "nba-slate-date:2026-06-04", "nba-slate-games:0"],
+            "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "empty"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["results"][0]["status"], "no_compatible_pick")
+        self.assertEqual(payload["results"][0]["reason_class"], "no_scheduled_nba_games")
+
+    def test_cmd_daily_dry_run_reports_nba_no_direct_game_market_reason(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "tomorrows nba games",
+                "enabled": True,
+                "pick_policy": "forecast_only",
+                "expected_pick_types": ["forecast"],
+            }
+        ]), encoding="utf-8")
+        report = {
+            "topic": "tomorrows nba games",
+            "query_type": "prediction",
+            "forecasts": [],
+            "market_watchlist": [],
+            "polymarket": [
+                {
+                    "id": "PM_FUTURE",
+                    "title": "NBA Finals celebrity attendance?",
+                    "question": "NBA Finals celebrity attendance?",
+                    "market_type": "futures",
+                    "url": "https://polymarket.com/event/nba-finals-celebrity",
+                }
+            ],
+            "planning_notes": ["deterministic-plan", "nba-slate-date:2026-06-04", "nba-slate-games:1"],
+            "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "used"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["results"][0]["status"], "no_compatible_pick")
+        self.assertEqual(payload["results"][0]["reason_class"], "no_direct_nba_game_markets")
+
+    def test_cmd_daily_dry_run_admits_direct_target_date_nba_market(self):
+        portfolio_path = Path(self.tmp.name) / "portfolio.json"
+        portfolio_path.write_text(json.dumps([
+            {
+                "topic": "tomorrows nba games",
+                "enabled": True,
+                "pick_policy": "forecast_only",
+                "expected_pick_types": ["forecast"],
+            }
+        ]), encoding="utf-8")
+        report = {
+            "topic": "tomorrows nba games",
+            "query_type": "prediction",
+            "forecasts": [
+                {
+                    "title": "Knicks vs. Spurs",
+                    "favorite_label": "Spurs",
+                    "forecast_probability": 0.57,
+                    "anchor_source": "polymarket",
+                    "polymarket_market_id": "PM_NBA",
+                    "confidence_level": "moderate-low",
+                }
+            ],
+            "market_watchlist": [],
+            "polymarket": [
+                {
+                    "id": "PM_NBA",
+                    "title": "Knicks vs. Spurs",
+                    "question": "Knicks vs. Spurs",
+                    "url": "https://polymarket.com/event/nba-nyk-sas-2026-06-04",
+                    "market_type": "game_outcome",
+                    "outcome_prices": [["Spurs", 0.57], ["Knicks", 0.43]],
+                    "implied_probability": 0.57,
+                    "end_date": "2026-06-04",
+                }
+            ],
+            "planning_notes": ["deterministic-plan", "nba-slate-date:2026-06-04", "nba-slate-games:1"],
+            "evidence_fusion_stats": {"source_health": {"source_status": {"polymarket": {"status": "used"}}}},
+        }
+
+        with mock.patch("scripts.paper._run_last24hours", return_value=report), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            paper.cmd_daily(Namespace(portfolio=str(portfolio_path), quick=True, dry_run=True))
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["results"][0]["status"], "ready")
+        self.assertEqual(payload["results"][0]["post_dedupe_pick_count"], 1)
+
     def test_run_last24hours_uses_weather_only_search_for_weather_quick_prediction(self):
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
         with mock.patch("subprocess.run", return_value=completed) as run:

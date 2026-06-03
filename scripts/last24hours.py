@@ -2623,6 +2623,9 @@ def main():
     nba_window_end = None
     nba_window_games = []
     nba_window_error = ""
+    nba_slate_date = None
+    nba_slate_games = []
+    nba_slate_error = ""
     if sports_schedule.is_nba_date_window_query(args.topic):
         try:
             nba_window_start, nba_window_end, nba_window_games = sports_schedule.expand_nba_date_window_query(args.topic)
@@ -2656,10 +2659,12 @@ def main():
         search_topics = [game.matchup for game in nba_window_games]
     elif query_type == "prediction" and sports_schedule.is_nba_slate_query(args.topic):
         try:
-            expanded_schedule_date, slate_games = sports_schedule.expand_nba_slate_query(args.topic)
-            if slate_games:
-                search_topics = slate_games
+            expanded_schedule_date, nba_slate_games = sports_schedule.expand_nba_slate_query(args.topic)
+            nba_slate_date = expanded_schedule_date
+            if nba_slate_games:
+                search_topics = nba_slate_games
         except Exception as e:
+            nba_slate_error = str(e)
             sys.stderr.write(f"[schedule] NBA slate expansion failed: {e}\n")
             sys.stderr.flush()
 
@@ -2745,6 +2750,12 @@ def main():
             plan.notes.append("nba-window-error")
         if nba_window_games and search_topics and len(search_topics) < len(nba_window_games):
             plan.notes.append(f"nba-window-truncated:{len(search_topics)}/{len(nba_window_games)}")
+    if sports_schedule.is_nba_slate_query(args.topic):
+        if nba_slate_date:
+            plan.notes.append(f"nba-slate-date:{nba_slate_date[:4]}-{nba_slate_date[4:6]}-{nba_slate_date[6:]}")
+        plan.notes.append(f"nba-slate-games:{len(nba_slate_games)}")
+        if nba_slate_error:
+            plan.notes.append("nba-slate-error")
     if closing_soon_mode:
         search_topics = closing_soon.closing_search_topics(
             args.topic,

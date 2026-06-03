@@ -1,4 +1,4 @@
-"""Bird X search client - vendored Twitter GraphQL search for /last24hours v1.1.10.
+"""Bird X search client - vendored Twitter GraphQL search for /last24hours v1.2.1.
 
 Uses a vendored subset of @steipete/bird v0.8.0 (MIT License) to search X
 via Twitter's GraphQL API. No external `bird` CLI binary needed - just Node.js 22+.
@@ -6,7 +6,6 @@ via Twitter's GraphQL API. No external `bird` CLI binary needed - just Node.js 2
 
 import json
 import os
-import signal
 import shutil
 import subprocess
 import sys
@@ -14,6 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import subproc
 from .relevance import token_overlap_relevance as _compute_relevance
 
 # Path to the vendored bird-search wrapper
@@ -216,50 +216,30 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
     last_error = "Unknown error"
 
     for attempt in range(max_retries):
-        # Use process groups for clean cleanup on timeout/kill
-        preexec = os.setsid if hasattr(os, 'setsid') else None
-
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                preexec_fn=preexec,
-                env=_subprocess_env(),
-            )
+            child_pid: Optional[int] = None
 
-            # Register for cleanup tracking (if available)
-            try:
-                from last24hours import register_child_pid, unregister_child_pid
-                register_child_pid(proc.pid)
-            except ImportError:
-                pass
-
-            try:
-                stdout, stderr = proc.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                # Kill the entire process group
+            def _register(pid: int) -> None:
+                nonlocal child_pid
+                child_pid = pid
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except (ProcessLookupError, PermissionError, OSError):
-                    proc.kill()
-                proc.wait(timeout=5)
-                last_error = f"Search timed out after {timeout}s"
-                if attempt < max_retries - 1:
-                    time.sleep(5 + random.uniform(1, 3))
-                    continue
-                return {"error": last_error, "items": []}
-            finally:
-                try:
-                    from last24hours import unregister_child_pid
-                    unregister_child_pid(proc.pid)
-                except (ImportError, Exception):
+                    from last24hours import register_child_pid
+                    register_child_pid(pid)
+                except ImportError:
                     pass
 
-            if proc.returncode != 0:
-                error = stderr.strip() if stderr else "Bird search failed"
+            try:
+                result = subproc.run_with_timeout(cmd, timeout=timeout, env=_subprocess_env(), on_pid=_register)
+            finally:
+                if child_pid is not None:
+                    try:
+                        from last24hours import unregister_child_pid
+                        unregister_child_pid(child_pid)
+                    except (ImportError, Exception):
+                        pass
+
+            if result.returncode != 0:
+                error = result.stderr.strip() if result.stderr else "Bird search failed"
                 last_error = error
                 if "429" in error and attempt < max_retries - 1:
                     delay = 10 * (2 ** attempt) + random.uniform(2, 5)
@@ -268,12 +248,18 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
                     continue
                 return {"error": error, "items": []}
 
-            output = stdout.strip() if stdout else ""
+            output = result.stdout.strip() if result.stdout else ""
             if not output:
                 return {"items": []}
 
             return json.loads(output)
 
+        except subproc.SubprocTimeout:
+            last_error = f"Search timed out after {timeout}s"
+            if attempt < max_retries - 1:
+                time.sleep(5 + random.uniform(1, 3))
+                continue
+            return {"error": last_error, "items": []}
         except json.JSONDecodeError as e:
             return {"error": f"Invalid JSON response: {e}", "items": []}
         except Exception as e:
@@ -387,35 +373,18 @@ def search_handles(
             "--json",
         ]
 
-        preexec = os.setsid if hasattr(os, 'setsid') else None
-
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                preexec_fn=preexec,
-                env=_subprocess_env(),
-            )
-
             try:
-                stdout, stderr = proc.communicate(timeout=15)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except (ProcessLookupError, PermissionError, OSError):
-                    proc.kill()
-                proc.wait(timeout=5)
+                result = subproc.run_with_timeout(cmd, timeout=15, env=_subprocess_env())
+            except subproc.SubprocTimeout:
                 _log(f"Handle search timed out for @{handle}")
                 continue
 
-            if proc.returncode != 0:
-                _log(f"Handle search failed for @{handle}: {(stderr or '').strip()}")
+            if result.returncode != 0:
+                _log(f"Handle search failed for @{handle}: {(result.stderr or '').strip()}")
                 continue
 
-            output = (stdout or "").strip()
+            output = (result.stdout or "").strip()
             if not output:
                 continue
 

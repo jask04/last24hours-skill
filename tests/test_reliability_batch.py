@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import evaluate_search_quality, last24hours, store
-from scripts.lib import bluesky, dates, http, sports_schedule, weather
+from scripts.lib import bird_x, bluesky, dates, http, skill_meta, sports_schedule, subproc, weather, youtube_yt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -260,11 +260,10 @@ class BlueskyTokenCacheTests(unittest.TestCase):
 
 class VersionConsistencyTests(unittest.TestCase):
     def _skill_version(self):
-        text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        match = re.search(r'^version:\s*"([^"]+)"\s*$', text, re.MULTILINE)
-        if not match:
+        version = skill_meta.read_skill_version(ROOT / "SKILL.md")
+        if not version:
             raise AssertionError("SKILL.md version frontmatter not found")
-        return match.group(1)
+        return version
 
     def test_version_surfaces_match_skill_frontmatter(self):
         version = self._skill_version()
@@ -317,6 +316,51 @@ class VersionConsistencyTests(unittest.TestCase):
 
         self.assertIn("Continue the current `v1.0.x` line through `v1.0.99`", agents)
         self.assertIn("After the `v1.1.1` rollover", agents)
+
+
+class SubprocessHelperTests(unittest.TestCase):
+    def test_run_with_timeout_kills_process_group_on_timeout(self):
+        proc = mock.Mock()
+        proc.pid = 1234
+        proc.communicate.side_effect = TimeoutError("wrong")
+
+        class TimeoutProc:
+            pid = 1234
+            returncode = None
+
+            def communicate(self, timeout=None):
+                raise subproc.subprocess.TimeoutExpired(cmd=["tool"], timeout=timeout)
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        with mock.patch("scripts.lib.subproc.subprocess.Popen", return_value=TimeoutProc()), \
+             mock.patch("scripts.lib.subproc.os.getpgid", return_value=1234), \
+             mock.patch("scripts.lib.subproc.os.killpg") as killpg:
+            with self.assertRaises(subproc.SubprocTimeout):
+                subproc.run_with_timeout(["tool"], timeout=1)
+
+        killpg.assert_called_once()
+
+    def test_bird_search_uses_shared_timeout_cleanup(self):
+        with mock.patch("scripts.lib.bird_x.subproc.run_with_timeout", side_effect=subproc.SubprocTimeout("timeout")) as run, \
+             mock.patch("time.sleep"):
+            result = bird_x._run_bird_search("nba since:2026-06-03", count=2, timeout=1)
+
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(result["error"], "Search timed out after 1s")
+        self.assertEqual(result["items"], [])
+
+    def test_youtube_search_uses_shared_timeout_cleanup(self):
+        with mock.patch("scripts.lib.youtube_yt._ytdlp_command", return_value=["yt-dlp"]), \
+             mock.patch("scripts.lib.youtube_yt.subproc.run_with_timeout", side_effect=subproc.SubprocTimeout("timeout")):
+            result = youtube_yt.search_youtube("NBA", "2026-06-02", "2026-06-03", depth="quick")
+
+        self.assertEqual(result["error"], "Search timed out")
+        self.assertEqual(result["items"], [])
 
 
 if __name__ == "__main__":
