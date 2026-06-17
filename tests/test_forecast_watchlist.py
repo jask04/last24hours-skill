@@ -275,6 +275,84 @@ class ForecastWatchlistTests(unittest.TestCase):
 
         self.assertEqual(items, [])
 
+    def test_watchlist_labels_high_signal_catalyst_quality_and_renders_it(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Thunder vs. Nuggets",
+                question="Thunder vs. Nuggets",
+                url="https://polymarket.com/event/nba-okc-den-2026-04-21",
+                outcome_prices=[("Thunder", 0.57), ("Nuggets", 0.43)],
+                engagement=_engagement(volume=500_000, liquidity=120_000),
+                market_type="game_outcome",
+                market_signal_quality=0.72,
+                volume_24h=500_000,
+                best_bid=0.56,
+                best_ask=0.58,
+                spread=0.02,
+                movement_24h=4.0,
+                relevance=0.95,
+                score=95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Official injury report: Nuggets starter ruled out tonight vs Thunder; Thunder lineup confirmed.",
+                url="https://x.com/reporter/status/1",
+                author_handle="injuryreport",
+                score=92,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        report.market_watchlist = items
+        output = render.render_compact(report)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].catalyst_quality_label, "High-signal catalyst")
+        self.assertGreaterEqual(items[0].catalyst_quality_score, 0.66)
+        self.assertIn("[High-signal catalyst", output)
+
+    def test_watchlist_debug_counters_include_rejection_reason(self):
+        report = _report("NBA markets to watch today")
+        report.polymarket = [
+            schema.PolymarketItem(
+                id="PM1",
+                title="Thunder vs. Nuggets",
+                question="Thunder vs. Nuggets",
+                url="https://polymarket.com/event/nba-okc-den-2026-04-21",
+                outcome_prices=[("Thunder", 0.57), ("Nuggets", 0.43)],
+                engagement=_engagement(volume=500_000, liquidity=120_000),
+                market_type="game_outcome",
+                market_signal_quality=0.72,
+                volume_24h=500_000,
+                best_bid=0.56,
+                best_ask=0.58,
+                spread=0.02,
+                movement_24h=4.0,
+                relevance=0.95,
+                score=95,
+            )
+        ]
+        report.x = [
+            schema.XItem(
+                id="X1",
+                text="Thunder vs Nuggets tickets for sale tonight, DM if interested.",
+                url="https://x.com/tickets/status/1",
+                author_handle="tickets",
+                score=92,
+            )
+        ]
+
+        items = market_watchlist.synthesize_market_watchlist(report)
+        debug = report.evidence_fusion_stats.get("debug_counters", {})
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(any(key.startswith("rejected_evidence:nba:") for key in debug))
+        self.assertIn("Needs catalyst", items[0].catalyst_quality_label)
+
     def test_near_certain_threshold_market_is_suppressed_without_strong_unresolved_signal(self):
         report = _report("crypto prediction markets to watch today")
         report.polymarket = [

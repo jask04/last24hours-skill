@@ -732,6 +732,8 @@ class MarketWatchItem:
     open_interest: Optional[float] = None
     rank_score: int = 0
     catalyst_summary: str = ""
+    catalyst_quality_label: str = ""
+    catalyst_quality_score: Optional[float] = None
     market_signal: str = ""
     risk: str = ""
     why_ranks: str = ""
@@ -779,6 +781,8 @@ class MarketWatchItem:
             'open_interest': self.open_interest,
             'rank_score': self.rank_score,
             'catalyst_summary': self.catalyst_summary,
+            'catalyst_quality_label': self.catalyst_quality_label,
+            'catalyst_quality_score': self.catalyst_quality_score,
             'market_signal': self.market_signal,
             'risk': self.risk,
             'why_ranks': self.why_ranks,
@@ -1370,6 +1374,8 @@ class Report:
                 open_interest=m.get('open_interest'),
                 rank_score=m.get('rank_score', 0),
                 catalyst_summary=m.get('catalyst_summary', ''),
+                catalyst_quality_label=m.get('catalyst_quality_label', ''),
+                catalyst_quality_score=m.get('catalyst_quality_score'),
                 market_signal=m.get('market_signal', ''),
                 risk=m.get('risk', ''),
                 why_ranks=m.get('why_ranks', ''),

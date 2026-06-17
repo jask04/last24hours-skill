@@ -682,7 +682,10 @@ def _render_market_watchlist_summary(report: schema.Report) -> list[str]:
                 catalyst = "Catalyst context is thin; ranking is mostly market-signal driven."
         if item.evidence_refs:
             catalyst += f" Evidence refs: {', '.join(item.evidence_refs[:3])}."
-        lines.append(f"Catalyst / evidence: {catalyst}")
+        quality = item.catalyst_quality_label or "Needs catalyst"
+        if item.catalyst_quality_score is not None:
+            quality += f" ({item.catalyst_quality_score * 100:.0f}/100)"
+        lines.append(f"Catalyst / evidence: [{quality}] {catalyst}")
         risk = item.risk or "Fresh news or market repricing could change the ranking."
         if item.cross_market_note:
             risk += f" {item.cross_market_note}"

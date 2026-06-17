@@ -1,4 +1,4 @@
-# /last24hours v1.2.1.
+# /last24hours v1.2.3.
 
 `/last24hours` is a real-time forecasting and market-watchlist skill. It uses the last 24 hours of market, social, and web evidence to produce a probability forecast first, then explains the evidence and uncertainty behind it. It can also run one-shot topic-scoped market discovery for prompts such as `NBA markets to watch today`, `macro markets to watch around Fed cuts`, or `Kalshi markets right now`.
 
@@ -8,7 +8,7 @@ Forecasts are now market-anchored by default. When Polymarket and Kalshi both ex
 
 When no clean market or official source can anchor a forecast, the output now marks the run as degraded so model-implied probabilities are not mistaken for market-backed edges.
 
-Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. The output is informational market monitoring, not trade execution or allocation advice.
+Market-watchlist mode is separate from forecasting mode. It ranks Polymarket and Kalshi markets by topic relevance, exchange-native signal quality, 24h volume, liquidity/open interest, bid-ask spread, recent movement, catalyst evidence, and cross-market disagreement. Catalyst snippets now carry quality labels such as `High-signal catalyst`, `Usable catalyst`, or `Needs catalyst` so thin market-signal-driven rows are easier to spot. The output is informational market monitoring, not trade execution or allocation advice.
 
 Broad venue-board prompts such as `Kalshi markets right now` and `Polymarket board now` now use an actionability-first snapshot path. The board prefers nearer-term, tighter, actively trading markets and suppresses expired, stale, or weak novelty rows before the final shortlist is rendered.
 
@@ -163,6 +163,25 @@ git clone https://github.com/jask04/last24hours-skill.git ~/.agents/skills/last2
 ```bash
 gemini extensions install https://github.com/jask04/last24hours-skill.git
 ```
+
+### Google Antigravity SDK
+
+To use this skill with an Antigravity agent, add the directory path to your `skills_paths` configuration, and provide the `forecast_last_24_hours` custom tool from `scripts/antigravity_tool.py`:
+
+```python
+import sys
+from pathlib import Path
+from google.antigravity import Agent, LocalAgentConfig
+
+sys.path.insert(0, str(Path("/path/to/last24hours-skill/scripts")))
+from antigravity_tool import forecast_last_24_hours
+
+config = LocalAgentConfig(
+    skills_paths=["/path/to/last24hours-skill"],
+    tools=[forecast_last_24_hours]
+)
+```
+See `demo_agent.py` for a complete working example.
 
 ## Configuration
 

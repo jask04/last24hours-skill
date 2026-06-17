@@ -647,6 +647,51 @@ def _tech_market_entities(item, market_specific_tokens: set[str]) -> set[str]:
     return market_entities
 
 
+def _market_evidence_rejection_reason(
+    report_topic: str,
+    item,
+    market_type: str,
+    text: str,
+    context: str = "",
+) -> str:
+    market_text = _market_text(item)
+    market_tokens = _tokens(market_text)
+    evidence_tokens = _tokens(f"{text} {context}")
+    prompt_domain = _domain(report_topic)
+    effective_domain = _market_evidence_domain(prompt_domain, market_type, market_tokens, market_text)
+    market_specific_tokens = market_tokens - _GENERIC_MARKET_TOKENS
+    overlap = _market_entity_overlap(market_tokens, evidence_tokens)
+
+    if _is_spammy_market_evidence(text):
+        return "spam_or_promo"
+    if effective_domain == "crypto" and market_tokens & _CRYPTO_ENTITY_TOKENS and not (market_tokens & _CRYPTO_ENTITY_TOKENS & evidence_tokens):
+        return "entity_mismatch"
+    if effective_domain == "weather":
+        location_tokens = market_specific_tokens - eq.WEATHER_LOCATION_STOP - eq.WEATHER_QUERY_TERMS - {"highest", "temperature"}
+        if location_tokens and not (location_tokens & evidence_tokens):
+            return "location_mismatch"
+    if effective_domain in {"sports", "nba"}:
+        sports_team_overlap = len((market_tokens & eq.SPORTS_TEAM_TOKENS) & evidence_tokens)
+        if market_tokens & eq.SPORTS_TEAM_TOKENS and sports_team_overlap < 1:
+            return "team_mismatch"
+        category = eq.classify_sports_evidence(text, context, exact_match=True, exact_date=True, allow_market_context=True)
+        if category not in {"high_signal", "market_context"} and not (evidence_tokens & {"score", "scores", "clock", "period", "inning", "ejection", "ejected", "goalie", "pitcher", "delay"}):
+            return f"sports_{category}"
+    if effective_domain == "tech":
+        market_entities = _tech_market_entities(item, market_specific_tokens)
+        evidence_entities = _canonical_tech_entities(f"{text} {context}")
+        if market_entities and not (market_entities & evidence_entities):
+            return "entity_mismatch"
+    if effective_domain == "esports":
+        if overlap < 1:
+            return "entity_mismatch"
+        if not eq.is_esports_rationale_evidence(text, context, exact_match=True, topic=report_topic):
+            return "esports_low_signal"
+    if prompt_domain != "broad" and overlap < 1 and not (evidence_tokens & _CATALYST_TERMS):
+        return "no_entity_or_catalyst_overlap"
+    return ""
+
+
 def _is_market_specific_evidence(
     report_topic: str,
     item,
@@ -768,7 +813,26 @@ def _is_signal_evidence(topic: str, text: str, context: str = "") -> bool:
     return bool(tokens & _CATALYST_TERMS)
 
 
-def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[str]]:
+def _catalyst_quality_for_market(report: schema.Report, item, text: str, context: str = "") -> tuple[float, str, list[str]]:
+    market_tokens = _tokens(_market_text(item))
+    evidence_tokens = _tokens(f"{text} {context}")
+    market_specific_tokens = market_tokens - _GENERIC_MARKET_TOKENS
+    prompt_domain = _domain(report.topic)
+    market_type = _candidate_market_type(item)
+    effective_domain = _market_evidence_domain(prompt_domain, market_type, market_tokens, _market_text(item))
+    overlap = _market_entity_overlap(market_tokens, evidence_tokens)
+    if not overlap:
+        overlap = len(market_specific_tokens & evidence_tokens)
+    return eq.classify_catalyst_quality(
+        text,
+        context,
+        domain=effective_domain,
+        entity_overlap=overlap,
+        spammy=_is_spammy_market_evidence(text),
+    )
+
+
+def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[str], str, Optional[float]]:
     market_tokens = _tokens(_market_text(item))
     domain = _domain(report.topic)
     market_specific_tokens = market_tokens - _GENERIC_MARKET_TOKENS
@@ -795,9 +859,11 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
         overlap = len(market_specific_tokens & driver_tokens)
         catalyst = len(driver_tokens & _CATALYST_TERMS)
         if (overlap or catalyst) and _is_market_specific_evidence(report.topic, item, market_type, driver.text):
-            scored.append((driver.score + min(0.20, overlap * 0.04), driver, driver.text))
+            quality_score, quality_label, _ = _catalyst_quality_for_market(report, item, driver.text)
+            scored.append((driver.score + min(0.20, overlap * 0.04) + min(0.12, quality_score * 0.12), driver, driver.text, quality_score, quality_label))
         elif overlap or catalyst:
-            _bump_debug_counter(report, f"rejected_low_signal_evidence:{domain}")
+            reason = _market_evidence_rejection_reason(report.topic, item, market_type, driver.text)
+            _bump_debug_counter(report, f"rejected_evidence:{domain}:{reason or 'low_signal'}")
 
     evidence_items = list(report.x[:12]) + list(report.reddit[:10]) + list(report.web[:10]) + list(report.hackernews[:5])
     for evidence in evidence_items:
@@ -825,18 +891,22 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
         if overlap < 1 and catalyst < 1:
             continue
         if not _is_market_specific_evidence(report.topic, item, market_type, primary_text, context):
-            _bump_debug_counter(report, f"rejected_low_signal_evidence:{domain}")
+            reason = _market_evidence_rejection_reason(report.topic, item, market_type, primary_text, context)
+            _bump_debug_counter(report, f"rejected_evidence:{domain}:{reason or 'low_signal'}")
             continue
         base_score = getattr(evidence, "score", 0) / 100.0
-        scored.append((base_score + min(0.35, overlap * 0.06) + min(0.25, catalyst * 0.05), evidence, text))
+        quality_score, quality_label, _ = _catalyst_quality_for_market(report, item, primary_text, context)
+        scored.append((base_score + min(0.35, overlap * 0.06) + min(0.25, catalyst * 0.05) + min(0.12, quality_score * 0.12), evidence, text, quality_score, quality_label))
 
     scored.sort(key=lambda row: row[0], reverse=True)
     if not scored:
-        return 0.0, "Catalyst context is thin; ranking is mostly market-signal driven.", []
+        return 0.0, "Catalyst context is thin; ranking is mostly market-signal driven.", [], "Needs catalyst", 0.0
 
     best = []
     refs = []
-    for _, evidence, text in scored[:2]:
+    best_quality_score = max(row[3] for row in scored)
+    quality_label = next((row[4] for row in scored if row[3] == best_quality_score), "")
+    for _, evidence, text, _, _ in scored[:2]:
         snippet = re.sub(r"\s+", " ", text).strip()
         if len(snippet) > 150:
             snippet = snippet[:150].rstrip() + "..."
@@ -845,7 +915,7 @@ def _evidence_for_market(report: schema.Report, item) -> tuple[float, str, list[
             ref_id = getattr(evidence, "id", "")
             ref_url = getattr(evidence, "url", "") or getattr(evidence, "hn_url", "")
             refs.append(f"{ref_id} {ref_url}".strip())
-    return min(1.0, scored[0][0]), " | ".join(best), [ref for ref in refs if ref]
+    return min(1.0, scored[0][0]), " | ".join(best), [ref for ref in refs if ref], quality_label, best_quality_score
 
 
 def _cross_market_note(item, other_items: list) -> tuple[float, str]:
@@ -1562,11 +1632,13 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
     movement = _movement_score(movement_pct)
     spread = getattr(item, "spread", None)
     spread_quality = _spread_score(spread)
-    evidence_score, catalyst_summary, evidence_refs = _evidence_for_market(report, item)
+    evidence_score, catalyst_summary, evidence_refs, catalyst_quality_label, catalyst_quality_score = _evidence_for_market(report, item)
     if domain == "esports" and _is_spammy_market_evidence(catalyst_summary):
         evidence_score = 0.0
         catalyst_summary = "Catalyst context is thin; ranking is mostly market-signal driven."
         evidence_refs = []
+        catalyst_quality_label = "Needs catalyst"
+        catalyst_quality_score = 0.0
     cross_score, cross_note = _cross_market_note(item, other_items)
     certainty_penalty = _near_certain_penalty(probability, movement, quality, market_type)
     closing_mode = _has_closing_soon_note(report)
@@ -1890,6 +1962,8 @@ def _candidate_to_watch_item(idx: int, report: schema.Report, item, venue: str, 
         open_interest=open_interest,
         rank_score=rank_score,
         catalyst_summary=catalyst_summary,
+        catalyst_quality_label=catalyst_quality_label,
+        catalyst_quality_score=catalyst_quality_score,
         market_signal=_market_signal(
             venue,
             probability,

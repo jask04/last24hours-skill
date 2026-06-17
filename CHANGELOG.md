@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-06-16
+
+- Introduced Google Antigravity SDK support with a native Python tool wrapper (`scripts/antigravity_tool.py`) and a `demo_agent.py` example script.
+- Restructured `plugin.json` and directory layout to support standard Antigravity plugin auto-discovery.
+- Updated `README.md` with explicit installation and configuration instructions for the Antigravity framework.
+- No trade execution or paper-ledger behavior changes were introduced in this integration update.
+
+## [1.2.2] - 2026-06-11
+
+- Market-watchlist catalyst snippets now receive explicit quality labels and scores (`High-signal catalyst`, `Usable catalyst`, `Needs catalyst`, or `Low-signal/noisy`) based on entity match, official/reporting context, time sensitivity, domain-specific driver terms, and spam/picks/ticket penalties.
+- Watchlist evidence rejection diagnostics now include reason-coded debug counters such as spam/promo, team/entity mismatch, generic sports preview, or eSports low-signal filters, making verbose/debug tuning easier without weakening final admission gates.
+- Compact watchlist rendering surfaces catalyst quality before the evidence snippet so market-signal-driven rows are easier to distinguish from true high-signal catalyst rows.
+- Added regressions for high-signal NBA catalyst labeling/rendering and reason-coded low-signal evidence rejection counters; no new CLI flags, source-tier changes, trade execution, or paper-ledger migration.
+
 ## [1.2.1] - 2026-06-03
 
 - NBA slate paper diagnostics now distinguish empty scheduled slates from direct-game market supply/admission failures, making `tomorrows nba games` no-pick runs less ambiguous.

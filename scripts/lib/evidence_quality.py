@@ -147,6 +147,91 @@ def tokenize(text: str) -> set[str]:
     return set(re.sub(r"[^\w\s-]", " ", (text or "").lower()).split())
 
 
+def classify_catalyst_quality(
+    text: str,
+    source_context: str = "",
+    *,
+    domain: str = "",
+    entity_overlap: int = 0,
+    spammy: bool = False,
+) -> tuple[float, str, list[str]]:
+    """Return a compact catalyst-quality score, label, and reasons.
+
+    This is intentionally domain-agnostic enough for watchlists and forecast
+    renderers, while still rewarding time-sensitive, entity-matched drivers
+    and penalizing low-signal promo/picks/ticket chatter.
+    """
+    raw = f"{text or ''} {source_context or ''}"
+    lowered = raw.lower()
+    tokens = tokenize(raw)
+    reasons: list[str] = []
+    score = 0.12
+
+    if entity_overlap > 0:
+        score += min(0.24, 0.08 * entity_overlap)
+        reasons.append("entity match")
+    if entity_overlap >= 2:
+        reasons.append("direct market/entity match")
+
+    official_terms = {"official", "statement", "report", "reported", "announced", "confirmed", "nws", "noaa", "sec", "fed", "fomc", "espn"}
+    if tokens & official_terms:
+        score += 0.12
+        reasons.append("official/reporting context")
+
+    high_signal_terms = (
+        SPORTS_HIGH_SIGNAL_TERMS
+        | WEATHER_SIGNAL_TERMS
+        | MACRO_STRONG_TERMS
+        | ESPORTS_HIGH_SIGNAL_TERMS
+        | {"deadline", "vote", "ruling", "court", "earnings", "release", "data", "poll", "polls"}
+    )
+    hits = tokens & high_signal_terms
+    if hits:
+        score += min(0.28, 0.07 * len(hits))
+        reasons.append("high-signal driver terms")
+
+    if tokens & {"today", "tonight", "tomorrow", "live", "now", "minutes", "hours", "closing", "deadline"}:
+        score += 0.08
+        reasons.append("time-sensitive")
+
+    if domain in {"sports", "nba"}:
+        category = classify_sports_evidence(text, source_context, exact_match=entity_overlap > 0, exact_date=True, allow_market_context=True)
+        if category == "high_signal":
+            score += 0.18
+            reasons.append("sports availability/lineup catalyst")
+        elif category == "market_context":
+            score += 0.08
+            reasons.append("line movement context")
+        elif category in {"low_signal", "generic_preview", "reject"}:
+            score -= 0.22
+            reasons.append(category.replace("_", " "))
+    elif domain == "esports":
+        if is_esports_rationale_evidence(text, source_context, exact_match=True):
+            score += 0.14
+            reasons.append("esports roster/map/bracket signal")
+        if tokens & ESPORTS_LOW_SIGNAL_TERMS:
+            score -= 0.20
+            reasons.append("esports low-signal chatter")
+
+    if tokens & LOW_SIGNAL_SOCIAL_TERMS or spammy:
+        score -= 0.28
+        reasons.append("promo/picks/ticket noise")
+    if lowered.lstrip().startswith("@"):
+        score -= 0.18
+        reasons.append("handle-only/low context")
+
+    score = max(0.0, min(1.0, score))
+    if score >= 0.66:
+        label = "High-signal catalyst"
+    elif score >= 0.40:
+        label = "Usable catalyst"
+    elif score >= 0.20:
+        label = "Needs catalyst"
+    else:
+        label = "Low-signal/noisy"
+    return score, label, reasons[:4]
+
+
 def is_weather_query(text: str) -> bool:
     tokens = tokenize(text)
     if tokens & WEATHER_QUERY_TERMS:
